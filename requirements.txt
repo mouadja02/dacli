@@ -1,0 +1,21 @@
+# Core dependencies
+click
+rich
+prompt-toolkit
+pyyaml
+
+# LLM Providers
+openai
+anthropic
+google-generativeai
+
+# Tools
+snowflake-connector-python
+pinecone
+PyGithub # https://github.com/PyGithub/PyGithub
+httpx
+
+# Utils
+tabulate
+python-dotenv
+pydantic

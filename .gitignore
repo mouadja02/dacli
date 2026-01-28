@@ -1,0 +1,17 @@
+.env
+.venv/
+venv/
+*.pyc
+__pycache__/
+*.egg-info/
+dist/
+build/
+.eggs/
+*.log
+.pytest_cache/
+.coverage
+htmlcov/
+*.db
+*.sqlite3
+config.yaml
+test.py

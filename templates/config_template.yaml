@@ -1,0 +1,158 @@
+# ============================================================
+# dacli configuration file
+# ============================================================
+# TODO: Create the credentials placeholder ${SECRET} to 
+#       be replaced by the actual credentials from environment variables
+
+
+# ------------------------------------------------------------
+# LLM Configuration
+# ------------------------------------------------------------
+llm:
+  # Provider: openai, anthropic, google, openrouter, ...
+  provider: openrouter
+  
+  # Model name (depends on provider)
+  OpenAI: gpt-5-mini
+  # OpenAI: gpt-4-turbo, gpt-4o, gpt-3.5-turbo
+  # Anthropic: claude-4.5-sonnet, claude-4-opus
+  # Google: gemini-2.5-pro, gemini-3.5-flash
+  # OpenRouter: x-ai/grok-4-fast, anthropic/claude-3.5-sonnet, etc.
+  
+  # Fallback model (used if primary fails)
+  fallback_model: gpt-4o
+  
+  # API Key (better to use environment variable, the )
+  # For OpenRouter: OPENROUTER_API_KEY
+  # For OpenAI: OPENAI_API_KEY
+  # For Anthropic: ANTHROPIC_API_KEY
+  # For Google: GOOGLE_API_KEY
+  api_key: your_api_key
+  
+  # API Base URL (optional, for custom endpoints)
+  base_url: your_base_url
+  
+  # Temperature for generation (0.0 - 1.0)
+  temperature: 0.1
+
+  # Maximum tokens for response
+  max_tokens: 4096
+  
+  # Request timeout in seconds
+  timeout: 120
+
+# ------------------------------------------------------------
+# Snowflake Configuration
+# ------------------------------------------------------------
+snowflake:
+  account: "your_account"
+  user: "your_user"
+  password: "your_password"
+  warehouse: "your_warehouse"
+  database: "your_database"
+  schema: "your_schema"
+  role: "your_role"
+  timeout: 60
+  query_timeout: 300
+
+# ------------------------------------------------------------
+# Pinecone Vector Store Configuration
+# ------------------------------------------------------------
+pinecone:
+  # Pinecone API Key
+  api_key: "your_api_key"
+  
+  # Index name for Snowflake documentation
+  index_name: "your_index_name"
+  
+  # Environment/region
+  environment: "your_environment"
+  
+  # Number of results to retrieve (top_k)
+  top_k: 5
+  
+  # Include metadata in results
+  include_metadata: true
+
+# ------------------------------------------------------------
+# OpenAI Embeddings (for Pinecone)
+# ------------------------------------------------------------
+embeddings:
+  provider: "openai"
+  api_key: "your_api_key"
+  model: "your_embedding_model"
+
+# ------------------------------------------------------------
+# Agent Behavior Configuration
+# ------------------------------------------------------------
+agent:
+  # Maximum iterations per task
+  max_iterations: 100
+  
+  # Memory window size (conversation context)
+  memory_window: 25
+  
+  # Auto-approve safe operations (schemas, file formats)
+  auto_approve_safe_ops: false
+  
+  # Require confirmation before COPY INTO
+  confirm_data_loads: true
+  
+  # Require confirmation before DROP/DELETE
+  confirm_destructive_ops: true
+  
+  # Enable step-by-step mode (pause after each operation)
+  step_by_step_mode: false
+  
+  # Log level: DEBUG, INFO, WARNING, ERROR
+  log_level: "INFO"
+  
+  # Save conversation history
+  save_history: true
+  
+  # History file path
+  history_path: ".dacli/history/"
+ 
+  # State file path (for resuming sessions)
+  state_path: ".dacli/state/"
+
+# ------------------------------------------------------------
+# UI/Display Configuration
+# ------------------------------------------------------------
+ui:
+  # Theme: dark, light, monokai, dracula, nord
+  theme: "dark"
+  
+  # Show SQL syntax highlighting
+  syntax_highlighting: true
+  
+  # Show progress spinners
+  show_spinners: true
+  
+  # Show execution timing
+  show_timing: true
+  
+  # Table display format: ascii, markdown, simple, grid
+  table_format: "grid"
+  
+  # Maximum width for output
+  max_width: 120
+  
+  # Truncate long outputs (characters)
+  truncate_output: 5000
+
+# ------------------------------------------------------------
+# Retry & Error Handling
+# ------------------------------------------------------------
+retry:
+  # Maximum retry attempts for API calls
+  max_attempts: 3
+  
+  # Initial delay between retries (seconds)
+  initial_delay: 1.0
+  
+  # Maximum delay between retries (seconds)
+  max_delay: 30.0
+  
+  # Exponential backoff multiplier
+  multiplier: 2.0
