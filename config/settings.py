@@ -50,6 +50,7 @@ class GithubSettings(BaseModel):
     repo: str = ""
     branch: str = "main"
     timeout: int = Field(default=60, ge=1, description="Timeout in seconds for Github requests")
+    workflow_timeout: int = Field(default=600, ge=30, description="Timeout in seconds for Github workflow runs")
     
     @model_validator(mode="before")
     def derive_owner_repo(cls, data: Any) -> Any:
@@ -173,14 +174,14 @@ def load_config(config_path: Optional[str] = None) -> Settings:
     return settings
 
 def save_config(settings: Settings, config_path: str = "config.yaml") -> None:
-    """Save settings to YAML file."""
+    # Save settings to YAML file
     config_dict = settings.model_dump()
     
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
 
 def get_config_template() -> str:
-    """Return a template configuration file content."""
+    # Return a template configuration file content
     template_path = Path(__file__).parent.parent.parent / "config_template.yaml"
     if template_path.exists():
         return template_path.read_text()

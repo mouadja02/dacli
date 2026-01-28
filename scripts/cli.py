@@ -29,9 +29,9 @@ from scripts.prompts.system_prompt import load_system_prompt, save_system_prompt
 from scripts.prompts.user_prompt import load_user_prompt, save_user_prompt, USER_PROMPT_FILE
 from scripts.config import CLI_COMMANDS
 
-"""
-  CUSTOMIZE CONSOLE THEME
-"""
+# -----------------------------------------
+#  CUSTOMIZE CONSOLE THEME
+# -----------------------------------------
 CUSTOM_THEME = Theme({
     "info": "cyan",
     "warning": "yellow",
@@ -49,9 +49,9 @@ CUSTOM_THEME = Theme({
 console = Console(theme=CUSTOM_THEME)
 
 
-"""
-  UI components
-"""
+# -----------------------------------------
+#  UI components
+# -----------------------------------------
 def print_banner():
     banner_in_box = """
 ╔══════════════════════════════════════════════════════════════════╗

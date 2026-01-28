@@ -125,15 +125,11 @@ class BaseTool(ABC):
         return self.is_connected
 
     async def disconnect(self) -> bool:
-        """Clean up connection resources."""
+        # Clean up connection resources.
         self.is_connected = False
     
     def get_schema(self) -> Dict[str, Any]:
-        """
-        Return JSON schema for tool parameters.
-        
-        Override in subclasses to provide parameter validation.
-        """
+        # Return JSON schema for tool parameters. Override in subclasses to provide parameter validation
         return {
             "type": "object",
             "proprieties": {},
