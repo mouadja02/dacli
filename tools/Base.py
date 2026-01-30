@@ -1,4 +1,4 @@
-from abc import ABC, adbstractmethod
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -83,23 +83,27 @@ class BaseTool(ABC):
         self._is_connected = False
 
     @property
-    @adbstractmethod
+    @abstractmethod
     def name(self) -> str:
         # Return the tool name
         pass
 
     @property
-    @adbstractmethod
+    @abstractmethod
     def description(self) -> str:
         # Return the tool description
         pass
     
     @property
-    def is_connected(self) -> str:
+    def is_connected(self) -> bool:
         # Check if tool is connected/ready
-        return self.is_connected()  
+        return self._is_connected
 
-    @adbstractmethod
+    @is_connected.setter
+    def is_connected(self, value: bool):
+        self._is_connected = value  
+
+    @abstractmethod
     async def execute(self, **kwargs) -> ToolResult:
         """
         Execute the tool with given parameters.
@@ -109,7 +113,7 @@ class BaseTool(ABC):
         """
         pass
 
-    @adbstractmethod
+    @abstractmethod
     async def validate(self, **kwargs) -> ToolResult:
         pass
 

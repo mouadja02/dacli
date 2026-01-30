@@ -74,7 +74,7 @@ class SnowflakeSettings(BaseModel):
     warehouse: str
     role: str
     database: str
-    schema: str = Field(default="PUBLIC", alias="schema_name")
+    db_schema: str = Field(default="PUBLIC", alias="schema")
     query_timeout: int = Field(default=300, ge=1)
     login_timeout: int = Field(default=60, ge=1)
     network_timeout: int = Field(default=60, ge=1)
@@ -146,7 +146,7 @@ class Settings(BaseModel):
 
     llm: LLMSettings = Field(default_factory=LLMSettings)
     snowflake: SnowflakeSettings = Field(default_factory=SnowflakeSettings)
-    github: GitHubSettings = Field(default_factory=GitHubSettings)
+    github: GithubSettings = Field(default_factory=GithubSettings)
     pinecone: PineconeSettings = Field(default_factory=PineconeSettings)
     embeddings: EmbeddingsSettings = Field(default_factory=EmbeddingsSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
@@ -155,23 +155,47 @@ class Settings(BaseModel):
 
 
 def load_config(config_path: Optional[str] = None) -> Settings:
-    if config_path is None:
-        # Return default settings if no config path is provided
+    """
+    Load configuration from YAML file with environment variable substitution.
+    
+    Args:
+        config_path: Path to config.yaml file. If None, searches in:
+                    1. ./config.yaml
+                    2. ~/.dacli/config.yaml
+                    3. Uses defaults
+    
+    Returns:
+        Settings object with all configuration
+    """
+    search_paths = [
+        Path("config.yaml"),
+        Path.home() / ".dacli" / "config.yaml",
+    ]
+    
+    if config_path:
+        search_paths.insert(0, Path(config_path))
+    
+    config_file = None
+    for path in search_paths:
+        if path.exists():
+            config_file = path
+            break
+    
+    if config_file is None:
+        # Return default settings
         return Settings()
     
-    # Load yaml config file
-    with open(config_path, "r", encoding="utf-8") as f:
+    # Load YAML
+    with open(config_file, "r", encoding="utf-8") as f:
         raw_config = yaml.safe_load(f)
+    if raw_config is None:
+        return Settings()
     
     # Substitute environment variables
     config_data = _substitute_env_vars(raw_config)
-    
-    # Validate config
-    try:
-        settings = Settings(**config_data)
-    except ValidationError as e:
-        raise ValueError(f"Invalid config: {e}")
-    return settings
+
+    return Settings(**config_data)
+
 
 def save_config(settings: Settings, config_path: str = "config.yaml") -> None:
     # Save settings to YAML file

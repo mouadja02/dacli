@@ -1,0 +1,104 @@
+# ============================================================
+# dacli configuration file template
+# ============================================================
+
+# ------------------------------------------------------------
+# LLM Configuration
+# ------------------------------------------------------------
+llm:
+  # Provider: openai, anthropic, google, openrouter
+  provider: "openrouter"
+  
+  # Model name
+  model: "x-ai/grok-4.1-fast"
+  
+  # Fallback model
+  fallback_model: "x-ai/grok-4.1-fast"
+  
+  # API Key
+  api_key: "${LLM_API_KEY}"
+  
+  # API Base URL
+  base_url: "https://openrouter.ai/api/v1"
+  
+  # Parameters
+  temperature: 0.1
+  max_tokens: 4096
+  timeout: 120
+
+# ------------------------------------------------------------
+# GitHub Configuration
+# ------------------------------------------------------------
+github:
+  token: "${GITHUB_TOKEN}"
+  owner: "your_username"
+  repo: "your_repo"
+  branch: "main"
+
+# ------------------------------------------------------------
+# Snowflake Configuration
+# ------------------------------------------------------------
+snowflake:
+  account: "your_account"
+  user: "your_user"
+  password: "${SNOWFLAKE_PASSWORD}"
+  warehouse: "COMPUTE_WH"
+  database: "DATA_WAREHOUSE"
+  schema: "PUBLIC"
+  role: "ACCOUNTADMIN"
+  timeout: 60
+  query_timeout: 300
+
+# ------------------------------------------------------------
+# Pinecone Vector Store Configuration
+# ------------------------------------------------------------
+pinecone:
+  api_key: "${PINECONE_API_KEY}"
+  index_name: "snowflake-docs"
+  environment: "us-east-1"
+  top_k: 5
+  include_metadata: true
+
+# ------------------------------------------------------------
+# OpenAI Embeddings (for Pinecone)
+# ------------------------------------------------------------
+embeddings:
+  provider: "openai"
+  api_key: "${OPENAI_API_KEY}"
+  model: "text-embedding-3-small"
+
+# ------------------------------------------------------------
+# Agent Behavior Configuration
+# ------------------------------------------------------------
+agent:
+  max_iterations: 100
+  memory_window: 25
+  auto_approve_safe_ops: false
+  confirm_data_loads: true
+  confirm_destructive_ops: true
+  step_by_step_mode: false
+  log_level: "INFO"
+  save_history: true
+  history_path: ".dacli/history/"
+  state_path: ".dacli/state/"
+
+# ------------------------------------------------------------
+# UI/Display Configuration
+# ------------------------------------------------------------
+ui:
+  theme: "dark"
+  syntax_highlighting: true
+  show_spinners: true
+  show_timing: true
+  table_format: "grid"
+  max_width: 120
+  truncate_output: 5000
+
+# ------------------------------------------------------------
+# Retry & Error Handling
+# ------------------------------------------------------------
+retry:
+  max_attempts: 3
+  initial_delay: 1.0
+  max_delay: 30.0
+  multiplier: 2.0

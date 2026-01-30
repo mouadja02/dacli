@@ -45,7 +45,7 @@ class SnowflakeTool(BaseTool):
                 role= snowflake_settings.role,
                 warehouse = snowflake_settings.warehouse,
                 database= snowflake_settings.database,
-                schema= snowflake_settings.schema,
+                schema= snowflake_settings.db_schema,
                 login_timeout= snowflake_settings.login_timeout,
                 network_timeout= snowflake_settings.network_timeout
                 )

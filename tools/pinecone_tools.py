@@ -1,7 +1,7 @@
 import time
 import pinecone
 from openai import OpenAI
-from typing import Sict, List, Any, Optional
+from typing import Dict, List, Any, Optional
 
 from tools.base import BaseTool, ToolResult, ToolStatus
 from config.settings import Settings
@@ -17,9 +17,7 @@ class PineconeTool(BaseTool):
     - Error resolution assistance
     """
 
-    AVAILABLE_OPERATIONS = ["read_file","create_or_update_file","delete_file","list_directory",
-                            "create_or_update_workflow","trigger_workflow","list_workflow_runs",
-                            "get_workflow_run","get_workflow_run_jobs"]
+    AVAILABLE_OPERATIONS = ["search", "validate_query", "search_best_practices", "search_sql_syntax"]
 
     def __init__(self, settings: Settings):
         super().__init__(settings)
@@ -37,12 +35,11 @@ class PineconeTool(BaseTool):
     async def connect(self) -> bool:
         # Initialize Pinecone connection
         try:
-
-            piencone_settings = self.settings.pinecone
+            pinecone_settings = self.settings.pinecone
 
             # Initialize Pinecone
-            pc = pinecone.Pinecone(api_key=piencone_settings.api_key)
-            self._index = pc.Index(piencone_settings.index_name)
+            pc = pinecone.Pinecone(api_key=pinecone_settings.api_key)
+            self._index = pc.Index(pinecone_settings.index_name)
 
         except Exception as e:
             self._is_connected = False
@@ -53,7 +50,7 @@ class PineconeTool(BaseTool):
             # Initilaize embeddings
             if embedding_settings.provider == "openai":
                 self._embeddings_client = OpenAI(api_key=embedding_settings.api_key)
-                self._embeddings_model = embedding_settings.embedding_model
+                self._embeddings_model = embedding_settings.model
             # TODO: Add support for other embedding providers (HuggingFace, etc.)
             else:
                 raise ValueError(f"Unsupported embedding provider: {embedding_settings.provider}")
@@ -84,7 +81,10 @@ class PineconeTool(BaseTool):
             stats = self._index.describe_index_stats()
             
             # Test embeddings connection
-            self._embeddings_client.embed_query("test")
+            self._embeddings_client.embeddings.create(
+                model=self._embeddings_model,
+                input="test"
+            )
             
             execution_time = (time.time() - start_time) * 1000
             
@@ -119,7 +119,7 @@ class PineconeTool(BaseTool):
         else:
             raise ValueError(f"Unsupported embedding provider: {self.settings.embeddings.provider}")
 
-    async def execute(self, operation: str, **kwargs) -> ToolResult:
+    async def execute(self, query: str, **kwargs) -> ToolResult:
         # Search Pinecone for relevant documentation.
         start_time = time.time()
         top_k = kwargs.get("top_k", self.settings.pinecone.top_k)

@@ -206,7 +206,7 @@ class GithubTool(BaseTool):
         }
 
 
-    async def _op_create_or_update_file(self, path: str = "", content: str = "", message: str = "", **kwargs) -> Dict[str, Any]:
+    async def _op_create_or_update_file(self, path: str, content: str = "", message: str = "", **kwargs) -> Dict[str, Any]:
         # Create or update a file in the repository
         branch = kwargs.get("branch", self._gh.branch)
 
