@@ -38,6 +38,17 @@ class ToolExecution:
     execution_time_ms: float = 0.0
 
 @dataclass
+class PhaseProgress:
+    phase_name: str
+    status: str = PhaseStatus.NOT_STARTED.value
+    total_steps: int = 0
+    current_step: int = 0
+    steps_completed: List[str] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+@dataclass
 class Message:
     # A message in the conversation
     role: str # "user", "assistant", "system", "tool"
@@ -219,12 +230,12 @@ class AgentMemory:
     # State Management
     # ========================
 
-    def update_phase(self, phase_key: str, status: Optional[PhaseStatus] = None, current_step: Optional[int] = None,step_completed: Optional[str] = None, error: Optional[str] = None) -> None:
+    def update_phase(self, phase_key: str, status: Optional[PhaseStatus] = None, current_step: Optional[int] = None, step_completed: Optional[str] = None, error: Optional[str] = None) -> None:
         # Update phase progress
-        if phase_key in self.state.phases:
-            self.state.phase[phase_key] = asdict(PhaseProgress(phase_name=phase_key))
+        if phase_key not in self.state.phases:
+            self.state.phases[phase_key] = asdict(PhaseProgress(phase_name=phase_key))
 
-        phase = self.state.phase[phase_key]
+        phase = self.state.phases[phase_key]
 
         if status:
             phase["status"] = status.value
@@ -283,14 +294,14 @@ class AgentMemory:
 
     def add_created_schema(self, schema_name: str) -> None:
         # Record a created schema
-        if schema_name not in self.state.created_schemas:
-            self.state.created_schemas.append(schema_name)
+        if schema_name not in self.state.schemas_created:
+            self.state.schemas_created.append(schema_name)
         self._save_state()
 
     def add_created_file_format(self, file_format: str) -> None:
         # Record a created file format
-        if file_format not in self.state.created_file_formats:
-            self.state.created_file_formats.append(file_format)
+        if file_format not in self.state.file_formats_created:
+            self.state.file_formats_created.append(file_format)
         self._save_state()
 
     # ========================
@@ -299,11 +310,11 @@ class AgentMemory:
     
     def _get_state_file(self) -> Path:
         # Get the state file path for current session
-        return self._state_file / f"state_{self.session_id}.json"
+        return self.state_path / f"state_{self.session_id}.json"
 
     def _get_history_file(self) -> Path:
         # Get the history file path for current session
-        return self._state_file / f"history_{self.session_id}.json"
+        return self.history_path / f"history_{self.session_id}.json"
 
     def _save_state(self) -> None:
         # Save the state to a file
@@ -396,9 +407,9 @@ class AgentMemory:
             "tables_created": len(self.state.created_tables),
             "tables_loaded": len(self.state.loaded_tables),
             "total_rows_loaded": sum(self.state.loaded_tables.values()),
-            "schemas_created": len(self.state.created_schemas),
-            "file_formats_created": len(self.state.created_file_formats),
-            "files_discovered": sum(len(f) for f in self.state.discovered_files.values),
+            "schemas_created": len(self.state.schemas_created),
+            "file_formats_created": len(self.state.file_formats_created),
+            "files_discovered": sum(len(f) for f in self.state.discovered_files.values()),
             "errors_count": self.state.errors_count,
             "last_error": self.state.last_error,
             "phases": {

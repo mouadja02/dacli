@@ -172,13 +172,16 @@ class GithubTool(BaseTool):
             response = await self._client.get(url)
             if response.status_code == 200:
                 return response.json().get("sha")
-        except Exception:
+            elif response.status_code != 404:
+                print(f"DEBUG: Failed to get SHA for {path} on {branch}. Url: {url}, Status: {response.status_code}, Response: {response.text}")
+        except Exception as e:
+            print(f"Error fetching SHA for {path}: {str(e)}")
             pass
         return None
 
     async def _op_read_file(self, path: str = "", **kwargs) -> Dict[str, Any]:
         # Read a file from the repository
-        branch = kwargs.get("branch", self._gh.branch)
+        branch = self._gh.branch
         response = await self._client.get(f"/repos/{self._gh.owner}/{self._gh.repo}/contents/{path}?ref={branch}")
         
         if response.status_code == 404:
@@ -208,17 +211,18 @@ class GithubTool(BaseTool):
 
     async def _op_create_or_update_file(self, path: str, content: str = "", message: str = "", **kwargs) -> Dict[str, Any]:
         # Create or update a file in the repository
-        branch = kwargs.get("branch", self._gh.branch)
+        branch = self._gh.branch
 
         # Check if file exists to get its SHA (required for updates)
         sha = kwargs.get("sha")
         if not sha:
             sha = await self._get_file_sha(path, branch)
 
-        url = f"/repos/{self._gh.owner}/{self._gh.repo}/contents/{path}?ref={branch}"
+        url = f"/repos/{self._gh.owner}/{self._gh.repo}/contents/{path}"
         body = {
             "message": message,
-            "content": base64.b64encode(content.encode("utf-8")).decode("utf-8")
+            "content": base64.b64encode(content.encode("utf-8")).decode("utf-8"),
+            "branch": branch
         }
 
         if sha:
@@ -240,7 +244,7 @@ class GithubTool(BaseTool):
 
     async def _op_delete_file(self, path: str = "", message: str = "", **kwargs) -> Dict[str, Any]:
         # Delete a file from the repository
-        branch = kwargs.get("branch", self._gh.branch)
+        branch = self._gh.branch
         sha = kwargs.get("sha")
         if not sha:
             sha = await self._get_file_sha(path, branch)
@@ -268,7 +272,7 @@ class GithubTool(BaseTool):
 
     async def _op_list_directory(self, path: str = "", **kwargs) -> Dict[str, Any]:
         # List contents of a directory
-        branch = kwargs.get("branch", self._gh.branch)
+        branch = self._gh.branch
         response = await self._client.get(f"/repos/{self._gh.owner}/{self._gh.repo}/contents/{path}?ref={branch}")
 
         if response.status_code == 404:
@@ -300,7 +304,7 @@ class GithubTool(BaseTool):
             else:
                 path = f".github/workflows/{path}"
         
-        branch = kwargs.get("branch", self._gh.branch)
+        branch = self._gh.branch
         
         # Update on target branch
         result = await self._op_create_or_update_file(path=path, content=content, message=message, branch=branch, **kwargs)
@@ -316,10 +320,10 @@ class GithubTool(BaseTool):
                 
         return result
 
-    async def _list_workflow_runs(self, name: str = "", **kwargs) -> Dict[str, Any]:
+    async def _op_list_workflow_runs(self, name: str = "", **kwargs) -> Dict[str, Any]:
         # List recent workflow runs
-        branch = kwargs.get("branch", self._gh.branch)
         per_page = kwargs.get("per_page", 5)
+        branch = self._gh.branch
 
         response = await self._client.get(
             f"/repos/{self._gh.owner}/{self._gh.repo}/actions/runs",
@@ -562,10 +566,6 @@ class GithubTool(BaseTool):
                 "run_id": {
                     "type": "integer",
                     "description": "Workflow run ID",
-                },
-                "branch": {
-                    "type": "string",
-                    "description": "Branch to perform operations on (default: settings.github.branch)",
                 },
             },
             "required": ["operation"],

@@ -21,7 +21,7 @@ class AgentResponse:
     thinking: Optional[str] = None
     needs_user_input: bool = False
     error: Optional[str] = None
-    iterattion: int = 0
+    iteration: int = 0
 
 class LLMClient:
     # Multi-provider LLM client
@@ -90,6 +90,13 @@ class LLMClient:
     
     async def _generate_openai(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None) -> Tuple[str, List[Dict]]:
         # Generate using OpenAI-compatibile API
+        
+        # Prepare messages includes system prompt
+        full_messages = []
+        if system_prompt:
+            full_messages.append({"role": "system", "content": system_prompt})
+        full_messages.extend(messages)
+
         # Prepare request
         request_kwargs = {
             "model": self.settings.llm.model,
@@ -319,10 +326,6 @@ class DACLI:
                             "message": {
                                 "type": "string",
                                 "description": "Commit message describing the change."
-                            },
-                            "branch": {
-                                "type": "string",
-                                "description": "Branch to push to. Defaults to configured branch."
                             }
                         },
                         "required": ["path", "content", "message"]
@@ -365,10 +368,6 @@ class DACLI:
                             "inputs": {
                                 "type": "object",
                                 "description": "Optional inputs for the workflow_dispatch event."
-                            },
-                            "branch": {
-                                "type": "string",
-                                "description": "Branch to run the workflow on."
                             }
                         },
                         "required": ["workflow_id"]
@@ -383,10 +382,6 @@ class DACLI:
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "branch": {
-                                "type": "string",
-                                "description": "Branch to filter runs by."
-                            },
                             "limit": {
                                 "type": "integer",
                                 "description": "Number of runs to return (default 5)."
@@ -670,7 +665,7 @@ class DACLI:
         
         return result
     
-    async def process_message(self, message: str) -> AgentResponse:
+    async def process_message(self, user_message: str) -> AgentResponse:
         # Process a user message and generate a response.
         # Add user message to memory
         self.memory.add_user_message(user_message)

@@ -62,7 +62,7 @@ class ToolResult:
                 for i, row in enumerate(display_data):
                     lines.append(f" Row {i+1}: {row}")
                 if len(self.data) > 20:
-                    lines.append(f"... and {len(self.data - 20)} more rows")
+                    lines.append(f"... and {len(self.data) - 20} more rows")
                 return "\n".join(lines)
         return str(self.data)
 

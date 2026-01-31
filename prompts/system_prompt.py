@@ -21,15 +21,25 @@ def load_system_prompt(custom_path: Optional[str] = None) -> str:
             raise FileNotFoundError(f"Error loading system prompt from {custom_path}: {e}")
 
     # Check default location
+    prompt_content = ""
     if SYSTEM_PROMPT_FILE.exists():
         try:
-            return SYSTEM_PROMPT_FILE.read_text(encoding="utf-8")
+            prompt_content = SYSTEM_PROMPT_FILE.read_text(encoding="utf-8")
         except Exception as e:
             raise FileNotFoundError(f"Error loading system prompt from {SYSTEM_PROMPT_FILE}: {e}")
     else:
         raise FileNotFoundError(f"Default system prompt not found at {SYSTEM_PROMPT_FILE}")
 
-    raise FileNotFoundError("System prompt not found")
+    # Check for GUIDELINES.md
+    guidelines_file = SYSTEM_PROMPT_FILE.parent / "GUIDELINES.md"
+    if guidelines_file.exists():
+        try:
+            guidelines_content = guidelines_file.read_text(encoding="utf-8")
+            prompt_content += f"\n\n{guidelines_content}"
+        except Exception:
+            pass # Ignore if guidelines cannot be read
+
+    return prompt_content
 
 def save_system_prompt(content: str, custom_path: Optional[str] = None) -> Path:
     # Save the system prompt to file

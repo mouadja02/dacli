@@ -85,7 +85,7 @@ If you encounter an error:
 ## Remember
 
 ✅ Execute ONE statement at a time
-✅ Use INFER_CSV_FORMAT for discovery, CSV_FORMAT for loading
+✅ Use INFER_CSV_FORMAT for discovery (with the header), CSV_FORMAT for loading
 ✅ Include metadata columns in every Bronze table
 ✅ Cast columns in COPY INTO statements
 ✅ Use fully qualified names (DATABASE.SCHEMA.OBJECT)

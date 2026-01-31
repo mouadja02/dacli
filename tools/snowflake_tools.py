@@ -72,7 +72,7 @@ class SnowflakeTool(BaseTool):
         start_time = time.time()
 
         try:
-            if not self._is_connected():
+            if not self.is_connected:
                 await self.connect()
             
             # Context query
@@ -116,7 +116,7 @@ class SnowflakeTool(BaseTool):
         fetch_limit = kwargs.get("fetch_limit", 100)
 
         try:
-            if not self._is_connected():
+            if not self.is_connected:
                 await self.connect()
             
             # Execute the query
@@ -167,7 +167,8 @@ class SnowflakeTool(BaseTool):
                 tool_name=self.name,
                 status=ToolStatus.ERROR,
                 data=None,
-                execution_time=execution_time,
+                execution_time_ms=execution_time,
+                error=str(e),
                 metadata={"query": query}
             )
 
