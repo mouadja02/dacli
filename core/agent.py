@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Callable
 from dataclasses import dataclass
 
 from config.settings import Settings
+from config.tool_registry import ToolsSettings, ToolRegistry, ToolCategory, TOOL_CATALOG
 from core.memory import AgentMemory, PhaseStatus
 from tools.base import ToolResult, ToolStatus
 from tools.snowflake_tools import SnowflakeTool
@@ -182,6 +183,7 @@ class DACLI:
     def __init__(
         self,
         settings: Settings,
+        tools_settings: Optional[ToolsSettings] = None,
         memory: Optional[AgentMemory] = None,
         system_prompt: Optional[str] = None,
         on_status_update: Optional[Callable[[str], None]] = None,
@@ -191,10 +193,15 @@ class DACLI:
     ):
         # Initialize the DACLI class
         self.settings = settings
+        
+        # Tool registry for dynamic tool management
+        self.tools_settings = tools_settings or ToolsSettings()
+        self.tool_registry = ToolRegistry(self.tools_settings)
+        
         self.memory = memory or AgentMemory(
-            state_path=settings.memory.state_path,
-            history_path=settings.memory.history_path,
-            memory_window=settings.memory.memory_window
+            state_path=settings.agent.state_path,
+            history_path=settings.agent.history_path,
+            memory_window=settings.agent.memory_window
         )
 
         self.system_prompt = system_prompt or load_system_prompt()
@@ -208,271 +215,317 @@ class DACLI:
         # Initialize components
         self.llm = LLMClient(settings)
 
-        # Tools
-        self.snowflake = SnowflakeTool(settings)
-        self.github = GithubTool(settings)
-        self.pinecone = PineconeTool(settings)
+        # Tools - only instantiate if enabled
+        self.snowflake = None
+        self.github = None
+        self.pinecone = None
+        
+        if self.tool_registry.is_tool_enabled(ToolCategory.SNOWFLAKE):
+            self.snowflake = SnowflakeTool(settings)
+        if self.tool_registry.is_tool_enabled(ToolCategory.GITHUB):
+            self.github = GithubTool(settings)
+        if self.tool_registry.is_tool_enabled(ToolCategory.PINECONE):
+            self.pinecone = PineconeTool(settings)
 
         # Iteration tracking
         self._current_iteration = 0
         self._max_iterations = settings.agent.max_iterations
 
-        # Tool definitions for LLM
+        # Tool definitions for LLM (built dynamically based on enabled tools)
         self._tools = self._build_tool_definitions()
 
     def _build_tool_definitions(self) -> List[Dict]:
         """
-        Build tool definitions for LLM
-         * OpenAI compatible
-         * TODO: Check Anthropic and Google compatibility
+        Build tool definitions for LLM dynamically based on enabled tools.
+        Only includes tools that are enabled in the tool registry.
         """
-        return [
-            {
-                "type": "function",
-                "function": {
-                    "name": "execute_snowflake_query",
-                    "description": "Execute a SQL query on Snowflake. Use for Bronze layer operations: schema creation, file format creation, table creation, COPY INTO, and validation queries. Execute ONE statement at a time.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": "The SQL query to execute. Must be a single statement."
-                            }
-                        },
-                        "required": ["query"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "validate_snowflake_connection",
-                    "description": "Test the Snowflake connection and get current context (warehouse, database, schema, role, user).",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {},
-                        "required": []
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "search_snowflake_docs",
-                    "description": "Search Snowflake documentation in Pinecone vector store. Use when templates fail or need clarification on Snowflake concepts.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": "Search query for Snowflake documentation"
-                            }
-                        },
-                        "required": ["query"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "list_github_directory",
-                    "description": "List contents of a directory in the GitHub repository.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "path": {
-                                "type": "string",
-                                "description": "The directory path to list (e.g. 'models', 'analyses'). Use empty string or '/' for root."
-                            }
-                        },
-                        "required": ["path"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "read_github_file",
-                    "description": "Read the content of a file from the GitHub repository.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "path": {
-                                "type": "string",
-                                "description": "The file path to read (e.g. 'dbt_project.yml')."
-                            }
-                        },
-                        "required": ["path"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "push_github_file",
-                    "description": "Create or update a file in the GitHub repository (commits changes).",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "path": {
-                                "type": "string",
-                                "description": "The file path to create or update."
+        tools = []
+        
+        # ================================================================
+        # SNOWFLAKE TOOLS
+        # ================================================================
+        if self.tool_registry.is_tool_enabled(ToolCategory.SNOWFLAKE):
+            if self.tool_registry.is_operation_enabled("execute_snowflake_query"):
+                tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": "execute_snowflake_query",
+                        "description": "Execute a SQL query on Snowflake. Use for Bronze layer operations: schema creation, file format creation, table creation, COPY INTO, and validation queries. Execute ONE statement at a time.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "query": {
+                                    "type": "string",
+                                    "description": "The SQL query to execute. Must be a single statement."
+                                }
                             },
-                            "content": {
-                                "type": "string",
-                                "description": "The full content of the file."
+                            "required": ["query"]
+                        }
+                    }
+                })
+            
+            if self.tool_registry.is_operation_enabled("validate_snowflake_connection"):
+                tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": "validate_snowflake_connection",
+                        "description": "Test the Snowflake connection and get current context (warehouse, database, schema, role, user).",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {},
+                            "required": []
+                        }
+                    }
+                })
+        
+        # ================================================================
+        # PINECONE TOOLS (Vector Search / RAG)
+        # ================================================================
+        if self.tool_registry.is_tool_enabled(ToolCategory.PINECONE):
+            if self.tool_registry.is_operation_enabled("search_snowflake_docs"):
+                tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": "search_snowflake_docs",
+                        "description": "Search Snowflake documentation in Pinecone vector store. Use when templates fail or need clarification on Snowflake concepts.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "query": {
+                                    "type": "string",
+                                    "description": "Search query for Snowflake documentation"
+                                }
                             },
-                            "message": {
-                                "type": "string",
-                                "description": "Commit message describing the change."
-                            }
-                        },
-                        "required": ["path", "content", "message"]
+                            "required": ["query"]
+                        }
                     }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "delete_github_file",
-                    "description": "Delete a file in the GitHub repository (commits changes).",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "path": {
-                                "type": "string",
-                                "description": "The file path to delete."
+                })
+        
+        # ================================================================
+        # GITHUB TOOLS
+        # ================================================================
+        if self.tool_registry.is_tool_enabled(ToolCategory.GITHUB):
+            if self.tool_registry.is_operation_enabled("list_github_directory"):
+                tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": "list_github_directory",
+                        "description": "List contents of a directory in the GitHub repository.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "The directory path to list (e.g. 'models', 'analyses'). Use empty string or '/' for root."
+                                }
                             },
-                            "message": {
-                                "type": "string",
-                                "description": "Commit message describing the deletion."
-                            }
-                        },
-                        "required": ["path", "message"]
+                            "required": ["path"]
+                        }
                     }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "trigger_github_workflow",
-                    "description": "Trigger a GitHub Actions workflow.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "workflow_id": {
-                                "type": "string",
-                                "description": "Workflow filename (e.g. 'deploy_dbt.yml')."
+                })
+            
+            if self.tool_registry.is_operation_enabled("read_github_file"):
+                tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": "read_github_file",
+                        "description": "Read the content of a file from the GitHub repository.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "The file path to read (e.g. 'dbt_project.yml')."
+                                }
                             },
-                            "inputs": {
-                                "type": "object",
-                                "description": "Optional inputs for the workflow_dispatch event."
-                            }
-                        },
-                        "required": ["workflow_id"]
+                            "required": ["path"]
+                        }
                     }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "list_github_workflow_runs",
-                    "description": "List recent workflow runs for the repository.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "limit": {
-                                "type": "integer",
-                                "description": "Number of runs to return (default 5)."
-                            }
-                        },
-                        "required": []
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "get_github_workflow_run",
-                    "description": "Get status and details of a workflow run.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "run_id": {
-                                "type": "integer",
-                                "description": "The ID of the workflow run."
-                            }
-                        },
-                        "required": ["run_id"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "get_github_workflow_run_jobs",
-                    "description": "Get jobs, steps, and failure logs for a workflow run.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "run_id": {
-                                "type": "integer",
-                                "description": "The ID of the workflow run."
-                            }
-                        },
-                        "required": ["run_id"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "request_user_input",
-                    "description": "Request input from the user when stuck, encountering errors, or needing clarification. Use this to put the user in the loop.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "question": {
-                                "type": "string",
-                                "description": "The question or information request for the user"
+                })
+            
+            if self.tool_registry.is_operation_enabled("push_github_file"):
+                tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": "push_github_file",
+                        "description": "Create or update a file in the GitHub repository (commits changes).",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "The file path to create or update."
+                                },
+                                "content": {
+                                    "type": "string",
+                                    "description": "The full content of the file."
+                                },
+                                "message": {
+                                    "type": "string",
+                                    "description": "Commit message describing the change."
+                                }
                             },
-                            "context": {
-                                "type": "string",
-                                "description": "Context about what led to this request"
-                            }
-                        },
-                        "required": ["question"]
+                            "required": ["path", "content", "message"]
+                        }
                     }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "update_progress",
-                    "description": "Update the current progress status. Use to track phases and steps completed.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "phase": {
-                                "type": "string",
-                                "description": "Current phase (phase_0_infrastructure, phase_1_discovery, etc.)"
+                })
+            
+            if self.tool_registry.is_operation_enabled("delete_github_file"):
+                tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": "delete_github_file",
+                        "description": "Delete a file in the GitHub repository (commits changes).",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "The file path to delete."
+                                },
+                                "message": {
+                                    "type": "string",
+                                    "description": "Commit message describing the deletion."
+                                }
                             },
-                            "step": {
-                                "type": "string",
-                                "description": "Description of the step completed"
-                            },
-                            "status": {
-                                "type": "string",
-                                "enum": ["in_progress", "completed", "failed"],
-                                "description": "Status of the phase"
-                            }
-                        },
-                        "required": ["phase", "step"]
+                            "required": ["path", "message"]
+                        }
                     }
+                })
+            
+            if self.tool_registry.is_operation_enabled("trigger_github_workflow"):
+                tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": "trigger_github_workflow",
+                        "description": "Trigger a GitHub Actions workflow.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "workflow_id": {
+                                    "type": "string",
+                                    "description": "Workflow filename (e.g. 'deploy_dbt.yml')."
+                                },
+                                "inputs": {
+                                    "type": "object",
+                                    "description": "Optional inputs for the workflow_dispatch event."
+                                }
+                            },
+                            "required": ["workflow_id"]
+                        }
+                    }
+                })
+            
+            if self.tool_registry.is_operation_enabled("list_github_workflow_runs"):
+                tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": "list_github_workflow_runs",
+                        "description": "List recent workflow runs for the repository.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "limit": {
+                                    "type": "integer",
+                                    "description": "Number of runs to return (default 5)."
+                                }
+                            },
+                            "required": []
+                        }
+                    }
+                })
+            
+            if self.tool_registry.is_operation_enabled("get_github_workflow_run"):
+                tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": "get_github_workflow_run",
+                        "description": "Get status and details of a workflow run.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "run_id": {
+                                    "type": "integer",
+                                    "description": "The ID of the workflow run."
+                                }
+                            },
+                            "required": ["run_id"]
+                        }
+                    }
+                })
+            
+            if self.tool_registry.is_operation_enabled("get_github_workflow_run_jobs"):
+                tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": "get_github_workflow_run_jobs",
+                        "description": "Get jobs, steps, and failure logs for a workflow run.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "run_id": {
+                                    "type": "integer",
+                                    "description": "The ID of the workflow run."
+                                }
+                            },
+                            "required": ["run_id"]
+                        }
+                    }
+                })
+        
+        # ================================================================
+        # CORE TOOLS (always available)
+        # ================================================================
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": "request_user_input",
+                "description": "Request input from the user when stuck, encountering errors, or needing clarification. Use this to put the user in the loop.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "question": {
+                            "type": "string",
+                            "description": "The question or information request for the user"
+                        },
+                        "context": {
+                            "type": "string",
+                            "description": "Context about what led to this request"
+                        }
+                    },
+                    "required": ["question"]
                 }
             }
-        ]
+        })
+        
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": "update_progress",
+                "description": "Update the current progress status. Use to track phases and steps completed.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "phase": {
+                            "type": "string",
+                            "description": "Current phase (phase_0_infrastructure, phase_1_discovery, etc.)"
+                        },
+                        "step": {
+                            "type": "string",
+                            "description": "Description of the step completed"
+                        },
+                        "status": {
+                            "type": "string",
+                            "enum": ["in_progress", "completed", "failed"],
+                            "description": "Status of the phase"
+                        }
+                    },
+                    "required": ["phase", "step"]
+                }
+            }
+        })
+        
+        return tools
     
     def _emit_status(self, message: str) -> None:
         # Emit a status update
@@ -480,14 +533,15 @@ class DACLI:
             self._on_status_update(message)
     
     async def initialize(self) -> bool:
-        # Initialize all tools and connections
+        # Initialize only enabled tools and connections
         self._emit_status("Initializing agent...")
         
         successfully_initialized = []
         failed_initializations = []
+        skipped = []
 
         try:
-            # Initialize LLM
+            # Initialize LLM (always required)
             self._emit_status("Connecting to LLM provider ...")
             await self.llm.initialize()
             successfully_initialized.append("LLM")
@@ -496,35 +550,47 @@ class DACLI:
             self._emit_status(f"Failed to initialize LLM: {str(e)}")
             failed_initializations.append("LLM")
 
-        try:
-            # Initialize Snowflake
-            self._emit_status("Connecting to Snowflake ...")
-            await self.snowflake.connect()
-            successfully_initialized.append("Snowflake")
-        except Exception as e:
-            self._emit_status(f"Failed to initialize Snowflake: {str(e)}")
-            failed_initializations.append("Snowflake")
+        # Initialize Snowflake (if enabled)
+        if self.snowflake:
+            try:
+                self._emit_status("Connecting to Snowflake ...")
+                await self.snowflake.connect()
+                successfully_initialized.append("Snowflake")
+            except Exception as e:
+                self._emit_status(f"Failed to initialize Snowflake: {str(e)}")
+                failed_initializations.append("Snowflake")
+        else:
+            skipped.append("Snowflake")
 
-        try:
-            # Initialize Pinecone
-            self._emit_status("Connecting to Pinecone ...")
-            await self.pinecone.connect() 
-            successfully_initialized.append("Pinecone")
-        except Exception as e:
-            self._emit_status(f"Failed to initialize Pinecone: {str(e)}")
-            failed_initializations.append("Pinecone")
+        # Initialize Pinecone (if enabled)
+        if self.pinecone:
+            try:
+                self._emit_status("Connecting to Pinecone ...")
+                await self.pinecone.connect() 
+                successfully_initialized.append("Pinecone")
+            except Exception as e:
+                self._emit_status(f"Failed to initialize Pinecone: {str(e)}")
+                failed_initializations.append("Pinecone")
+        else:
+            skipped.append("Pinecone")
 
-        try:
-            # Initialize GitHub
-            self._emit_status("Connecting to GitHub ...")
-            await self.github.connect()
-            successfully_initialized.append("GitHub")
-        except Exception as e:
-            self._emit_status(f"Failed to initialize GitHub: {str(e)}")
-            failed_initializations.append("GitHub")
+        # Initialize GitHub (if enabled)
+        if self.github:
+            try:
+                self._emit_status("Connecting to GitHub ...")
+                await self.github.connect()
+                successfully_initialized.append("GitHub")
+            except Exception as e:
+                self._emit_status(f"Failed to initialize GitHub: {str(e)}")
+                failed_initializations.append("GitHub")
+        else:
+            skipped.append("GitHub")
 
-        output_message = "Agent initialized done!\nSuccessfully initialized: " + ", ".join(successfully_initialized)
+        output_message = "Agent initialized!\nActive tools: " + ", ".join(successfully_initialized)
 
+        if skipped:
+            output_message += f"\nSkipped (disabled): " + ", ".join(skipped)
+        
         if failed_initializations:
             output_message += "\nFailed to initialize: " + ", ".join(failed_initializations)
         
@@ -532,10 +598,13 @@ class DACLI:
         return True
         
     async def shutdown(self) -> None:
-        # Clean up resources
-        await self.snowflake.disconnect()
-        await self.github.disconnect()
-        await self.pinecone.disconnect()
+        # Clean up resources for enabled tools only
+        if self.snowflake:
+            await self.snowflake.disconnect()
+        if self.github:
+            await self.github.disconnect()
+        if self.pinecone:
+            await self.pinecone.disconnect()
 
     async def _execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> ToolResult:
         # Execute a tool call

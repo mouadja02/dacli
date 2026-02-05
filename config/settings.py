@@ -10,6 +10,11 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+# Import ToolsSettings (lazy import to avoid circular dependency)
+def _get_tools_settings_class():
+    from config.tool_registry import ToolsSettings
+    return ToolsSettings
+
 def _substitute_env_vars(value: Any) -> Any:
     # Recursively substitute environment variables in config values.
     if isinstance(value, str):
@@ -152,6 +157,22 @@ class Settings(BaseModel):
     agent: AgentSettings = Field(default_factory=AgentSettings)
     ui: UISettings = Field(default_factory=UISettings)
     retry: RetrySettings = Field(default_factory=RetrySettings)
+    
+    # Dynamic tools configuration (managed by setup wizard)
+    tools: Optional[Any] = Field(default=None)
+    
+    @model_validator(mode="before")
+    @classmethod
+    def parse_tools_config(cls, data: Any) -> Any:
+        """Parse tools configuration from YAML"""
+        if isinstance(data, dict) and 'tools' in data:
+            try:
+                ToolsSettings = _get_tools_settings_class()
+                if isinstance(data['tools'], dict):
+                    data['tools'] = ToolsSettings(**data['tools'])
+            except Exception:
+                data['tools'] = None
+        return data
 
 
 def load_config(config_path: Optional[str] = None) -> Settings:
@@ -203,6 +224,27 @@ def save_config(settings: Settings, config_path: str = "config.yaml") -> None:
     
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
+
+
+def save_tools_config(tools_settings: Any, config_path: str = "config.yaml") -> None:
+    """
+    Save only the tools configuration to YAML, preserving other settings.
+    This is used by the setup wizard to update tool preferences.
+    """
+    path = Path(config_path)
+    
+    # Load existing config if it exists
+    existing_config = {}
+    if path.exists():
+        with open(path, "r", encoding="utf-8") as f:
+            existing_config = yaml.safe_load(f) or {}
+    
+    # Update only the tools section
+    existing_config['tools'] = tools_settings.model_dump()
+    
+    # Write back
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.dump(existing_config, f, default_flow_style=False, sort_keys=False)
 
 def get_config_template() -> str:
     # Return a template configuration file content

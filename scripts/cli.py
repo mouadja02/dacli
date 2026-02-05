@@ -23,10 +23,12 @@ from prompt_toolkit.styles import Style as PTStyle
 
 from core import __author__,__version__
 from config import CLI_COMMANDS
-from config.settings import load_config, Settings, save_config
+from config.settings import load_config, Settings, save_config, save_tools_config
+from config.tool_registry import ToolsSettings, ToolRegistry, TOOL_CATALOG, ToolCategory
 from tools import DACLI_tools, get_available_tools
 from core.agent import DACLI
 from core.memory import AgentMemory
+from core.setup_wizard import SetupWizard, QuickSetup
 from prompts.system_prompt import load_system_prompt, save_system_prompt, SYSTEM_PROMPT_FILE
 from prompts.user_prompt import load_user_prompt, save_user_prompt, USER_PROMPT_FILE
 
@@ -192,8 +194,9 @@ def format_tool_result(tool_name: str, result) -> Panel:
 @click.option('--config', '-c', type=click.Path(), help='Path to config.yaml file')
 @click.option('--session', '-s', type=str, help='Session ID to resume')
 @click.option('--version', '-v', is_flag=True, help='Show version')
+@click.option('--setup', is_flag=True, help='Run the setup wizard')
 @click.pass_context
-def cli(ctx, config, session, version):
+def cli(ctx, config, session, version, setup):
     # DACLI: AI-powered Data Engineering Assistant
     if version:
         console.print(f"DACLI version {__version__}")
@@ -202,22 +205,56 @@ def cli(ctx, config, session, version):
     ctx.ensure_object(dict)
     ctx.obj['config_path'] = config
     ctx.obj['session_id'] = session
+    ctx.obj['run_setup'] = setup
     
     if ctx.invoked_subcommand is None:
         # Default to chat mode
-        ctx.invoke(chat, config=config, session=session)
+        ctx.invoke(chat, config=config, session=session, run_setup=setup)
 
 
 @cli.command()
 @click.option('--config', '-c', type=click.Path(), help='Path to config.yaml file')
 @click.option('--session', '-s', type=str, help='Session ID to resume')
+@click.option('--setup', 'run_setup', is_flag=True, help='Force run setup wizard')
 @click.pass_context
-def chat(ctx, config, session):
+def chat(ctx, config, session, run_setup):
     """Start interactive chat with the agent."""
     config_path = config or ctx.obj.get('config_path')
     session_id = session or ctx.obj.get('session_id')
+    force_setup = run_setup or ctx.obj.get('run_setup', False)
     
-    asyncio.run(_run_chat(config_path, session_id))
+    asyncio.run(_run_chat(config_path, session_id, force_setup=force_setup))
+
+
+@cli.command()
+@click.option('--config', '-c', type=click.Path(), help='Path to config.yaml file')
+@click.option('--profile', '-p', type=str, help='Quick profile: full, github_only, snowflake_only, datawarehouse')
+def setup(config, profile):
+    """Run the interactive tool setup wizard."""
+    config_path = config or "config.yaml"
+    settings = load_config(config_path)
+    
+    if profile:
+        # Use quick profile
+        QuickSetup.show_profiles(console)
+        tools_settings = QuickSetup.get_profile(profile)
+        if tools_settings:
+            save_tools_config(tools_settings, config_path)
+            console.print(f"[success]✓ Applied profile: {profile}[/success]")
+        else:
+            console.print(f"[error]Unknown profile: {profile}[/error]")
+            console.print("Available profiles: full, github_only, snowflake_only, datawarehouse")
+    else:
+        # Run full wizard
+        asyncio.run(_run_setup_wizard(config_path, settings))
+
+
+async def _run_setup_wizard(config_path: str, settings: Settings) -> ToolsSettings:
+    """Run the setup wizard and save results."""
+    wizard = SetupWizard(settings, config_path)
+    tools_settings = await wizard.run()
+    save_tools_config(tools_settings, config_path)
+    return tools_settings
 
 
 @cli.command()
@@ -349,13 +386,40 @@ async def _validate_connections(settings: Settings):
         except Exception as e:
             console.print(f"[warning]⚠️ Pinecone: {e}[/warning]")
     
-async def _run_chat(config_path: Optional[str], session_id: Optional[str]):
+async def _run_chat(config_path: Optional[str], session_id: Optional[str], force_setup: bool = False):
     # Run the interactive chat session.
     print_banner()
     
     # Load configuration
     console.print("[dim]Loading configuration...[/dim]")
     settings = load_config(config_path)
+    
+    # Check if setup wizard should run
+    tools_settings = settings.tools if settings.tools else ToolsSettings()
+    
+    if force_setup or not tools_settings.setup_completed:
+        console.print()
+        if not tools_settings.setup_completed:
+            console.print("[yellow]First time setup detected![/yellow]")
+            run_wizard = Confirm.ask(
+                "Would you like to configure which tools to use?",
+                default=True
+            )
+        else:
+            run_wizard = True
+        
+        if run_wizard:
+            wizard = SetupWizard(settings, config_path or "config.yaml")
+            tools_settings = await wizard.run()
+            save_tools_config(tools_settings, config_path or "config.yaml")
+            # Reload settings with new tools config
+            settings = load_config(config_path)
+            tools_settings = settings.tools if settings.tools else tools_settings
+        else:
+            # Enable all tools by default if user skips wizard
+            console.print("[dim]Using default configuration (all tools enabled)[/dim]")
+            tools_settings = QuickSetup.get_profile("full")
+            save_tools_config(tools_settings, config_path or "config.yaml")
     
     # Initialize memory
     memory = AgentMemory(
@@ -403,6 +467,7 @@ async def _run_chat(config_path: Optional[str], session_id: Optional[str]):
     # Initialize agent
     agent = DACLI(
         settings=settings,
+        tools_settings=tools_settings,
         memory=memory,
         on_status_update=on_status_update,
         on_tool_start=on_tool_start,
@@ -509,6 +574,40 @@ async def _run_chat(config_path: Optional[str], session_id: Optional[str]):
                             memory._state = memory._create_new_state()
                             memory.clear_messages()
                             console.print("[success]Agent state reset.[/success]")
+                    
+                    elif cmd == "/tools":
+                        # Show enabled tools
+                        table = Table(title="🔧 Enabled Tools", show_header=True)
+                        table.add_column("Category", style="cyan")
+                        table.add_column("Status", justify="center")
+                        table.add_column("Operations", justify="center")
+                        
+                        for category in ToolCategory:
+                            info = TOOL_CATALOG[category]
+                            config = tools_settings.get_tool_config(category)
+                            if config.enabled:
+                                ops = config.get_enabled_operations()
+                                table.add_row(
+                                    f"{info['icon']} {info['name']}",
+                                    "[green]✅ Enabled[/green]",
+                                    str(len(ops))
+                                )
+                            else:
+                                table.add_row(
+                                    f"{info['icon']} {info['name']}",
+                                    "[dim]⊘ Disabled[/dim]",
+                                    "—"
+                                )
+                        console.print(table)
+                        console.print("[dim]Use /setup to reconfigure tools[/dim]")
+                    
+                    elif cmd == "/setup":
+                        # Run setup wizard
+                        console.print("[info]Running setup wizard...[/info]")
+                        wizard = SetupWizard(settings, config_path or "config.yaml")
+                        tools_settings = await wizard.run()
+                        save_tools_config(tools_settings, config_path or "config.yaml")
+                        console.print("[success]Tools reconfigured. Restart the agent to apply changes.[/success]")
                     
                     else:
                         console.print(f"[warning]Unknown command: {cmd}[/warning]")
