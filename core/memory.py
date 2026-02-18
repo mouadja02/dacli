@@ -70,13 +70,13 @@ class AgentState:
 
     # Work progress
     current_phase: str = "Initialization"
-    phases: Dict[str, PhaseStatus] = field(default_factory=dict)
+    phases: Dict[str, Any] = field(default_factory=dict)
 
     # Discovered entities
     discovered_files: Dict[str, Any] = field(default_factory=dict)
     inferred_schemas: Dict[str, Any] = field(default_factory=dict)
     created_tables: List[str] = field(default_factory=list)
-    loaded_tables: Dict[str, int] = field(default_factory=dict)  # table -> row count
+    loaded_tables: List[str] = field(default_factory=list)  # table names
 
     # Configuration state
     infrastructure_ready: bool = False
@@ -317,7 +317,8 @@ class AgentMemory:
 
     def add_loaded_table(self, table_name: str) -> None:
         # Record a loaded table
-        self.state.loaded_tables.append(table_name)
+        if table_name not in self.state.loaded_tables:
+            self.state.loaded_tables.append(table_name)
         self._save_state()
 
     def set_infrastructure_ready(self) -> None:
@@ -441,7 +442,7 @@ class AgentMemory:
             "infrastructure_ready": self.state.infrastructure_ready,
             "tables_created": len(self.state.created_tables),
             "tables_loaded": len(self.state.loaded_tables),
-            "total_rows_loaded": sum(self.state.loaded_tables.values()),
+            "total_rows_loaded": len(self.state.loaded_tables),
             "schemas_created": len(self.state.schemas_created),
             "file_formats_created": len(self.state.file_formats_created),
             "files_discovered": sum(

@@ -7,7 +7,7 @@ SYSTEM_PROMPT_FILE = Path(__file__).parent / "system_message.md"
 
 def get_default_system_prompt() -> str:
     """Return the default system prompt for the Data Warehouse Agent."""
-    return SYSTEM_PROMPT_FILE
+    return SYSTEM_PROMPT_FILE.read_text(encoding="utf-8")
 
 
 def load_system_prompt(custom_path: Optional[str] = None) -> str:

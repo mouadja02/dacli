@@ -560,7 +560,9 @@ class GithubTool(BaseTool):
             if job.get("conclusion") == "failure":
                 log = await self._get_workflow_errors_with_logs(job["id"])
                 if log:
-                    job_info["log_tail"] = log[-3000:]
+                    import json as _json
+                    log_str = _json.dumps(log)
+                    job_info["log_tail"] = log_str[-3000:]
 
             jobs.append(job_info)
 
@@ -646,7 +648,7 @@ class GithubTool(BaseTool):
         # Extract clean error messages from log content
         lines = log_content.split("\n")
         errors = []
-        current_error = []
+        current_error: List[str] = []
         in_error_block = False
 
         for line in lines:
@@ -705,7 +707,7 @@ class GithubTool(BaseTool):
             # If we can't get logs, return basic error info
             return await self.get_workflow_errors(run_id)
 
-        result = {"failed_jobs": []}
+        result: Dict[str, Any] = {"failed_jobs": []}
 
         for job in jobs_data["jobs"]:
             if job["conclusion"] in ["failure", "cancelled", "timed_out"]:
@@ -759,7 +761,7 @@ class GithubTool(BaseTool):
 
         jobs_data = response.json()
 
-        result = {"failed_jobs": []}
+        result: Dict[str, Any] = {"failed_jobs": []}
 
         for job in jobs_data["jobs"]:
             if job["conclusion"] in ["failure", "cancelled", "timed_out"]:

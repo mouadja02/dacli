@@ -1,10 +1,17 @@
 import snowflake.connector
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from tabulate import tabulate
 
 from tools.base import BaseTool, ToolResult, ToolStatus
 from config.settings import Settings
+
+try:
+    from snowflake.connector import SnowflakeConnection
+    from snowflake.connector.cursor import DictCursor
+except ImportError:
+    SnowflakeConnection = None  # type: ignore[assignment,misc]
+    DictCursor = None  # type: ignore[assignment,misc]
 
 
 class SnowflakeTool(BaseTool):
@@ -22,8 +29,8 @@ class SnowflakeTool(BaseTool):
     def __init__(self, settings: Settings):
         # Initialize the Snowflake tool with settings
         super().__init__(settings)
-        self._connection = None
-        self._cursor = None
+        self._connection: Optional[Any] = None
+        self._cursor: Optional[Any] = None
 
     @property
     def name(self) -> str:

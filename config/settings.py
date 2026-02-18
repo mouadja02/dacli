@@ -3,7 +3,7 @@ import os
 import yaml
 from pathlib import Path
 from urllib.parse import urlparse
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from dotenv import load_dotenv
 
@@ -181,14 +181,14 @@ class Settings(BaseModel):
     # Main settings container
     model_config = ConfigDict(extra="ignore")
 
-    llm: LLMSettings = Field(default_factory=LLMSettings)
-    snowflake: SnowflakeSettings = Field(default_factory=SnowflakeSettings)
-    github: GithubSettings = Field(default_factory=GithubSettings)
-    pinecone: PineconeSettings = Field(default_factory=PineconeSettings)
-    embeddings: EmbeddingsSettings = Field(default_factory=EmbeddingsSettings)
-    agent: AgentSettings = Field(default_factory=AgentSettings)
-    ui: UISettings = Field(default_factory=UISettings)
-    retry: RetrySettings = Field(default_factory=RetrySettings)
+    llm: LLMSettings = Field(default_factory=LLMSettings)  # type: ignore[arg-type]
+    snowflake: SnowflakeSettings = Field(default_factory=SnowflakeSettings)  # type: ignore[arg-type]
+    github: GithubSettings = Field(default_factory=GithubSettings)  # type: ignore[arg-type]
+    pinecone: PineconeSettings = Field(default_factory=PineconeSettings)  # type: ignore[arg-type]
+    embeddings: EmbeddingsSettings = Field(default_factory=EmbeddingsSettings)  # type: ignore[arg-type]
+    agent: AgentSettings = Field(default_factory=lambda: AgentSettings())
+    ui: UISettings = Field(default_factory=lambda: UISettings())
+    retry: RetrySettings = Field(default_factory=lambda: RetrySettings())
 
     # Dynamic tools configuration (managed by setup wizard)
     tools: Optional[Any] = Field(default=None)
@@ -266,7 +266,7 @@ def save_tools_config(tools_settings: Any, config_path: str = "config.yaml") -> 
     path = Path(config_path)
 
     # Load existing config if it exists
-    existing_config = {}
+    existing_config: Dict[str, Any] = {}
     if path.exists():
         with open(path, "r", encoding="utf-8") as f:
             existing_config = yaml.safe_load(f) or {}

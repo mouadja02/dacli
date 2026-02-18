@@ -31,7 +31,7 @@ class LLMClient:
     def __init__(self, settings: Settings):
         # Initialize LLM client with settings
         self.settings = settings
-        self._client = None
+        self._client: Optional[Any] = None
         self._provider = settings.llm.provider
 
     async def initialize(self) -> None:
@@ -55,9 +55,10 @@ class LLMClient:
                 timeout=self.settings.llm.timeout,
             )
         elif provider == "google":
-            from google.generativeai import genai
+            import google.generativeai as genai  # type: ignore[import-untyped]
 
-            self._client = genai.Client(api_key=self.settings.llm.api_key)
+            genai.configure(api_key=self.settings.llm.api_key)
+            self._client = genai  # store module so _generate_google can call .GenerativeModel()
         elif provider == "openrouter":
             from openai import AsyncOpenAI
 
@@ -822,7 +823,7 @@ class DACLI:
         self.memory.add_user_message(user_message)
 
         # get conversation context
-        messages = self.memory.get_context_messages()
+        messages: List[Dict[str, Any]] = list(self.memory.get_context_messages())
 
         # Iteration loop
         self._current_iteration = 0
@@ -923,7 +924,7 @@ class DACLI:
         # Run the agent in interactive mode in the CLI
 
         # Initialize
-        if not await self._initialize():
+        if not await self.initialize():
             self._emit_status("Failed to initialize agent. Check configuration.")
             return
 

@@ -1,7 +1,7 @@
 import time
 import pinecone
 from openai import OpenAI
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 from tools.base import BaseTool, ToolResult, ToolStatus
 from config.settings import Settings
@@ -27,8 +27,10 @@ class PineconeTool(BaseTool):
 
     def __init__(self, settings: Settings):
         super().__init__(settings)
-        self._index = None
-        self._embeddings = None
+        self._index: Optional[Any] = None
+        self._embeddings: Optional[Any] = None
+        self._embeddings_client: Optional[Any] = None
+        self._embeddings_model: Optional[str] = None
 
     @property
     def name(self) -> str:

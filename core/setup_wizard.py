@@ -177,7 +177,7 @@ You can always re-run this wizard later by using: `dacli --setup`
 
     async def _validate_credentials(self) -> Dict[ToolCategory, Tuple[bool, str]]:
         """Validate credentials for enabled tools"""
-        results = {}
+        results: Dict[ToolCategory, Tuple[bool, str]] = {}
         enabled_categories = self.tools_settings.get_enabled_tools()
 
         if not enabled_categories:
@@ -392,7 +392,7 @@ class QuickSetup:
     Quick setup for common profiles without going through the full wizard.
     """
 
-    PROFILES = {
+    PROFILES: Dict[str, Any] = {
         "full": {
             "name": "Full Stack",
             "description": "All tools enabled (Snowflake + GitHub + Pinecone)",

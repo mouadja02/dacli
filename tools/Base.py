@@ -140,7 +140,7 @@ class BaseTool(ABC):
         self.is_connected = result.success
         return self.is_connected
 
-    async def disconnect(self) -> bool:
+    async def disconnect(self) -> None:
         # Clean up connection resources.
         self.is_connected = False
 
