@@ -14,12 +14,12 @@ output "ecr_repository_name" {
 
 output "agent_runtime_id" {
   description = "AgentCore Runtime ID"
-  value       = aws_bedrockagentcore_agent_runtime.dacli.id
+  value       = aws_bedrockagentcore_agent_runtime.dacli.agent_runtime_id
 }
 
 output "agent_runtime_arn" {
   description = "AgentCore Runtime ARN"
-  value       = aws_bedrockagentcore_agent_runtime.dacli.arn
+  value       = aws_bedrockagentcore_agent_runtime.dacli.agent_runtime_arn
 }
 
 output "agent_runtime_endpoint_arn" {

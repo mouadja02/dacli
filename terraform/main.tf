@@ -223,7 +223,7 @@ resource "aws_bedrockagentcore_workload_identity" "dacli" {
 
 resource "aws_bedrockagentcore_agent_runtime_endpoint" "dacli" {
   name             = "${var.agent_runtime_name}-endpoint"
-  agent_runtime_id = aws_bedrockagentcore_agent_runtime.dacli.id
+  agent_runtime_id = aws_bedrockagentcore_agent_runtime.dacli.agent_runtime_id
   description      = "Primary endpoint for DACLI agent runtime"
 }
 

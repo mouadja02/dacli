@@ -16,6 +16,7 @@ htmlcov/
 coverage.xml
 *.db
 *.sqlite3
+sample_deployments
 
 # DACLI secrets & state
 config.yaml
