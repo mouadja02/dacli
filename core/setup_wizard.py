@@ -1,11 +1,9 @@
 # Setup Wizard - Interactive CLI for configuring DACLI tools
-import asyncio
-from typing import Dict, List, Optional, Tuple, Any
-from pathlib import Path
+from typing import Dict, Optional, Tuple, Any
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.prompt import Prompt, Confirm
+from rich.prompt import Confirm
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.markdown import Markdown
 from rich import box
@@ -14,7 +12,6 @@ from config.tool_registry import (
     ToolCategory, 
     ToolConfig, 
     ToolsSettings, 
-    ToolRegistry,
     TOOL_CATALOG
 )
 

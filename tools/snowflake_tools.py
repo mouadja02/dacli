@@ -1,6 +1,6 @@
 import snowflake.connector
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from tabulate import tabulate
 
 from tools.base import BaseTool, ToolResult, ToolStatus
@@ -95,7 +95,7 @@ class SnowflakeTool(BaseTool):
             return ToolResult(
                 tool_name=self.name,
                 status=ToolStatus.ERROR,
-                data=None,
+                data=str(e),
                 execution_time_ms=execution_time,
                 metadata={"query": "SELECT CURRENT_WAREHOUSE() AS WAREHOUSE,CURRENT_DATABASE() AS DATABASE,CURRENT_SCHEMA() AS SCHEMA,CURRENT_ROLE() AS ROLE,CURRENT_USER() AS USER"}
             )

@@ -9,7 +9,6 @@ Provides persistent storage for:
 """
 
 import json
-import os
 
 from dataclasses import dataclass, field, asdict
 from datetime import datetime

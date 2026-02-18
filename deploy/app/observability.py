@@ -10,8 +10,6 @@ OpenTelemetry + AWS X-Ray + CloudWatch integration for:
 """
 
 import os
-import time
-import logging
 from typing import Optional
 
 # OpenTelemetry
@@ -34,7 +32,7 @@ except ImportError:
 # Prometheus
 try:
     from opentelemetry.exporter.prometheus import PrometheusMetricReader
-    from prometheus_client import start_http_server, Counter, Histogram, Gauge
+    from prometheus_client import Counter, Histogram, Gauge
     PROMETHEUS_AVAILABLE = True
 except ImportError:
     PROMETHEUS_AVAILABLE = False
@@ -42,7 +40,6 @@ except ImportError:
 # AWS X-Ray
 try:
     from aws_xray_sdk.core import xray_recorder, patch_all
-    from aws_xray_sdk.core.context import Context
     XRAY_AVAILABLE = True
 except ImportError:
     XRAY_AVAILABLE = False

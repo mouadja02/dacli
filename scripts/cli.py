@@ -1,6 +1,4 @@
 import asyncio
-import os
-import sys
 import click
 from typing import Optional
 
@@ -9,28 +7,22 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.table import Table
-from rich.live import Live
-from rich.spinner import Spinner
 from rich.text import Text
 from rich.syntax import Syntax
 from rich.prompt import Prompt, Confirm
-from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.theme import Theme
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-from prompt_toolkit.styles import Style as PTStyle
 
 from core import __author__,__version__
 from config import CLI_COMMANDS
-from config.settings import load_config, Settings, save_config, save_tools_config
-from config.tool_registry import ToolsSettings, ToolRegistry, TOOL_CATALOG, ToolCategory
-from tools import DACLI_tools, get_available_tools
+from config.settings import load_config, Settings, save_tools_config
+from config.tool_registry import ToolsSettings, TOOL_CATALOG, ToolCategory
 from core.agent import DACLI
 from core.memory import AgentMemory
 from core.setup_wizard import SetupWizard, QuickSetup
 from prompts.system_prompt import load_system_prompt, save_system_prompt, SYSTEM_PROMPT_FILE
-from prompts.user_prompt import load_user_prompt, save_user_prompt, USER_PROMPT_FILE
 
 # -----------------------------------------
 #  CUSTOMIZE CONSOLE THEME
@@ -355,8 +347,6 @@ async def _validate_connections(settings: Settings):
     # Validate all connections.
     from tools.snowflake_tool import SnowflakeTool
     from tools.pinecone_tool import PineconeTool
-    
-    results = []
     
     # Snowflake
     with console.status("[bold green]Testing Snowflake connection..."):

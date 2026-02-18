@@ -3,7 +3,7 @@ import os
 import yaml
 from pathlib import Path
 from urllib.parse import urlparse
-from typing import Dict, List, Any, Optional
+from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from dotenv import load_dotenv
 

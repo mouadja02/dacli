@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Callable
 from dataclasses import dataclass
 
 from config.settings import Settings
-from config.tool_registry import ToolsSettings, ToolRegistry, ToolCategory, TOOL_CATALOG
+from config.tool_registry import ToolsSettings, ToolRegistry, ToolCategory
 from core.memory import AgentMemory, PhaseStatus
 from tools.base import ToolResult, ToolStatus
 from tools.snowflake_tools import SnowflakeTool
@@ -589,7 +589,7 @@ class DACLI:
         output_message = "Agent initialized!\nActive tools: " + ", ".join(successfully_initialized)
 
         if skipped:
-            output_message += f"\nSkipped (disabled): " + ", ".join(skipped)
+            output_message += "\nSkipped (disabled): " + ", ".join(skipped)
         
         if failed_initializations:
             output_message += "\nFailed to initialize: " + ", ".join(failed_initializations)

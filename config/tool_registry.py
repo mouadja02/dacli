@@ -1,5 +1,5 @@
 # Tool Registry - Manages dynamic tool loading based on configuration
-from typing import Dict, List, Any, Optional, Type
+from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
 from enum import Enum
 

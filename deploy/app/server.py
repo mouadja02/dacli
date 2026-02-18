@@ -15,15 +15,12 @@ import os
 import json
 import time
 import uuid
-import asyncio
-import logging
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
 
 import boto3
 import structlog
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
-from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 # ── Observability Setup ───────────────────────────────────────────────────────
@@ -187,8 +184,6 @@ async def _get_or_create_agent(session_id: str) -> DACLI:
         return _agent_cache[session_id]
 
     settings = _load_settings()
-    tracer = get_tracer()
-    meter = get_meter()
 
     # Observability callbacks
     def on_status(msg: str):

@@ -1,6 +1,5 @@
 import asyncio
 import base64
-import json
 import time
 import io
 import zipfile
@@ -716,9 +715,7 @@ class GithubTool(BaseTool):
         )
         if response.status_code != 200:
             return {"error": f"Failed to fetch run: HTTP {response.status_code}"}
-        
-        run_data = response.json()
-        
+                
         response = await self._client.get(
             f"/repos/{self._gh.owner}/{self._gh.repo}/actions/runs/{run_id}/jobs"
         )

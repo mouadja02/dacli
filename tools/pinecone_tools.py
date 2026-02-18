@@ -1,7 +1,7 @@
 import time
 import pinecone
 from openai import OpenAI
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 
 from tools.base import BaseTool, ToolResult, ToolStatus
 from config.settings import Settings
