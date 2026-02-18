@@ -127,10 +127,10 @@ resource "aws_secretsmanager_secret_version" "dacli_config" {
   secret_id = aws_secretsmanager_secret.dacli_config.id
 
   secret_string = jsonencode({
+    # LLM — AWS Bedrock (IAM auth, no API key needed)
     LLM_PROVIDER       = var.llm_provider
     LLM_MODEL          = var.llm_model
-    LLM_API_KEY        = var.llm_api_key
-    LLM_BASE_URL       = "https://openrouter.ai/api/v1"
+    LLM_BASE_URL       = var.aws_region  # boto3 region for bedrock-runtime client
     GITHUB_TOKEN       = var.github_token
     GITHUB_OWNER       = var.github_owner
     GITHUB_REPO        = var.github_repo
@@ -145,7 +145,7 @@ resource "aws_secretsmanager_secret_version" "dacli_config" {
     PINECONE_API_KEY   = var.pinecone_api_key
     PINECONE_INDEX     = "snowflake-docs"
     PINECONE_ENV       = "us-east-1"
-    OPENAI_API_KEY     = var.openai_api_key
+    OPENAI_API_KEY     = var.openai_api_key  # still used for embeddings
   })
 
   lifecycle {

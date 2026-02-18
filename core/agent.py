@@ -67,6 +67,14 @@ class LLMClient:
                 base_url=self.settings.llm.base_url or "https://openrouter.ai/api/v1",
                 timeout=self.settings.llm.timeout,
             )
+        elif provider == "bedrock":
+            import boto3  # type: ignore[import-untyped]
+
+            # Uses IAM role — no API key required on AgentCore
+            self._client = boto3.client(
+                "bedrock-runtime",
+                region_name=self.settings.llm.base_url or "us-east-1",  # base_url reused as region
+            )
         else:
             raise ValueError(f"Unsupported LLM provider: {provider}")
 
@@ -97,6 +105,8 @@ class LLMClient:
             return await self._generate_anthropic(messages, tools, system_prompt)
         elif provider == "google":
             return await self._generate_google(messages, tools, system_prompt)
+        elif provider == "bedrock":
+            return await self._generate_bedrock(messages, tools, system_prompt)
         else:
             raise ValueError(f"Unsupported provider: {provider}")
 
@@ -215,6 +225,84 @@ class LLMClient:
         response = await asyncio.to_thread(model.generate_content, gemini_messages)
 
         return response.text, []
+
+    async def _generate_bedrock(
+        self,
+        messages: List[Dict[str, str]],
+        tools: Optional[List[Dict]] = None,
+        system_prompt: Optional[str] = None,
+    ) -> Tuple[str, List[Dict]]:
+        """Generate using AWS Bedrock converse API (IAM auth, no API key)."""
+        import asyncio
+
+        # Build system prompt block
+        system_blocks = []
+        if system_prompt:
+            system_blocks = [{"text": system_prompt}]
+
+        # Convert messages to Bedrock converse format
+        bedrock_messages = []
+        for msg in messages:
+            role = msg["role"]
+            if role == "system":
+                # System messages are passed separately in converse API
+                system_blocks.append({"text": msg["content"]})
+                continue
+            bedrock_role = "user" if role == "user" else "assistant"
+            bedrock_messages.append({
+                "role": bedrock_role,
+                "content": [{"text": msg["content"]}],
+            })
+
+        # Build tool config if tools provided
+        tool_config: Optional[Dict[str, Any]] = None
+        if tools:
+            bedrock_tools = []
+            for t in tools:
+                fn = t["function"]
+                bedrock_tools.append({
+                    "toolSpec": {
+                        "name": fn["name"],
+                        "description": fn.get("description", ""),
+                        "inputSchema": {"json": fn.get("parameters", {})},
+                    }
+                })
+            tool_config = {"tools": bedrock_tools, "toolChoice": {"auto": {}}}
+
+        # Build request kwargs
+        request_kwargs: Dict[str, Any] = {
+            "modelId": self.settings.llm.model,
+            "messages": bedrock_messages,
+            "inferenceConfig": {
+                "maxTokens": self.settings.llm.max_tokens,
+                "temperature": self.settings.llm.temperature,
+            },
+        }
+        if system_blocks:
+            request_kwargs["system"] = system_blocks
+        if tool_config:
+            request_kwargs["toolConfig"] = tool_config
+
+        # Run synchronous boto3 call in thread pool
+        response = await asyncio.to_thread(self._client.converse, **request_kwargs)
+
+        # Parse response
+        content = ""
+        tool_calls: List[Dict] = []
+        output_message = response.get("output", {}).get("message", {})
+
+        for block in output_message.get("content", []):
+            if "text" in block:
+                content += block["text"]
+            elif "toolUse" in block:
+                tu = block["toolUse"]
+                tool_calls.append({
+                    "id": tu["toolUseId"],
+                    "name": tu["name"],
+                    "arguments": tu.get("input", {}),
+                })
+
+        return content, tool_calls
 
 
 class DACLI:

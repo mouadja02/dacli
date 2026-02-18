@@ -51,6 +51,8 @@ resource "aws_iam_role_policy" "agentcore_runtime_policy" {
         Action = [
           "bedrock:InvokeModel",
           "bedrock:InvokeModelWithResponseStream",
+          "bedrock:Converse",
+          "bedrock:ConverseStream",
           "bedrock:GetFoundationModel",
           "bedrock:ListFoundationModels",
         ]

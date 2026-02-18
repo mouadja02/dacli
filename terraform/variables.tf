@@ -123,16 +123,16 @@ variable "public_subnet_cidrs" {
 # ── Secrets ───────────────────────────────────────────────────────────────────
 
 variable "llm_provider" {
-  description = "LLM provider (openrouter, openai, anthropic)"
+  description = "LLM provider: 'bedrock' for AgentCore (IAM auth), 'openrouter' for local dev"
   type        = string
-  default     = "openrouter"
+  default     = "bedrock"
   sensitive   = false
 }
 
 variable "llm_model" {
-  description = "LLM model identifier"
+  description = "LLM model identifier. For Bedrock: cross-region inference profile ID"
   type        = string
-  default     = "x-ai/grok-4.1-fast"
+  default     = "us.nvidia.nemotron-nano-3-30d"
 }
 
 variable "llm_api_key" {
