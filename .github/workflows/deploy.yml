@@ -52,6 +52,15 @@ on:
           - dev
           - staging
           - prod
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'deploy'
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
       image_tag:
         description: 'Docker image tag (default: git SHA)'
         required: false
@@ -127,6 +136,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [security]
+    if: github.event.inputs.action != 'destroy'
     outputs:
       image_uri: ${{ steps.build.outputs.image_uri }}
       image_digest: ${{ steps.build.outputs.image_digest }}
@@ -194,7 +204,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: build
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event.inputs.action == 'plan'
 
     steps:
       - name: Checkout code
@@ -282,7 +292,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     needs: build
-    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && github.event.inputs.action != 'destroy' && github.event.inputs.action != 'plan'
     environment:
       name: ${{ github.event.inputs.environment || 'dev' }}
       url: ${{ steps.outputs.outputs.dashboard_url }}
@@ -353,12 +363,64 @@ jobs:
   # ════════════════════════════════════════════════════════════
   # JOB 6: Smoke Test
   # ════════════════════════════════════════════════════════════
+  # ════════════════════════════════════════════════════════════
+  # JOB 6: Terraform Destroy
+  # ════════════════════════════════════════════════════════════
+  terraform-destroy:
+    name: 💥 Terraform Destroy
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: security
+    if: github.event.inputs.action == 'destroy'
+    environment:
+      name: ${{ github.event.inputs.environment || 'dev' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: dacli-tf-destroy-${{ github.run_id }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init -input=false
+
+      - name: Terraform Destroy
+        working-directory: terraform
+        run: |
+          terraform destroy \
+            -auto-approve \
+            -input=false \
+            -var="container_image_tag=${{ env.IMAGE_TAG }}" \
+            -var="environment=${{ env.ENVIRONMENT }}" \
+            -var="llm_api_key=${{ secrets.LLM_API_KEY }}" \
+            -var="github_token=${{ secrets.GH_TOKEN }}" \
+            -var="snowflake_account=${{ secrets.SNOWFLAKE_ACCOUNT }}" \
+            -var="snowflake_user=${{ secrets.SNOWFLAKE_USER }}" \
+            -var="snowflake_password=${{ secrets.SNOWFLAKE_PASSWORD }}" \
+            -var="pinecone_api_key=${{ secrets.PINECONE_API_KEY }}" \
+            -var="openai_api_key=${{ secrets.OPENAI_API_KEY }}"
+
+  # ════════════════════════════════════════════════════════════
+  # JOB 7: Smoke Test
+  # ════════════════════════════════════════════════════════════
   smoke-test:
     name: 🧪 Smoke Test
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: terraform-apply
-    if: needs.terraform-apply.result == 'success'
+    if: needs.terraform-apply.result == 'success' && github.event.inputs.action != 'destroy' && github.event.inputs.action != 'plan'
 
     steps:
       - name: Checkout code
