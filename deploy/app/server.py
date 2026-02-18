@@ -27,7 +27,6 @@ from pydantic import BaseModel, Field
 from deploy.app.observability import (
     setup_telemetry,
     get_tracer,
-    get_meter,
     record_agent_invocation,
     record_tool_call,
     record_token_usage,
