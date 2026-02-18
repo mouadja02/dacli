@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from config.settings import Settings
 from config.tool_registry import ToolsSettings, ToolRegistry, ToolCategory, TOOL_CATALOG
 from core.memory import AgentMemory, PhaseStatus
-from tools.base import ToolResult, ToolStatus
+from tools.Base import ToolResult, ToolStatus
 from tools.snowflake_tools import SnowflakeTool
 from tools.github_tools import GithubTool
 from tools.pinecone_tools import PineconeTool

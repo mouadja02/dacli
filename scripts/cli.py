@@ -160,7 +160,7 @@ def format_response(content: str) -> Panel:
 
 def format_tool_result(tool_name: str, result) -> Panel:
     # Format tool result for display.
-    from tools.base import ToolResult, ToolStatus
+    from tools.Base import ToolResult, ToolStatus
     
     if isinstance(result, ToolResult):
         if result.success:

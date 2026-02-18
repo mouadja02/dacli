@@ -3,7 +3,7 @@
 from tools.snowflake_tools import SnowflakeTool
 from tools.github_tools import GithubTool
 from tools.pinecone_tools import PineconeTool
-from tools.base import BaseTool, ToolResult
+from tools.Base import BaseTool, ToolResult
 
 DACLI_tools = [SnowflakeTool, GithubTool, PineconeTool]
 
