@@ -24,7 +24,7 @@ resource "aws_iam_role" "agentcore_runtime" {
         Principal = {
           Service = [
             "bedrock.amazonaws.com",
-            "bedrockagentcore.amazonaws.com",
+            "bedrock-agentcore.amazonaws.com",
           ]
         }
         Action = "sts:AssumeRole"

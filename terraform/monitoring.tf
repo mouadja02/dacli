@@ -217,6 +217,7 @@ resource "aws_cloudwatch_dashboard" "dacli_agentcore" {
           ]
           period = 300
           yAxis  = { left = { min = 0 } }
+          region = var.aws_region
         }
       },
 
@@ -237,6 +238,7 @@ resource "aws_cloudwatch_dashboard" "dacli_agentcore" {
           ]
           period = 300
           yAxis  = { left = { min = 0 } }
+          region = var.aws_region
         }
       },
 
@@ -256,6 +258,7 @@ resource "aws_cloudwatch_dashboard" "dacli_agentcore" {
           ]
           period = 3600
           yAxis  = { left = { min = 0 } }
+          region = var.aws_region
         }
       },
 
@@ -319,6 +322,7 @@ resource "aws_cloudwatch_dashboard" "dacli_agentcore" {
             ["AWS/Bedrock", "InvocationThrottles", { stat = "Sum", period = 300, color = "#F44336" }]
           ]
           period = 300
+          region = var.aws_region
         }
       },
 
@@ -338,6 +342,7 @@ resource "aws_cloudwatch_dashboard" "dacli_agentcore" {
             ["AWS/Bedrock", "InvocationLatency", { stat = "p99", period = 300, label = "p99" }]
           ]
           period = 300
+          region = var.aws_region
         }
       },
     ]
