@@ -75,7 +75,7 @@ variable "memory_retention_days" {
 variable "memory_strategies" {
   description = "Memory strategies to enable"
   type        = list(string)
-  default     = ["SEMANTIC", "SUMMARY", "USER_PREFERENCE"]
+  default     = ["SEMANTIC", "SUMMARIZATION", "USER_PREFERENCE"]
 }
 
 # ── AgentCore Gateway ─────────────────────────────────────────────────────────
