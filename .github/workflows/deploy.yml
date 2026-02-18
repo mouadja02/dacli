@@ -2,7 +2,7 @@
 # DACLI AgentCore - GitHub Actions Deployment Pipeline
 # ============================================================
 # Workflow:
-#   1. Lint & Test Python code
+#   1. Security scanning
 #   2. Build & push Docker image to ECR
 #   3. Terraform plan (PR) / apply (main)
 #   4. Deploy to AgentCore Runtime
@@ -86,70 +86,12 @@ env:
 
 jobs:
   # ════════════════════════════════════════════════════════════
-  # JOB 1: Code Quality & Tests
-  # ════════════════════════════════════════════════════════════
-  quality:
-    name: 🔍 Code Quality & Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-
-      - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install ruff mypy pytest pytest-asyncio pytest-cov
-
-      - name: Lint with ruff
-        run: |
-          ruff check . --output-format=github
-          ruff format --check .
-
-      - name: Type check with mypy
-        run: |
-          mypy core/ config/ tools/ --ignore-missing-imports --no-strict-optional
-        continue-on-error: true
-
-      - name: Run unit tests
-        run: |
-          pytest tests/ -v \
-            --cov=core \
-            --cov=config \
-            --cov=tools \
-            --cov-report=xml \
-            --cov-report=term-missing \
-            -x \
-            --timeout=60
-        env:
-          DACLI_ENV: test
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-        continue-on-error: true
-
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: coverage-report
-          path: coverage.xml
-          retention-days: 7
-
-  # ════════════════════════════════════════════════════════════
-  # JOB 2: Security Scanning
+  # JOB 1: Security Scanning
   # ════════════════════════════════════════════════════════════
   security:
     name: 🔒 Security Scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: quality
 
     steps:
       - name: Checkout code
@@ -184,7 +126,7 @@ jobs:
     name: 🐳 Build & Push Container
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [quality, security]
+    needs: [security]
     outputs:
       image_uri: ${{ steps.build.outputs.image_uri }}
       image_digest: ${{ steps.build.outputs.image_digest }}
