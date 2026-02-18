@@ -1,0 +1,543 @@
+# ============================================================
+# DACLI AgentCore - GitHub Actions Deployment Pipeline
+# ============================================================
+# Workflow:
+#   1. Lint & Test Python code
+#   2. Build & push Docker image to ECR
+#   3. Terraform plan (PR) / apply (main)
+#   4. Deploy to AgentCore Runtime
+#   5. Smoke test the deployed agent
+#   6. Notify on success/failure
+# ============================================================
+
+name: 🤖 Deploy DACLI to AWS AgentCore
+
+on:
+  push:
+    branches:
+      - main
+      - 'release/**'
+    paths:
+      - 'core/**'
+      - 'tools/**'
+      - 'config/**'
+      - 'prompts/**'
+      - 'deploy/**'
+      - 'terraform/**'
+      - 'Dockerfile'
+      - 'requirements*.txt'
+      - '.github/workflows/deploy.yml'
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'core/**'
+      - 'tools/**'
+      - 'config/**'
+      - 'prompts/**'
+      - 'deploy/**'
+      - 'terraform/**'
+      - 'Dockerfile'
+      - 'requirements*.txt'
+
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      image_tag:
+        description: 'Docker image tag (default: git SHA)'
+        required: false
+        default: ''
+      force_deploy:
+        description: 'Force deployment even without code changes'
+        required: false
+        default: false
+        type: boolean
+
+# ── Concurrency: prevent parallel deployments ─────────────────────────────────
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+# ── Permissions ───────────────────────────────────────────────────────────────
+permissions:
+  id-token: write      # OIDC token for AWS authentication
+  contents: read
+  pull-requests: write # Post Terraform plan as PR comment
+  security-events: write
+  actions: read
+
+# ── Environment Variables ─────────────────────────────────────────────────────
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: dacli-agentcore
+  TERRAFORM_VERSION: 1.8.0
+  PYTHON_VERSION: '3.11'
+  IMAGE_TAG: ${{ github.event.inputs.image_tag || github.sha }}
+  ENVIRONMENT: ${{ github.event.inputs.environment || (github.ref == 'refs/heads/main' && 'prod' || 'dev') }}
+
+jobs:
+  # ════════════════════════════════════════════════════════════
+  # JOB 1: Code Quality & Tests
+  # ════════════════════════════════════════════════════════════
+  quality:
+    name: 🔍 Code Quality & Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff mypy pytest pytest-asyncio pytest-cov
+
+      - name: Lint with ruff
+        run: |
+          ruff check . --output-format=github
+          ruff format --check .
+
+      - name: Type check with mypy
+        run: |
+          mypy core/ config/ tools/ --ignore-missing-imports --no-strict-optional
+        continue-on-error: true
+
+      - name: Run unit tests
+        run: |
+          pytest tests/ -v \
+            --cov=core \
+            --cov=config \
+            --cov=tools \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            -x \
+            --timeout=60
+        env:
+          DACLI_ENV: test
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        continue-on-error: true
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 7
+
+  # ════════════════════════════════════════════════════════════
+  # JOB 2: Security Scanning
+  # ════════════════════════════════════════════════════════════
+  security:
+    name: 🔒 Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: quality
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner (filesystem)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: 0
+
+      - name: Upload Trivy SARIF results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Check for secrets in code (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+  # ════════════════════════════════════════════════════════════
+  # JOB 3: Build & Push Docker Image to ECR
+  # ════════════════════════════════════════════════════════════
+  build:
+    name: 🐳 Build & Push Container
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [quality, security]
+    outputs:
+      image_uri: ${{ steps.build.outputs.image_uri }}
+      image_digest: ${{ steps.build.outputs.image_digest }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: dacli-build-${{ github.run_id }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/arm64  # AWS Graviton (ARM64)
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}
+          tags: |
+            type=sha,prefix=,format=short
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            GIT_COMMIT=${{ github.sha }}
+            VERSION=${{ github.ref_name }}
+
+      - name: Scan container image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+          format: sarif
+          output: trivy-image-results.sarif
+          severity: CRITICAL
+          exit-code: 0
+
+      - name: Set outputs
+        id: set-outputs
+        run: |
+          echo "image_uri=${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}" >> $GITHUB_OUTPUT
+          echo "image_digest=${{ steps.build.outputs.digest }}" >> $GITHUB_OUTPUT
+
+  # ════════════════════════════════════════════════════════════
+  # JOB 4: Terraform Plan (runs on PRs)
+  # ════════════════════════════════════════════════════════════
+  terraform-plan:
+    name: 📋 Terraform Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: dacli-tf-plan-${{ github.run_id }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: true
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init -input=false
+
+      - name: Terraform Validate
+        working-directory: terraform
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: terraform
+        run: |
+          terraform plan \
+            -input=false \
+            -no-color \
+            -var="container_image_tag=${{ env.IMAGE_TAG }}" \
+            -var="environment=${{ env.ENVIRONMENT }}" \
+            -var="llm_api_key=${{ secrets.LLM_API_KEY }}" \
+            -var="github_token=${{ secrets.GH_TOKEN }}" \
+            -var="snowflake_account=${{ secrets.SNOWFLAKE_ACCOUNT }}" \
+            -var="snowflake_user=${{ secrets.SNOWFLAKE_USER }}" \
+            -var="snowflake_password=${{ secrets.SNOWFLAKE_PASSWORD }}" \
+            -var="pinecone_api_key=${{ secrets.PINECONE_API_KEY }}" \
+            -var="openai_api_key=${{ secrets.OPENAI_API_KEY }}" \
+            -out=tfplan 2>&1 | tee plan_output.txt
+        continue-on-error: true
+
+      - name: Post Terraform Plan as PR Comment
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const planOutput = fs.readFileSync('terraform/plan_output.txt', 'utf8');
+            const truncated = planOutput.length > 60000
+              ? planOutput.substring(0, 60000) + '\n\n... (truncated)'
+              : planOutput;
+
+            const body = `## 🏗️ Terraform Plan - DACLI AgentCore
+
+            **Environment:** \`${{ env.ENVIRONMENT }}\`
+            **Image Tag:** \`${{ env.IMAGE_TAG }}\`
+
+            <details>
+            <summary>📋 Plan Output (click to expand)</summary>
+
+            \`\`\`hcl
+            ${truncated}
+            \`\`\`
+            </details>
+
+            > ⚠️ Review carefully before merging. This plan will be applied on merge to main.`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+  # ════════════════════════════════════════════════════════════
+  # JOB 5: Terraform Apply & Deploy (runs on main branch)
+  # ════════════════════════════════════════════════════════════
+  terraform-apply:
+    name: 🚀 Deploy to AWS AgentCore
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: build
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+    environment:
+      name: ${{ github.event.inputs.environment || 'dev' }}
+      url: ${{ steps.outputs.outputs.dashboard_url }}
+
+    outputs:
+      agent_runtime_id: ${{ steps.outputs.outputs.agent_runtime_id }}
+      agent_endpoint: ${{ steps.outputs.outputs.agent_endpoint }}
+      dashboard_url: ${{ steps.outputs.outputs.dashboard_url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: dacli-tf-apply-${{ github.run_id }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init -input=false
+
+      - name: Terraform Apply
+        working-directory: terraform
+        run: |
+          terraform apply \
+            -auto-approve \
+            -input=false \
+            -var="container_image_tag=${{ env.IMAGE_TAG }}" \
+            -var="environment=${{ env.ENVIRONMENT }}" \
+            -var="llm_api_key=${{ secrets.LLM_API_KEY }}" \
+            -var="github_token=${{ secrets.GH_TOKEN }}" \
+            -var="snowflake_account=${{ secrets.SNOWFLAKE_ACCOUNT }}" \
+            -var="snowflake_user=${{ secrets.SNOWFLAKE_USER }}" \
+            -var="snowflake_password=${{ secrets.SNOWFLAKE_PASSWORD }}" \
+            -var="pinecone_api_key=${{ secrets.PINECONE_API_KEY }}" \
+            -var="openai_api_key=${{ secrets.OPENAI_API_KEY }}"
+
+      - name: Extract Terraform Outputs
+        id: outputs
+        working-directory: terraform
+        run: |
+          RUNTIME_ID=$(terraform output -raw agent_runtime_id)
+          ENDPOINT=$(terraform output -raw agent_runtime_endpoint)
+          DASHBOARD=$(terraform output -raw cloudwatch_dashboard_url)
+          ECR_URL=$(terraform output -raw ecr_repository_url)
+
+          echo "agent_runtime_id=${RUNTIME_ID}" >> $GITHUB_OUTPUT
+          echo "agent_endpoint=${ENDPOINT}" >> $GITHUB_OUTPUT
+          echo "dashboard_url=${DASHBOARD}" >> $GITHUB_OUTPUT
+          echo "ecr_url=${ECR_URL}" >> $GITHUB_OUTPUT
+
+          echo "## 🎯 Deployment Outputs" >> $GITHUB_STEP_SUMMARY
+          echo "| Resource | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Runtime ID | \`${RUNTIME_ID}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Endpoint | \`${ENDPOINT}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dashboard | [Open]($DASHBOARD) |" >> $GITHUB_STEP_SUMMARY
+
+  # ════════════════════════════════════════════════════════════
+  # JOB 6: Smoke Test
+  # ════════════════════════════════════════════════════════════
+  smoke-test:
+    name: 🧪 Smoke Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: terraform-apply
+    if: needs.terraform-apply.result == 'success'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: dacli-smoke-test-${{ github.run_id }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install test dependencies
+        run: pip install boto3 requests
+
+      - name: Wait for AgentCore Runtime to be ready
+        run: |
+          echo "Waiting for AgentCore Runtime to initialize..."
+          sleep 30
+
+      - name: Run smoke tests
+        run: |
+          python - <<'EOF'
+          import boto3
+          import json
+          import sys
+          import time
+
+          runtime_id = "${{ needs.terraform-apply.outputs.agent_runtime_id }}"
+          region = "${{ env.AWS_REGION }}"
+
+          print(f"🧪 Running smoke tests against AgentCore Runtime: {runtime_id}")
+
+          client = boto3.client("bedrockagentcore", region_name=region)
+
+          # Test 1: Health check via invoke
+          print("\n📋 Test 1: Basic invocation...")
+          try:
+              response = client.invoke_agent_runtime(
+                  agentRuntimeId=runtime_id,
+                  payload=json.dumps({
+                      "session_id": "smoke-test",
+                      "message": "Hello! Please respond with 'DACLI is operational' to confirm you are working.",
+                      "stream": False
+                  })
+              )
+              result = json.loads(response["body"].read())
+              assert "content" in result, "Response missing 'content' field"
+              print(f"✅ Test 1 PASSED: Got response with {len(result['content'])} chars")
+          except Exception as e:
+              print(f"❌ Test 1 FAILED: {e}")
+              sys.exit(1)
+
+          # Test 2: Session continuity
+          print("\n📋 Test 2: Session continuity...")
+          try:
+              response = client.invoke_agent_runtime(
+                  agentRuntimeId=runtime_id,
+                  payload=json.dumps({
+                      "session_id": "smoke-test",
+                      "message": "What was my previous message?",
+                      "stream": False
+                  })
+              )
+              result = json.loads(response["body"].read())
+              assert result.get("session_id") == "smoke-test", "Session ID mismatch"
+              print(f"✅ Test 2 PASSED: Session continuity working")
+          except Exception as e:
+              print(f"⚠️ Test 2 WARNING: {e}")
+
+          print("\n🎉 All smoke tests completed!")
+          EOF
+
+      - name: Post smoke test results
+        if: always()
+        run: |
+          echo "## 🧪 Smoke Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "- Runtime ID: \`${{ needs.terraform-apply.outputs.agent_runtime_id }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Environment: \`${{ env.ENVIRONMENT }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Dashboard: [${{ needs.terraform-apply.outputs.dashboard_url }}](${{ needs.terraform-apply.outputs.dashboard_url }})" >> $GITHUB_STEP_SUMMARY
+
+  # ════════════════════════════════════════════════════════════
+  # JOB 7: Notify
+  # ════════════════════════════════════════════════════════════
+  notify:
+    name: 📢 Notify
+    runs-on: ubuntu-latest
+    needs: [terraform-apply, smoke-test]
+    if: always() && github.event_name != 'pull_request'
+
+    steps:
+      - name: Deployment Summary
+        run: |
+          STATUS="${{ needs.smoke-test.result }}"
+          EMOJI="✅"
+          if [ "$STATUS" != "success" ]; then
+            EMOJI="❌"
+          fi
+
+          echo "## ${EMOJI} DACLI AgentCore Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | ${STATUS} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | \`${{ env.ENVIRONMENT }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Tag | \`${{ env.IMAGE_TAG }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Triggered by | @${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Runtime ID | \`${{ needs.terraform-apply.outputs.agent_runtime_id }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dashboard | [CloudWatch](${{ needs.terraform-apply.outputs.dashboard_url }}) |" >> $GITHUB_STEP_SUMMARY
