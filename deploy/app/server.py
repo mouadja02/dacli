@@ -57,16 +57,23 @@ logger = structlog.get_logger(__name__)
 
 # ── Pydantic Models ───────────────────────────────────────────────────────────
 
+
 class InvokeRequest(BaseModel):
     """AgentCore Runtime invocation payload."""
-    session_id: Optional[str] = Field(default=None, description="Session ID for memory continuity")
+
+    session_id: Optional[str] = Field(
+        default=None, description="Session ID for memory continuity"
+    )
     message: str = Field(..., description="User message to process")
     stream: bool = Field(default=False, description="Enable streaming response")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Optional metadata")
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict, description="Optional metadata"
+    )
 
 
 class InvokeResponse(BaseModel):
     """AgentCore Runtime response payload."""
+
     session_id: str
     request_id: str
     content: str
@@ -110,46 +117,97 @@ def _load_settings() -> Settings:
         config_data = json.loads(response["SecretString"])
         logger.info("secrets_loaded", source="aws_secrets_manager", secret=secret_name)
     except Exception as e:
-        logger.warning("secrets_load_failed", error=str(e), fallback="environment_variables")
+        logger.warning(
+            "secrets_load_failed", error=str(e), fallback="environment_variables"
+        )
 
     # Build settings from env vars (fallback / override)
     settings_dict = {
         "llm": {
-            "provider": config_data.get("LLM_PROVIDER", os.environ.get("LLM_PROVIDER", "openrouter")),
-            "model": config_data.get("LLM_MODEL", os.environ.get("LLM_MODEL", "x-ai/grok-4.1-fast")),
-            "api_key": config_data.get("LLM_API_KEY", os.environ.get("LLM_API_KEY", "")),
-            "base_url": config_data.get("LLM_BASE_URL", os.environ.get("LLM_BASE_URL", "https://openrouter.ai/api/v1")),
-            "temperature": float(config_data.get("LLM_TEMPERATURE", os.environ.get("LLM_TEMPERATURE", "0.1"))),
-            "max_tokens": int(config_data.get("LLM_MAX_TOKENS", os.environ.get("LLM_MAX_TOKENS", "4096"))),
-            "timeout": int(config_data.get("LLM_TIMEOUT", os.environ.get("LLM_TIMEOUT", "120"))),
+            "provider": config_data.get(
+                "LLM_PROVIDER", os.environ.get("LLM_PROVIDER", "openrouter")
+            ),
+            "model": config_data.get(
+                "LLM_MODEL", os.environ.get("LLM_MODEL", "x-ai/grok-4.1-fast")
+            ),
+            "api_key": config_data.get(
+                "LLM_API_KEY", os.environ.get("LLM_API_KEY", "")
+            ),
+            "base_url": config_data.get(
+                "LLM_BASE_URL",
+                os.environ.get("LLM_BASE_URL", "https://openrouter.ai/api/v1"),
+            ),
+            "temperature": float(
+                config_data.get(
+                    "LLM_TEMPERATURE", os.environ.get("LLM_TEMPERATURE", "0.1")
+                )
+            ),
+            "max_tokens": int(
+                config_data.get(
+                    "LLM_MAX_TOKENS", os.environ.get("LLM_MAX_TOKENS", "4096")
+                )
+            ),
+            "timeout": int(
+                config_data.get("LLM_TIMEOUT", os.environ.get("LLM_TIMEOUT", "120"))
+            ),
         },
         "github": {
-            "token": config_data.get("GITHUB_TOKEN", os.environ.get("GITHUB_TOKEN", "")),
-            "owner": config_data.get("GITHUB_OWNER", os.environ.get("GITHUB_OWNER", "")),
+            "token": config_data.get(
+                "GITHUB_TOKEN", os.environ.get("GITHUB_TOKEN", "")
+            ),
+            "owner": config_data.get(
+                "GITHUB_OWNER", os.environ.get("GITHUB_OWNER", "")
+            ),
             "repo": config_data.get("GITHUB_REPO", os.environ.get("GITHUB_REPO", "")),
-            "branch": config_data.get("GITHUB_BRANCH", os.environ.get("GITHUB_BRANCH", "main")),
+            "branch": config_data.get(
+                "GITHUB_BRANCH", os.environ.get("GITHUB_BRANCH", "main")
+            ),
         },
         "snowflake": {
-            "account": config_data.get("SNOWFLAKE_ACCOUNT", os.environ.get("SNOWFLAKE_ACCOUNT", "")),
-            "user": config_data.get("SNOWFLAKE_USER", os.environ.get("SNOWFLAKE_USER", "")),
-            "password": config_data.get("SNOWFLAKE_PASSWORD", os.environ.get("SNOWFLAKE_PASSWORD", "")),
-            "warehouse": config_data.get("SNOWFLAKE_WAREHOUSE", os.environ.get("SNOWFLAKE_WAREHOUSE", "COMPUTE_WH")),
-            "database": config_data.get("SNOWFLAKE_DATABASE", os.environ.get("SNOWFLAKE_DATABASE", "DATA_WAREHOUSE")),
-            "schema": config_data.get("SNOWFLAKE_SCHEMA", os.environ.get("SNOWFLAKE_SCHEMA", "PUBLIC")),
-            "role": config_data.get("SNOWFLAKE_ROLE", os.environ.get("SNOWFLAKE_ROLE", "ACCOUNTADMIN")),
+            "account": config_data.get(
+                "SNOWFLAKE_ACCOUNT", os.environ.get("SNOWFLAKE_ACCOUNT", "")
+            ),
+            "user": config_data.get(
+                "SNOWFLAKE_USER", os.environ.get("SNOWFLAKE_USER", "")
+            ),
+            "password": config_data.get(
+                "SNOWFLAKE_PASSWORD", os.environ.get("SNOWFLAKE_PASSWORD", "")
+            ),
+            "warehouse": config_data.get(
+                "SNOWFLAKE_WAREHOUSE",
+                os.environ.get("SNOWFLAKE_WAREHOUSE", "COMPUTE_WH"),
+            ),
+            "database": config_data.get(
+                "SNOWFLAKE_DATABASE",
+                os.environ.get("SNOWFLAKE_DATABASE", "DATA_WAREHOUSE"),
+            ),
+            "schema": config_data.get(
+                "SNOWFLAKE_SCHEMA", os.environ.get("SNOWFLAKE_SCHEMA", "PUBLIC")
+            ),
+            "role": config_data.get(
+                "SNOWFLAKE_ROLE", os.environ.get("SNOWFLAKE_ROLE", "ACCOUNTADMIN")
+            ),
             "timeout": 60,
             "query_timeout": 300,
         },
         "pinecone": {
-            "api_key": config_data.get("PINECONE_API_KEY", os.environ.get("PINECONE_API_KEY", "")),
-            "index_name": config_data.get("PINECONE_INDEX", os.environ.get("PINECONE_INDEX", "snowflake-docs")),
-            "environment": config_data.get("PINECONE_ENV", os.environ.get("PINECONE_ENV", "us-east-1")),
+            "api_key": config_data.get(
+                "PINECONE_API_KEY", os.environ.get("PINECONE_API_KEY", "")
+            ),
+            "index_name": config_data.get(
+                "PINECONE_INDEX", os.environ.get("PINECONE_INDEX", "snowflake-docs")
+            ),
+            "environment": config_data.get(
+                "PINECONE_ENV", os.environ.get("PINECONE_ENV", "us-east-1")
+            ),
             "top_k": 5,
             "include_metadata": True,
         },
         "embeddings": {
             "provider": "openai",
-            "api_key": config_data.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY", "")),
+            "api_key": config_data.get(
+                "OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY", "")
+            ),
             "model": "text-embedding-3-small",
         },
         "agent": {
@@ -166,9 +224,30 @@ def _load_settings() -> Settings:
         },
         "tools": {
             "setup_completed": True,
-            "snowflake": {"enabled": True, "operations": {"execute_snowflake_query": True, "validate_snowflake_connection": True}},
-            "github": {"enabled": True, "operations": {"list_github_directory": True, "read_github_file": True, "push_github_file": True, "delete_github_file": True, "trigger_github_workflow": True, "list_github_workflow_runs": True, "get_github_workflow_run": True, "get_github_workflow_run_jobs": True}},
-            "pinecone": {"enabled": True, "operations": {"search_snowflake_docs": True}},
+            "snowflake": {
+                "enabled": True,
+                "operations": {
+                    "execute_snowflake_query": True,
+                    "validate_snowflake_connection": True,
+                },
+            },
+            "github": {
+                "enabled": True,
+                "operations": {
+                    "list_github_directory": True,
+                    "read_github_file": True,
+                    "push_github_file": True,
+                    "delete_github_file": True,
+                    "trigger_github_workflow": True,
+                    "list_github_workflow_runs": True,
+                    "get_github_workflow_run": True,
+                    "get_github_workflow_run_jobs": True,
+                },
+            },
+            "pinecone": {
+                "enabled": True,
+                "operations": {"search_snowflake_docs": True},
+            },
         },
     }
 
@@ -194,10 +273,19 @@ async def _get_or_create_agent(session_id: str) -> DACLI:
 
     def on_tool_end(tool_name: str, result):
         status = "success" if result.success else "error"
-        logger.info("tool_end", session_id=session_id, tool=tool_name, status=status,
-                    duration_ms=result.execution_time_ms)
-        record_tool_call(tool_name=tool_name, session_id=session_id, status=status,
-                         duration_ms=result.execution_time_ms)
+        logger.info(
+            "tool_end",
+            session_id=session_id,
+            tool=tool_name,
+            status=status,
+            duration_ms=result.execution_time_ms,
+        )
+        record_tool_call(
+            tool_name=tool_name,
+            session_id=session_id,
+            status=status,
+            duration_ms=result.execution_time_ms,
+        )
 
     memory = AgentMemory(
         state_path=settings.agent.state_path,
@@ -221,10 +309,15 @@ async def _get_or_create_agent(session_id: str) -> DACLI:
 
 # ── FastAPI Lifespan ──────────────────────────────────────────────────────────
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: startup and shutdown."""
-    logger.info("dacli_agentcore_starting", version="1.0.0", env=os.environ.get("DACLI_ENV", "development"))
+    logger.info(
+        "dacli_agentcore_starting",
+        version="1.0.0",
+        env=os.environ.get("DACLI_ENV", "development"),
+    )
 
     # Setup OpenTelemetry
     setup_telemetry(
@@ -264,6 +357,7 @@ app = FastAPI(
 
 # ── Middleware ────────────────────────────────────────────────────────────────
 
+
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):
     """Log all requests with timing and request ID."""
@@ -294,6 +388,7 @@ async def request_logging_middleware(request: Request, call_next):
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+
 @app.get("/health", response_model=HealthResponse, tags=["System"])
 async def health_check():
     """Health check endpoint for AgentCore and load balancers."""
@@ -317,6 +412,7 @@ async def prometheus_metrics():
     """Prometheus metrics endpoint."""
     from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
     from fastapi.responses import Response
+
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
@@ -373,7 +469,9 @@ async def invoke_agent(request: InvokeRequest, background_tasks: BackgroundTasks
                 "output_tokens": len(response.content.split()) * 2,
                 "total_tokens": 0,
             }
-            token_usage["total_tokens"] = token_usage["input_tokens"] + token_usage["output_tokens"]
+            token_usage["total_tokens"] = (
+                token_usage["input_tokens"] + token_usage["output_tokens"]
+            )
             record_token_usage(session_id=session_id, **token_usage)
 
             span.set_attribute("response.iterations", response.iteration)
@@ -436,6 +534,7 @@ async def list_sessions():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(
         "deploy.app.server:app",
         host="0.0.0.0",

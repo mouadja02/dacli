@@ -17,14 +17,20 @@ from opentelemetry import trace, metrics
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
 from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader, ConsoleMetricExporter
+from opentelemetry.sdk.metrics.export import (
+    PeriodicExportingMetricReader,
+    ConsoleMetricExporter,
+)
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME, SERVICE_VERSION
 from opentelemetry.semconv.resource import ResourceAttributes
 
 # OTLP exporters (for CloudWatch / X-Ray ADOT collector)
 try:
     from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-    from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+    from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
+        OTLPMetricExporter,
+    )
+
     OTLP_AVAILABLE = True
 except ImportError:
     OTLP_AVAILABLE = False
@@ -33,6 +39,7 @@ except ImportError:
 try:
     from opentelemetry.exporter.prometheus import PrometheusMetricReader
     from prometheus_client import Counter, Histogram, Gauge
+
     PROMETHEUS_AVAILABLE = True
 except ImportError:
     PROMETHEUS_AVAILABLE = False
@@ -40,6 +47,7 @@ except ImportError:
 # AWS X-Ray
 try:
     from aws_xray_sdk.core import xray_recorder, patch_all
+
     XRAY_AVAILABLE = True
 except ImportError:
     XRAY_AVAILABLE = False
@@ -104,19 +112,23 @@ def setup_telemetry(
     global _tracer, _meter
 
     # Resource attributes
-    resource = Resource.create({
-        SERVICE_NAME: service_name,
-        SERVICE_VERSION: service_version,
-        ResourceAttributes.DEPLOYMENT_ENVIRONMENT: environment,
-        "cloud.provider": "aws",
-        "cloud.region": os.environ.get("AWS_REGION", "us-east-1"),
-        "agent.framework": "dacli",
-    })
+    resource = Resource.create(
+        {
+            SERVICE_NAME: service_name,
+            SERVICE_VERSION: service_version,
+            ResourceAttributes.DEPLOYMENT_ENVIRONMENT: environment,
+            "cloud.provider": "aws",
+            "cloud.region": os.environ.get("AWS_REGION", "us-east-1"),
+            "agent.framework": "dacli",
+        }
+    )
 
     # ── Tracer Provider ───────────────────────────────────────────────────────
     tracer_provider = TracerProvider(resource=resource)
 
-    otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+    otlp_endpoint = os.environ.get(
+        "OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317"
+    )
 
     if OTLP_AVAILABLE:
         try:
@@ -125,7 +137,9 @@ def setup_telemetry(
             logger.info("otlp_tracer_configured", endpoint=otlp_endpoint)
         except Exception as e:
             logger.warning("otlp_tracer_failed", error=str(e), fallback="console")
-            tracer_provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
+            tracer_provider.add_span_processor(
+                BatchSpanProcessor(ConsoleSpanExporter())
+            )
     else:
         tracer_provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
 
@@ -145,8 +159,14 @@ def setup_telemetry(
 
     if OTLP_AVAILABLE:
         try:
-            otlp_metric_exporter = OTLPMetricExporter(endpoint=otlp_endpoint, insecure=True)
-            metric_readers.append(PeriodicExportingMetricReader(otlp_metric_exporter, export_interval_millis=30000))
+            otlp_metric_exporter = OTLPMetricExporter(
+                endpoint=otlp_endpoint, insecure=True
+            )
+            metric_readers.append(
+                PeriodicExportingMetricReader(
+                    otlp_metric_exporter, export_interval_millis=30000
+                )
+            )
             logger.info("otlp_metrics_configured", endpoint=otlp_endpoint)
         except Exception as e:
             logger.warning("otlp_metrics_failed", error=str(e))
@@ -163,15 +183,24 @@ def setup_telemetry(
         try:
             xray_recorder.configure(
                 service=service_name,
-                daemon_address=os.environ.get("AWS_XRAY_DAEMON_ADDRESS", "localhost:2000"),
+                daemon_address=os.environ.get(
+                    "AWS_XRAY_DAEMON_ADDRESS", "localhost:2000"
+                ),
                 context_missing="LOG_ERROR",
             )
             patch_all()
-            logger.info("xray_configured", daemon=os.environ.get("AWS_XRAY_DAEMON_ADDRESS"))
+            logger.info(
+                "xray_configured", daemon=os.environ.get("AWS_XRAY_DAEMON_ADDRESS")
+            )
         except Exception as e:
             logger.warning("xray_configuration_failed", error=str(e))
 
-    logger.info("telemetry_setup_complete", service=service_name, version=service_version, env=environment)
+    logger.info(
+        "telemetry_setup_complete",
+        service=service_name,
+        version=service_version,
+        env=environment,
+    )
 
 
 def get_tracer() -> trace.Tracer:
@@ -192,7 +221,10 @@ def get_meter() -> metrics.Meter:
 
 # ── Metric Recording Helpers ──────────────────────────────────────────────────
 
-def record_agent_invocation(session_id: str, request_id: str, status: str = "started") -> None:
+
+def record_agent_invocation(
+    session_id: str, request_id: str, status: str = "started"
+) -> None:
     """Record an agent invocation metric."""
     if PROMETHEUS_AVAILABLE:
         AGENT_INVOCATIONS.labels(session_id=session_id, status=status).inc()
@@ -235,7 +267,9 @@ def record_token_usage(
     """Record token consumption metrics."""
     if PROMETHEUS_AVAILABLE:
         TOKEN_USAGE.labels(session_id=session_id, token_type="input").inc(input_tokens)
-        TOKEN_USAGE.labels(session_id=session_id, token_type="output").inc(output_tokens)
+        TOKEN_USAGE.labels(session_id=session_id, token_type="output").inc(
+            output_tokens
+        )
         TOKEN_USAGE.labels(session_id=session_id, token_type="total").inc(total_tokens)
 
     logger.info(

@@ -10,23 +10,26 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+
 # Import ToolsSettings (lazy import to avoid circular dependency)
 def _get_tools_settings_class():
     from config.tool_registry import ToolsSettings
+
     return ToolsSettings
+
 
 def _substitute_env_vars(value: Any) -> Any:
     # Recursively substitute environment variables in config values.
     if isinstance(value, str):
         # Match the  ${VAR_NAME} pattern
-        pattern= r"\$\{([^}]+)\}"
+        pattern = r"\$\{([^}]+)\}"
         matches = re.findall(pattern, value)
         for match in matches:
             env_value = os.environ.get(match, "")
             value = value.replace(f"${{{match})}}", env_value)
         return value
     elif isinstance(value, dict):
-        return {k: _substitute_env_vars(v) for k,v in value.items()}
+        return {k: _substitute_env_vars(v) for k, v in value.items()}
     elif isinstance(value, list):
         return [_substitute_env_vars(x) for x in value]
     return value
@@ -39,13 +42,37 @@ class LLMSettings(BaseModel):
     fallback_model: Optional[str] = None
     api_key: str
     base_url: str
-    max_tokens: int = Field(default=4096, ge=1, description="Maximum number of tokens to generate")
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="Controls randomness: Lowering results in less random completions. As the temperature approaches zero, the model will become deterministic and repetitive.")
-    top_p: float = Field(default=1.0, ge=0.0, le=1.0, description="Controls diversity via nucleus sampling: 0.5 means half of all likelihood-weighted options are considered. We generally recommend altering this or temperature but not both.")
-    presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0, description="Positive values penalize new tokens based on whether they appear in the text so far, increasing the model's likelihood to talk about new topics")
-    frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0, description="Positive values penalize new tokens based on their existing frequency in the text so far, decreasing the model's likelihood to repeat the same line verbatim")
-    timeout: int = Field(default=120, ge=1, description="Timeout in seconds for LLM requests")
-    
+    max_tokens: int = Field(
+        default=4096, ge=1, description="Maximum number of tokens to generate"
+    )
+    temperature: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=2.0,
+        description="Controls randomness: Lowering results in less random completions. As the temperature approaches zero, the model will become deterministic and repetitive.",
+    )
+    top_p: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Controls diversity via nucleus sampling: 0.5 means half of all likelihood-weighted options are considered. We generally recommend altering this or temperature but not both.",
+    )
+    presence_penalty: float = Field(
+        default=0.0,
+        ge=-2.0,
+        le=2.0,
+        description="Positive values penalize new tokens based on whether they appear in the text so far, increasing the model's likelihood to talk about new topics",
+    )
+    frequency_penalty: float = Field(
+        default=0.0,
+        ge=-2.0,
+        le=2.0,
+        description="Positive values penalize new tokens based on their existing frequency in the text so far, decreasing the model's likelihood to repeat the same line verbatim",
+    )
+    timeout: int = Field(
+        default=120, ge=1, description="Timeout in seconds for LLM requests"
+    )
+
 
 class GithubSettings(BaseModel):
     # Github configuration
@@ -54,9 +81,13 @@ class GithubSettings(BaseModel):
     owner: str = ""
     repo: str = ""
     branch: str = "main"
-    timeout: int = Field(default=60, ge=1, description="Timeout in seconds for Github requests")
-    workflow_timeout: int = Field(default=600, ge=30, description="Timeout in seconds for Github workflow runs")
-    
+    timeout: int = Field(
+        default=60, ge=1, description="Timeout in seconds for Github requests"
+    )
+    workflow_timeout: int = Field(
+        default=600, ge=30, description="Timeout in seconds for Github workflow runs"
+    )
+
     @model_validator(mode="before")
     def derive_owner_repo(cls, data: Any) -> Any:
         # Auto-derive the owner and repo from the repository URL if not provided
@@ -70,7 +101,8 @@ class GithubSettings(BaseModel):
                     if not data.get("repo"):
                         data["repo"] = parts[1].replace(".git", "")
         return data
-    
+
+
 class SnowflakeSettings(BaseModel):
     # Snowflake connection configuration
     account: str
@@ -83,7 +115,6 @@ class SnowflakeSettings(BaseModel):
     query_timeout: int = Field(default=300, ge=1)
     login_timeout: int = Field(default=60, ge=1)
     network_timeout: int = Field(default=60, ge=1)
-
 
     class Config:
         populate_by_name = True
@@ -126,6 +157,7 @@ class AgentSettings(BaseModel):
             raise ValueError(f"log_level must be one of {valid_levels}")
         return v.upper()
 
+
 class UISettings(BaseModel):
     # UI/Display configuration
     theme: str = "dark"
@@ -157,34 +189,34 @@ class Settings(BaseModel):
     agent: AgentSettings = Field(default_factory=AgentSettings)
     ui: UISettings = Field(default_factory=UISettings)
     retry: RetrySettings = Field(default_factory=RetrySettings)
-    
+
     # Dynamic tools configuration (managed by setup wizard)
     tools: Optional[Any] = Field(default=None)
-    
+
     @model_validator(mode="before")
     @classmethod
     def parse_tools_config(cls, data: Any) -> Any:
         """Parse tools configuration from YAML"""
-        if isinstance(data, dict) and 'tools' in data:
+        if isinstance(data, dict) and "tools" in data:
             try:
                 ToolsSettings = _get_tools_settings_class()
-                if isinstance(data['tools'], dict):
-                    data['tools'] = ToolsSettings(**data['tools'])
+                if isinstance(data["tools"], dict):
+                    data["tools"] = ToolsSettings(**data["tools"])
             except Exception:
-                data['tools'] = None
+                data["tools"] = None
         return data
 
 
 def load_config(config_path: Optional[str] = None) -> Settings:
     """
     Load configuration from YAML file with environment variable substitution.
-    
+
     Args:
         config_path: Path to config.yaml file. If None, searches in:
                     1. ./config.yaml
                     2. ~/.dacli/config.yaml
                     3. Uses defaults
-    
+
     Returns:
         Settings object with all configuration
     """
@@ -192,26 +224,26 @@ def load_config(config_path: Optional[str] = None) -> Settings:
         Path("config.yaml"),
         Path.home() / ".dacli" / "config.yaml",
     ]
-    
+
     if config_path:
         search_paths.insert(0, Path(config_path))
-    
+
     config_file = None
     for path in search_paths:
         if path.exists():
             config_file = path
             break
-    
+
     if config_file is None:
         # Return default settings
         return Settings()
-    
+
     # Load YAML
     with open(config_file, "r", encoding="utf-8") as f:
         raw_config = yaml.safe_load(f)
     if raw_config is None:
         return Settings()
-    
+
     # Substitute environment variables
     config_data = _substitute_env_vars(raw_config)
 
@@ -221,7 +253,7 @@ def load_config(config_path: Optional[str] = None) -> Settings:
 def save_config(settings: Settings, config_path: str = "config.yaml") -> None:
     # Save settings to YAML file
     config_dict = settings.model_dump()
-    
+
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
 
@@ -232,19 +264,20 @@ def save_tools_config(tools_settings: Any, config_path: str = "config.yaml") -> 
     This is used by the setup wizard to update tool preferences.
     """
     path = Path(config_path)
-    
+
     # Load existing config if it exists
     existing_config = {}
     if path.exists():
         with open(path, "r", encoding="utf-8") as f:
             existing_config = yaml.safe_load(f) or {}
-    
+
     # Update only the tools section
-    existing_config['tools'] = tools_settings.model_dump()
-    
+    existing_config["tools"] = tools_settings.model_dump()
+
     # Write back
     with open(path, "w", encoding="utf-8") as f:
         yaml.dump(existing_config, f, default_flow_style=False, sort_keys=False)
+
 
 def get_config_template() -> str:
     # Return a template configuration file content
