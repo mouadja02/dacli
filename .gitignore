@@ -1,6 +1,4 @@
-# Python
 .env
-.env.*
 .venv/
 venv/
 *.pyc
@@ -13,39 +11,8 @@ build/
 .pytest_cache/
 .coverage
 htmlcov/
-coverage.xml
 *.db
 *.sqlite3
-sample_deployments
-
-# DACLI secrets & state
 config.yaml
 test.py
-.dacli/
-
-# Terraform
-terraform/.terraform/
-terraform/.terraform.lock.hcl
-terraform/terraform.tfstate
-terraform/terraform.tfstate.backup
-terraform/tfplan
-terraform/*.tfvars
-!terraform/terraform.tfvars.example
-terraform/plan_output.txt
-terraform/.terraform.tfstate*
-
-# Docker
-.dockerignore
-
-# AWS
-.aws/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
+.dacli
