@@ -155,9 +155,11 @@ resource "aws_secretsmanager_secret_version" "dacli_config" {
 
 # ── AgentCore Runtime ─────────────────────────────────────────────────────────
 
+# ── AgentCore Runtime ─────────────────────────────────────────────────────────
+
 resource "aws_bedrockagentcore_agent_runtime" "dacli" {
   agent_runtime_name = var.agent_runtime_name
-  description        = var.agent_description
+  role_arn           = aws_iam_role.agentcore_runtime.arn
 
   agent_runtime_artifact {
     container_configuration {
@@ -167,12 +169,11 @@ resource "aws_bedrockagentcore_agent_runtime" "dacli" {
 
   network_configuration {
     network_mode = "VPC"
-    # Flattened VPC config - removed nested vpc_configuration block
-    subnet_ids         = aws_subnet.private[*].id
-    security_group_ids = [aws_security_group.agentcore_runtime.id]
+    network_mode_config {
+      subnets         = aws_subnet.private[*].id
+      security_groups = [aws_security_group.agentcore_runtime.id]
+    }
   }
-
-  role_arn = aws_iam_role.agentcore_runtime.arn
 
   environment_variables = {
     DACLI_ENV            = var.environment
@@ -187,56 +188,43 @@ resource "aws_bedrockagentcore_agent_runtime" "dacli" {
     S3_ARTIFACTS_BUCKET  = aws_s3_bucket.agent_artifacts.bucket
   }
 
-  # Observability - assumed flattened or boolean based on error
-  # observability_configuration block was unsupported
-  # Trying generic arguments if available, or omitting strict block if unsupported at root
-  # observability_enabled = true 
+  depends_on = [
+    aws_iam_role_policy.agentcore_runtime_policy,
+    aws_ecr_repository.dacli,
+  ]
 }
 
 # ── AgentCore Memory ──────────────────────────────────────────────────────────
 
 resource "aws_bedrockagentcore_memory" "dacli" {
-  name        = "${var.project_name}-${var.environment}-memory"
-  description = "Persistent memory for DACLI agent"
-
-  # Flattened memory config
-  # memory_configuration block was unsupported
+  name                  = "${var.project_name}-${var.environment}-memory"
+  description           = "Persistent memory for DACLI agent"
   event_expiry_duration = var.memory_retention_days
-
-  # Flattened encryption
-  # encryption_configuration block was unsupported
-  kms_key_arn = aws_kms_key.dacli.arn
-
-  tags = {
-    Name = "${var.project_name}-${var.environment}-memory"
-  }
+  encryption_key_arn    = aws_kms_key.dacli.arn
 }
 
 resource "aws_bedrockagentcore_memory_strategy" "strategies" {
   for_each = toset(var.memory_strategies)
   
-  memory_identifier = aws_bedrockagentcore_memory.dacli.id
-  strategy_type     = each.value
+  name        = "${var.project_name}-${var.environment}-${lower(each.value)}"
+  memory_id   = aws_bedrockagentcore_memory.dacli.id
+  type        = each.value
+  namespaces  = ["default"]
+  description = "Strategy ${each.value} for DACLI memory"
 }
 
 # ── AgentCore Identity ────────────────────────────────────────────────────────
 
 resource "aws_bedrockagentcore_workload_identity" "dacli" {
-  name        = var.identity_name
-  description = "Identity for DACLI agent - manages OAuth flows and credential access"
+  name = var.identity_name
+}
 
-  # Outbound credentials for external services
-  # credential_configuration {
-    # TODO: Refactor to aws_bedrockagentcore_api_key_credential_provider resources if needed
-    # For now keeping basic structure to see if workload_identity accepts this, 
-    # or if we need to split further. Assuming workload_identity is the container.
-  # }
-  
-  role_arn = aws_iam_role.agentcore_runtime.arn
+# ── AgentCore Runtime Endpoint ──────────────────────────────────────────────
 
-  tags = {
-    Name = "${var.project_name}-${var.environment}-identity"
-  }
+resource "aws_bedrockagentcore_agent_runtime_endpoint" "dacli" {
+  name             = "${var.agent_runtime_name}-endpoint"
+  agent_runtime_id = aws_bedrockagentcore_agent_runtime.dacli.id
+  description      = "Primary endpoint for DACLI agent runtime"
 }
 
 # ── AgentCore Gateway (Tools Gateway) ────────────────────────────────────────
@@ -244,104 +232,44 @@ resource "aws_bedrockagentcore_workload_identity" "dacli" {
 resource "aws_bedrockagentcore_gateway" "dacli_tools" {
   name        = var.gateway_name
   description = var.gateway_description
+  role_arn    = aws_iam_role.agentcore_runtime.arn
 
-  # Expose DACLI tools as MCP-compatible endpoints
-  gateway_configuration {
-    protocol = "MCP"
-
-    # Snowflake tool endpoint
-    tool_endpoint {
-      name        = "snowflake-tools"
-      description = "Snowflake SQL execution and validation tools"
-      endpoint    = "${aws_bedrockagentcore_agent_runtime.dacli.endpoint}/tools/snowflake"
-
-      tool_schema {
-        openapi_schema = jsonencode({
-          openapi = "3.0.0"
-          info = {
-            title   = "Snowflake Tools"
-            version = "1.0.0"
-          }
-          paths = {
-            "/execute_query" = {
-              post = {
-                operationId = "execute_snowflake_query"
-                summary     = "Execute a SQL query on Snowflake"
-                requestBody = {
-                  required = true
-                  content = {
-                    "application/json" = {
-                      schema = {
-                        type = "object"
-                        properties = {
-                          query = { type = "string", description = "SQL query to execute" }
-                        }
-                        required = ["query"]
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        })
-      }
-    }
-
-    # GitHub tool endpoint
-    tool_endpoint {
-      name        = "github-tools"
-      description = "GitHub repository management tools"
-      endpoint    = "${aws_bedrockagentcore_agent_runtime.dacli.endpoint}/tools/github"
-
-      tool_schema {
-        openapi_schema = jsonencode({
-          openapi = "3.0.0"
-          info = {
-            title   = "GitHub Tools"
-            version = "1.0.0"
-          }
-          paths = {
-            "/push_file" = {
-              post = {
-                operationId = "push_github_file"
-                summary     = "Push a file to GitHub"
-                requestBody = {
-                  required = true
-                  content = {
-                    "application/json" = {
-                      schema = {
-                        type = "object"
-                        properties = {
-                          path    = { type = "string" }
-                          content = { type = "string" }
-                          message = { type = "string" }
-                        }
-                        required = ["path", "content", "message"]
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        })
-      }
-    }
-  }
-
-  security_configuration {
-    # OAuth 2.0 authorization for gateway access
-    auth_type = "AWS_IAM"
-  }
-
-  role_arn = aws_iam_role.agentcore_runtime.arn
+  authorizer_type = "AWS_IAM"
+  protocol_type   = "MCP"
 
   tags = {
     Name = "${var.project_name}-${var.environment}-gateway"
   }
 
   depends_on = [aws_bedrockagentcore_agent_runtime.dacli]
+}
+
+resource "aws_bedrockagentcore_gateway_target" "snowflake_tools" {
+  name               = "snowflake-tools"
+  gateway_identifier = aws_bedrockagentcore_gateway.dacli_tools.gateway_id
+  description        = "Snowflake tools endpoint"
+
+  target_configuration {
+    mcp {
+      mcp_server {
+        endpoint = "${aws_bedrockagentcore_agent_runtime_endpoint.dacli.agent_runtime_endpoint_arn}/tools/snowflake"
+      }
+    }
+  }
+}
+
+resource "aws_bedrockagentcore_gateway_target" "github_tools" {
+  name               = "github-tools"
+  gateway_identifier = aws_bedrockagentcore_gateway.dacli_tools.gateway_id
+  description        = "GitHub tools endpoint"
+
+  target_configuration {
+    mcp {
+      mcp_server {
+        endpoint = "${aws_bedrockagentcore_agent_runtime_endpoint.dacli.agent_runtime_endpoint_arn}/tools/github"
+      }
+    }
+  }
 }
 
 # ── KMS Key for Encryption ────────────────────────────────────────────────────

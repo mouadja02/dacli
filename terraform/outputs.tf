@@ -22,9 +22,9 @@ output "agent_runtime_arn" {
   value       = aws_bedrockagentcore_agent_runtime.dacli.arn
 }
 
-output "agent_runtime_endpoint" {
-  description = "AgentCore Runtime invocation endpoint"
-  value       = aws_bedrockagentcore_agent_runtime.dacli.endpoint
+output "agent_runtime_endpoint_arn" {
+  description = "AgentCore Runtime Endpoint ARN"
+  value       = aws_bedrockagentcore_agent_runtime_endpoint.dacli.agent_runtime_endpoint_arn
 }
 
 output "agent_memory_id" {
@@ -32,19 +32,19 @@ output "agent_memory_id" {
   value       = aws_bedrockagentcore_memory.dacli.id
 }
 
-output "agent_identity_id" {
-  description = "AgentCore Identity resource ID"
-  value       = aws_bedrockagentcore_agent_identity.dacli.id
+output "workload_identity_arn" {
+  description = "AgentCore Workload Identity ARN"
+  value       = aws_bedrockagentcore_workload_identity.dacli.workload_identity_arn
 }
 
 output "gateway_id" {
   description = "AgentCore Gateway ID"
-  value       = aws_bedrockagentcore_gateway.dacli_tools.id
+  value       = aws_bedrockagentcore_gateway.dacli_tools.gateway_id
 }
 
-output "gateway_endpoint" {
-  description = "AgentCore Gateway MCP endpoint"
-  value       = aws_bedrockagentcore_gateway.dacli_tools.endpoint
+output "gateway_url" {
+  description = "AgentCore Gateway MCP URL"
+  value       = aws_bedrockagentcore_gateway.dacli_tools.gateway_url
 }
 
 output "secrets_manager_arn" {
