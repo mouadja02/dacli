@@ -5,25 +5,12 @@
 
 # ── ECR Repository ────────────────────────────────────────────────────────────
 
-resource "aws_ecr_repository" "dacli" {
-  name                 = var.ecr_repository_name
-  image_tag_mutability = "MUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  encryption_configuration {
-    encryption_type = "AES256"
-  }
-
-  tags = {
-    Name = "${var.project_name}-${var.environment}-ecr"
-  }
+data "aws_ecr_repository" "dacli" {
+  name = var.ecr_repository_name
 }
 
 resource "aws_ecr_lifecycle_policy" "dacli" {
-  repository = aws_ecr_repository.dacli.name
+  repository = data.aws_ecr_repository.dacli.name
 
   policy = jsonencode({
     rules = [
@@ -128,24 +115,24 @@ resource "aws_secretsmanager_secret_version" "dacli_config" {
 
   secret_string = jsonencode({
     # LLM — AWS Bedrock (IAM auth, no API key needed)
-    LLM_PROVIDER       = var.llm_provider
-    LLM_MODEL          = var.llm_model
-    LLM_BASE_URL       = var.aws_region  # boto3 region for bedrock-runtime client
-    GITHUB_TOKEN       = var.github_token
-    GITHUB_OWNER       = var.github_owner
-    GITHUB_REPO        = var.github_repo
-    GITHUB_BRANCH      = "main"
-    SNOWFLAKE_ACCOUNT  = var.snowflake_account
-    SNOWFLAKE_USER     = var.snowflake_user
-    SNOWFLAKE_PASSWORD = var.snowflake_password
+    LLM_PROVIDER        = var.llm_provider
+    LLM_MODEL           = var.llm_model
+    LLM_BASE_URL        = var.aws_region # boto3 region for bedrock-runtime client
+    GITHUB_TOKEN        = var.github_token
+    GITHUB_OWNER        = var.github_owner
+    GITHUB_REPO         = var.github_repo
+    GITHUB_BRANCH       = "main"
+    SNOWFLAKE_ACCOUNT   = var.snowflake_account
+    SNOWFLAKE_USER      = var.snowflake_user
+    SNOWFLAKE_PASSWORD  = var.snowflake_password
     SNOWFLAKE_WAREHOUSE = "COMPUTE_WH"
-    SNOWFLAKE_DATABASE = "DATA_WAREHOUSE"
-    SNOWFLAKE_SCHEMA   = "PUBLIC"
-    SNOWFLAKE_ROLE     = "ACCOUNTADMIN"
-    PINECONE_API_KEY   = var.pinecone_api_key
-    PINECONE_INDEX     = "snowflake-docs"
-    PINECONE_ENV       = "us-east-1"
-    OPENAI_API_KEY     = var.openai_api_key  # still used for embeddings
+    SNOWFLAKE_DATABASE  = "DATA_WAREHOUSE"
+    SNOWFLAKE_SCHEMA    = "PUBLIC"
+    SNOWFLAKE_ROLE      = "ACCOUNTADMIN"
+    PINECONE_API_KEY    = var.pinecone_api_key
+    PINECONE_INDEX      = "snowflake-docs"
+    PINECONE_ENV        = "us-east-1"
+    OPENAI_API_KEY      = var.openai_api_key # still used for embeddings
   })
 
   lifecycle {
@@ -163,7 +150,7 @@ resource "aws_bedrockagentcore_agent_runtime" "dacli" {
 
   agent_runtime_artifact {
     container_configuration {
-      container_uri = "${aws_ecr_repository.dacli.repository_url}:${var.container_image_tag}"
+      container_uri = "${data.aws_ecr_repository.dacli.repository_url}:${var.container_image_tag}"
     }
   }
 
@@ -176,21 +163,21 @@ resource "aws_bedrockagentcore_agent_runtime" "dacli" {
   }
 
   environment_variables = {
-    DACLI_ENV            = var.environment
-    AWS_REGION           = var.aws_region
-    DACLI_SECRET_NAME    = aws_secretsmanager_secret.dacli_config.name
-    LOG_LEVEL            = "INFO"
-    AGENT_MAX_ITERATIONS = tostring(var.agent_max_iterations)
-    AGENT_MEMORY_WINDOW  = tostring(var.agent_memory_window)
-    OTEL_SERVICE_NAME    = "dacli-agentcore"
+    DACLI_ENV                   = var.environment
+    AWS_REGION                  = var.aws_region
+    DACLI_SECRET_NAME           = aws_secretsmanager_secret.dacli_config.name
+    LOG_LEVEL                   = "INFO"
+    AGENT_MAX_ITERATIONS        = tostring(var.agent_max_iterations)
+    AGENT_MEMORY_WINDOW         = tostring(var.agent_memory_window)
+    OTEL_SERVICE_NAME           = "dacli-agentcore"
     OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4317"
-    AWS_XRAY_DAEMON_ADDRESS = "localhost:2000"
-    S3_ARTIFACTS_BUCKET  = aws_s3_bucket.agent_artifacts.bucket
+    AWS_XRAY_DAEMON_ADDRESS     = "localhost:2000"
+    S3_ARTIFACTS_BUCKET         = aws_s3_bucket.agent_artifacts.bucket
   }
 
   depends_on = [
     aws_iam_role_policy.agentcore_runtime_policy,
-    aws_ecr_repository.dacli,
+    data.aws_ecr_repository.dacli,
   ]
 }
 
@@ -205,8 +192,8 @@ resource "aws_bedrockagentcore_memory" "dacli" {
 
 resource "aws_bedrockagentcore_memory_strategy" "strategies" {
   for_each = toset(var.memory_strategies)
-  
-  name        = "${var.project_name}-${var.environment}-${lower(each.value)}"
+
+  name        = replace("${var.project_name}_${var.environment}_${lower(each.value)}", "-", "_")
   memory_id   = aws_bedrockagentcore_memory.dacli.id
   type        = each.value
   namespaces  = ["default"]

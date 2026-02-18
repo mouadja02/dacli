@@ -4,12 +4,12 @@
 
 output "ecr_repository_url" {
   description = "ECR repository URL for pushing Docker images"
-  value       = aws_ecr_repository.dacli.repository_url
+  value       = data.aws_ecr_repository.dacli.repository_url
 }
 
 output "ecr_repository_name" {
   description = "ECR repository name"
-  value       = aws_ecr_repository.dacli.name
+  value       = data.aws_ecr_repository.dacli.name
 }
 
 output "agent_runtime_id" {

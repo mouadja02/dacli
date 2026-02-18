@@ -87,7 +87,10 @@ resource "aws_iam_role_policy" "agentcore_runtime_policy" {
           "logs:DescribeLogGroups",
           "logs:DescribeLogStreams",
         ]
-        Resource = "arn:${local.partition}:logs:${var.aws_region}:${local.account_id}:log-group:/dacli/*"
+        Resource = [
+          "arn:${local.partition}:logs:${var.aws_region}:${local.account_id}:log-group:/dacli/*",
+          "arn:${local.partition}:logs:${var.aws_region}:${local.account_id}:log-group:/aws/bedrock/model-invocations:*",
+        ]
       },
       # CloudWatch Metrics
       {
