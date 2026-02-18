@@ -8,6 +8,7 @@ pyyaml
 openai
 anthropic
 google-generativeai
+boto3
 
 # Tools
 snowflake-connector-python
