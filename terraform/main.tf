@@ -158,7 +158,7 @@ resource "aws_secretsmanager_secret_version" "dacli_config" {
 # ── AgentCore Runtime ─────────────────────────────────────────────────────────
 
 resource "aws_bedrockagentcore_agent_runtime" "dacli" {
-  agent_runtime_name = var.agent_runtime_name
+  agent_runtime_name = replace(var.agent_runtime_name, "-", "_")
   role_arn           = aws_iam_role.agentcore_runtime.arn
 
   agent_runtime_artifact {
@@ -197,7 +197,7 @@ resource "aws_bedrockagentcore_agent_runtime" "dacli" {
 # ── AgentCore Memory ──────────────────────────────────────────────────────────
 
 resource "aws_bedrockagentcore_memory" "dacli" {
-  name                  = "${var.project_name}-${var.environment}-memory"
+  name                  = replace("${var.project_name}_${var.environment}_memory", "-", "_")
   description           = "Persistent memory for DACLI agent"
   event_expiry_duration = var.memory_retention_days
   encryption_key_arn    = aws_kms_key.dacli.arn
