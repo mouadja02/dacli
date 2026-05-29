@@ -64,19 +64,12 @@ class ToolResult:
             return f"[{self.tool_name}] failed with error: {self.error}"
 
     def _format_data(self) -> str:
-        # Format data for display
+        # Format data for the LLM context. Data work: send the FULL result set —
+        # no row cap — so the model never has to guess or summarize ("... N more
+        # rows"). The CLI renders the same data as a table for the human.
         if isinstance(self.data, list) and len(self.data) > 0:
-            # Limit to first 20 rows for the console print
-            # TODO: Add a log files to log full data
-            display_data = self.data[:20]
-            if isinstance(display_data[0], dict):
-                # Format as table-like structure
-                lines = []
-                for i, row in enumerate(display_data):
-                    lines.append(f" Row {i+1}: {row}")
-                if len(self.data) > 20:
-                    lines.append(f"... and {len(self.data) - 20} more rows")
-                return "\n".join(lines)
+            if isinstance(self.data[0], dict):
+                return "\n".join(f" Row {i+1}: {row}" for i, row in enumerate(self.data))
         return str(self.data)
 
 

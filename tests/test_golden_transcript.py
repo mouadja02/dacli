@@ -30,9 +30,13 @@ class FakeLLM:
         self.script = list(script)
         self.calls = []
 
-    async def generate(self, messages, tools=None, system_prompt=None):
+    async def generate(self, messages, tools=None, system_prompt=None, on_text=None):
         self.calls.append({"tools": tools, "system_prompt": system_prompt})
-        return self.script.pop(0)
+        content, tool_calls = self.script.pop(0)
+        # Mirror the real client: when streaming is requested, emit the text.
+        if on_text and content:
+            on_text(content)
+        return content, tool_calls
 
 
 class FakeMemory:

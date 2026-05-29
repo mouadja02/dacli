@@ -16,7 +16,7 @@ folder with a manifest", not "edit an enum + the agent".
 
 import importlib
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import yaml
 
@@ -155,16 +155,70 @@ class ConnectorRegistry:
     # ------------------------------------------------------------------
     # LLM-facing surface
     # ------------------------------------------------------------------
-    def get_tool_definitions(self) -> List[Dict[str, Any]]:
-        """Build OpenAI-style tool definitions for all enabled operations."""
+    def get_tool_definitions(
+        self, connector_ids: Optional[Iterable[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """Build OpenAI-style tool definitions for enabled operations.
+
+        ``connector_ids`` is the progressive-disclosure selector (Phase 3.3):
+
+        - ``None`` (default) → full schemas for *all* enabled connectors. This
+          preserves every existing caller's behavior.
+        - a set/iterable of ids → full schemas only for those connectors
+          (plus always-on built-ins like ``system``, which are never gated so
+          the disclosure meta-tool is always callable).
+
+        The point of the selector is token economy: at 12 connectors we disclose
+        ~120 schemas only when a connector is actually selected, instead of every
+        turn.
+        """
+        selected = set(connector_ids) if connector_ids is not None else None
         tools: List[Dict[str, Any]] = []
         for connector_id in self._ordered_ids():
             if not self.is_connector_enabled(connector_id):
+                continue
+            # Built-ins (system) are always disclosed; otherwise honor the
+            # selector when one was supplied.
+            if (
+                selected is not None
+                and connector_id not in self._builtin_ids
+                and connector_id not in selected
+            ):
                 continue
             for spec in self._connectors[connector_id].operations():
                 if self.is_operation_enabled(spec.name):
                     tools.append(spec.to_tool_definition())
         return tools
+
+    def get_tool_digest(self) -> List[Dict[str, Any]]:
+        """Cheap name + one-line description for every enabled connector.
+
+        This is the progressive-disclosure surface (Phase 3.3): the system
+        prompt lists connectors by ``id``, ``name`` and a short blurb so the
+        model knows a capability *exists* without paying for its full operation
+        schemas. Full schemas are fetched via :meth:`get_tool_definitions` only
+        once the connector is disclosed. Built-ins are excluded — their tools are
+        always live in the prompt.
+        """
+        digest: List[Dict[str, str]] = []
+        for connector_id in self._ordered_ids():
+            if connector_id in self._builtin_ids:
+                continue
+            if not self.is_connector_enabled(connector_id):
+                continue
+            manifest = self._manifests.get(connector_id, {})
+            op_count = sum(
+                1
+                for spec in self._connectors[connector_id].operations()
+                if self.is_operation_enabled(spec.name)
+            )
+            digest.append({
+                "id": connector_id,
+                "name": manifest.get("name", connector_id),
+                "description": manifest.get("description", ""),
+                "operations": op_count,
+            })
+        return digest
 
     def resolve(self, tool_name: str) -> Optional[Tuple[Connector, str]]:
         """Resolve an LLM tool name to (connector instance, op name)."""
@@ -173,6 +227,17 @@ class ConnectorRegistry:
             return None
         connector_id, op_name = entry
         return self._connectors[connector_id], op_name
+
+    def get_operation_spec(self, tool_name: str):
+        """Return the OperationSpec for a tool name (for risk-aware dispatch)."""
+        entry = self._op_index.get(tool_name)
+        if not entry:
+            return None
+        connector_id, op_name = entry
+        for spec in self._connectors[connector_id].operations():
+            if spec.name == op_name:
+                return spec
+        return None
 
     def _ordered_ids(self) -> List[str]:
         # Discovered connectors first (sorted for determinism), built-ins last.

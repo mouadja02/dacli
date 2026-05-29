@@ -21,8 +21,13 @@ post-conditions / catalog updates in Phase 2.
 import time
 from typing import Any, Callable, Dict, Optional
 
-from connectors.base import ToolResult, ToolStatus
+from connectors.base import ToolResult, ToolStatus, Risk
 from connectors.registry import ConnectorRegistry
+
+# Risk levels at which a successful op may have changed live structure, so its
+# catalog effects (create/invalidate) must be applied. SAFE (read-only) ops are
+# skipped — this is where Phase 1's risk metadata earns its keep.
+_MUTATING_RISKS = {Risk.WRITE, Risk.RISKY, Risk.IRREVERSIBLE}
 
 
 class Dispatcher:
@@ -75,8 +80,38 @@ class Dispatcher:
                 execution_time_ms=result.execution_time_ms,
             )
 
+            # Post-condition: apply structured catalog effects (create /
+            # write-invalidation). Reimplements the regex side-effects deleted in
+            # Phase 1 — now driven by the connector's structured result, gated on
+            # the operation's declared risk, and only on success.
+            self._apply_catalog_effects(tool_name, resolved, result)
+
         # Emit tool end
         if self._on_tool_end:
             self._on_tool_end(tool_name, result)
 
         return result
+
+    def _apply_catalog_effects(self, tool_name, resolved, result: ToolResult) -> None:
+        if resolved is None or not result.success:
+            return
+        if not hasattr(self._memory, "apply_catalog_effects"):
+            return
+        effects = (result.metadata or {}).get("catalog_effects")
+        if not effects:
+            return
+
+        # Invariant: a write-INVALIDATION may only come from an op whose declared
+        # risk is mutating (write/risky/irreversible) — this is where Phase 1's
+        # risk metadata earns its keep. A SAFE op (e.g. introspection) may still
+        # CREATE/refresh catalog entries from what it observed live.
+        spec = self._registry.get_operation_spec(tool_name)
+        mutating = spec is None or spec.risk in _MUTATING_RISKS
+        applicable = [
+            e for e in effects
+            if mutating or e.get("action") != "invalidate"
+        ]
+        if not applicable:
+            return
+        connector, _op = resolved
+        self._memory.apply_catalog_effects(connector.name, applicable)

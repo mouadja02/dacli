@@ -118,6 +118,17 @@ class AgentSettings(BaseModel):
             raise ValueError(f"log_level must be one of {valid_levels}")
         return v.upper()
 
+class ContextSettings(BaseModel):
+    # Context Constructor (Phase 3) configuration.
+    budget_tokens: int = Field(default=12000, ge=512, description="Total token budget for one assembled turn of context")
+    spill_threshold_tokens: int = Field(default=1000, ge=0, description="Tool results estimated above this many tokens are spilled to the session workspace and replaced with a structured summary + fetch handle")
+    # Per-source fractional ceilings of the total budget (priors/memory/live/
+    # skills/history). Empty -> the assembler's DEFAULT_FRACTIONS are used.
+    source_fractions: dict = Field(default_factory=dict)
+    # Fraction of the total at which history compaction is triggered by pressure.
+    compaction_pressure: float = Field(default=0.9, ge=0.1, le=1.0)
+
+
 class UISettings(BaseModel):
     # UI/Display configuration
     theme: str = "dark"
@@ -147,6 +158,7 @@ class Settings(BaseModel):
     pinecone: PineconeSettings = Field(default_factory=PineconeSettings)
     embeddings: EmbeddingsSettings = Field(default_factory=EmbeddingsSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
+    context: ContextSettings = Field(default_factory=ContextSettings)
     ui: UISettings = Field(default_factory=UISettings)
     retry: RetrySettings = Field(default_factory=RetrySettings)
 
