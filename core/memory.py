@@ -9,7 +9,6 @@ Provides persistent storage for:
 """
 
 import json
-import os
 
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -282,9 +281,9 @@ class AgentMemory:
             self.state.created_tables.append(table_name)
         self._save_state()
 
-    def add_loaded_table(self, table_name: str) -> None:
-        # Record a loaded table
-        self.state.loaded_tables.append(table_name)
+    def add_loaded_table(self, table_name: str, row_count: int = 0) -> None:
+        # Record a loaded table and the number of rows loaded into it
+        self.state.loaded_tables[table_name] = row_count
         self._save_state()
 
     def set_infrastructure_ready(self) -> None:
@@ -415,7 +414,7 @@ class AgentMemory:
             "phases": {
                 k: {
                     "status": v.get("status"),
-                    "progress": f"{v.get("current_step", 0)} / {v.get("total_steps", 0)}"
+                    "progress": "{} / {}".format(v.get("current_step", 0), v.get("total_steps", 0))
                 }
                 for k, v in self.state.phases.items()
             }

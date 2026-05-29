@@ -3,28 +3,20 @@ import os
 import yaml
 from pathlib import Path
 from urllib.parse import urlparse
-from typing import Dict, List, Any, Optional
+from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Import ToolsSettings (lazy import to avoid circular dependency)
-def _get_tools_settings_class():
-    from config.tool_registry import ToolsSettings
-    return ToolsSettings
 
 def _substitute_env_vars(value: Any) -> Any:
     # Recursively substitute environment variables in config values.
     if isinstance(value, str):
         # Match the  ${VAR_NAME} pattern
         pattern= r"\$\{([^}]+)\}"
-        matches = re.findall(pattern, value)
-        for match in matches:
-            env_value = os.environ.get(match, "")
-            value = value.replace(f"${{{match})}}", env_value)
-        return value
+        return re.sub(pattern, lambda match: os.environ.get(match.group(1), ""), value)
     elif isinstance(value, dict):
         return {k: _substitute_env_vars(v) for k,v in value.items()}
     elif isinstance(value, list):
@@ -157,22 +149,10 @@ class Settings(BaseModel):
     agent: AgentSettings = Field(default_factory=AgentSettings)
     ui: UISettings = Field(default_factory=UISettings)
     retry: RetrySettings = Field(default_factory=RetrySettings)
-    
-    # Dynamic tools configuration (managed by setup wizard)
-    tools: Optional[Any] = Field(default=None)
-    
-    @model_validator(mode="before")
-    @classmethod
-    def parse_tools_config(cls, data: Any) -> Any:
-        """Parse tools configuration from YAML"""
-        if isinstance(data, dict) and 'tools' in data:
-            try:
-                ToolsSettings = _get_tools_settings_class()
-                if isinstance(data['tools'], dict):
-                    data['tools'] = ToolsSettings(**data['tools'])
-            except Exception:
-                data['tools'] = None
-        return data
+
+    # NOTE: connector enable/disable state lives in config/connectors.yaml
+    # (see connectors.registry), not here. A legacy top-level ``tools:`` block in
+    # an old config.yaml is harmlessly ignored via ``extra="ignore"`` above.
 
 
 def load_config(config_path: Optional[str] = None) -> Settings:
@@ -214,41 +194,13 @@ def load_config(config_path: Optional[str] = None) -> Settings:
     
     # Substitute environment variables
     config_data = _substitute_env_vars(raw_config)
-
+    
     return Settings(**config_data)
 
 
 def save_config(settings: Settings, config_path: str = "config.yaml") -> None:
     # Save settings to YAML file
     config_dict = settings.model_dump()
-    
+
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
-
-
-def save_tools_config(tools_settings: Any, config_path: str = "config.yaml") -> None:
-    """
-    Save only the tools configuration to YAML, preserving other settings.
-    This is used by the setup wizard to update tool preferences.
-    """
-    path = Path(config_path)
-    
-    # Load existing config if it exists
-    existing_config = {}
-    if path.exists():
-        with open(path, "r", encoding="utf-8") as f:
-            existing_config = yaml.safe_load(f) or {}
-    
-    # Update only the tools section
-    existing_config['tools'] = tools_settings.model_dump()
-    
-    # Write back
-    with open(path, "w", encoding="utf-8") as f:
-        yaml.dump(existing_config, f, default_flow_style=False, sort_keys=False)
-
-def get_config_template() -> str:
-    # Return a template configuration file content
-    template_path = Path(__file__).parent.parent.parent / "config_template.yaml"
-    if template_path.exists():
-        return template_path.read_text()
-    return ""

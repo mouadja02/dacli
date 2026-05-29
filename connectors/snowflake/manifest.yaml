@@ -1,0 +1,7 @@
+id: snowflake
+name: Snowflake
+description: Execute SQL queries and manage your Snowflake data warehouse
+icon: "❄️"
+class: connectors.snowflake.connector.SnowflakeConnector
+required_config: [account, user, password, warehouse, database]
+enabled: true

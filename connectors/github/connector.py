@@ -1,20 +1,18 @@
 import asyncio
 import base64
-import json
 import time
 import io
 import zipfile
 import httpx
 from typing import Any, Dict, List, Optional
 
-from tools.Base import BaseTool, ToolResult, ToolStatus
+from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from config.settings import Settings
 
 
-
-class GithubTool(BaseTool):
+class GithubConnector(Connector):
     """
-    GitHub API tool for managing dbt project files and workflows.
+    GitHub API connector for managing dbt project files and workflows.
 
     Operations:
     - read_file: Read a file from the repository
@@ -27,27 +25,229 @@ class GithubTool(BaseTool):
     - get_workflow_run_jobs: Get jobs and logs of a workflow run
     """
 
-    AVAILABLE_OPERATIONS = ["read_file","create_or_update_file","delete_file","list_directory",
-                            "create_or_update_workflow","trigger_workflow","list_workflow_runs",
-                            "get_workflow_run","get_workflow_run_jobs"]
+    name = "github"
+
+    AVAILABLE_OPERATIONS = ["read_file", "create_or_update_file", "delete_file", "list_directory",
+                            "create_or_update_workflow", "trigger_workflow", "list_workflow_runs",
+                            "get_workflow_run", "get_workflow_run_jobs"]
 
     def __init__(self, settings: Settings):
         super().__init__(settings)
         self._client: Optional[httpx.AsyncClient] = None
 
     @property
-    def name(self) -> str:
-        return "github"
-
-    @property
-    def description(self) -> str:
-        return "GitHub API tool for managing dbt project files and workflows."
-
-    @property
     def _gh(self):
         # Shortcut to the GitHub settings
         return self.settings.github
 
+    # ------------------------------------------------------------------
+    # Connector contract
+    # ------------------------------------------------------------------
+    def operations(self) -> List[OperationSpec]:
+        return [
+            OperationSpec(
+                name="list_github_directory",
+                description="List contents of a directory in the GitHub repository.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "The directory path to list (e.g. 'models', 'analyses'). Use empty string or '/' for root."
+                        }
+                    },
+                    "required": ["path"]
+                },
+                capability="github.read",
+                risk=Risk.SAFE,
+                display_name="List Directory",
+                category="read",
+            ),
+            OperationSpec(
+                name="read_github_file",
+                description="Read the content of a file from the GitHub repository.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "The file path to read (e.g. 'dbt_project.yml')."
+                        }
+                    },
+                    "required": ["path"]
+                },
+                capability="github.read",
+                risk=Risk.SAFE,
+                display_name="Read File",
+                category="read",
+            ),
+            OperationSpec(
+                name="push_github_file",
+                description="Create or update a file in the GitHub repository (commits changes).",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "The file path to create or update."
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "The full content of the file."
+                        },
+                        "message": {
+                            "type": "string",
+                            "description": "Commit message describing the change."
+                        }
+                    },
+                    "required": ["path", "content", "message"]
+                },
+                capability="github.write",
+                risk=Risk.WRITE,
+                display_name="Push File",
+                category="write",
+            ),
+            OperationSpec(
+                name="delete_github_file",
+                description="Delete a file in the GitHub repository (commits changes).",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "The file path to delete."
+                        },
+                        "message": {
+                            "type": "string",
+                            "description": "Commit message describing the deletion."
+                        }
+                    },
+                    "required": ["path", "message"]
+                },
+                capability="github.write",
+                risk=Risk.IRREVERSIBLE,
+                display_name="Delete File",
+                category="write",
+            ),
+            OperationSpec(
+                name="trigger_github_workflow",
+                description="Trigger a GitHub Actions workflow.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "workflow_id": {
+                            "type": "string",
+                            "description": "Workflow filename (e.g. 'deploy_dbt.yml')."
+                        },
+                        "inputs": {
+                            "type": "object",
+                            "description": "Optional inputs for the workflow_dispatch event."
+                        }
+                    },
+                    "required": ["workflow_id"]
+                },
+                capability="github.workflow",
+                risk=Risk.RISKY,
+                display_name="Trigger Workflow",
+                category="workflow",
+            ),
+            OperationSpec(
+                name="list_github_workflow_runs",
+                description="List recent workflow runs for the repository.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "limit": {
+                            "type": "integer",
+                            "description": "Number of runs to return (default 5)."
+                        }
+                    },
+                    "required": []
+                },
+                capability="github.workflow",
+                risk=Risk.SAFE,
+                display_name="List Workflow Runs",
+                category="workflow",
+            ),
+            OperationSpec(
+                name="get_github_workflow_run",
+                description="Get status and details of a workflow run.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "run_id": {
+                            "type": "integer",
+                            "description": "The ID of the workflow run."
+                        }
+                    },
+                    "required": ["run_id"]
+                },
+                capability="github.workflow",
+                risk=Risk.SAFE,
+                display_name="Get Workflow Run",
+                category="workflow",
+            ),
+            OperationSpec(
+                name="get_github_workflow_run_jobs",
+                description="Get jobs, steps, and failure logs for a workflow run.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "run_id": {
+                            "type": "integer",
+                            "description": "The ID of the workflow run."
+                        }
+                    },
+                    "required": ["run_id"]
+                },
+                capability="github.workflow",
+                risk=Risk.SAFE,
+                display_name="Get Workflow Jobs",
+                category="workflow",
+            ),
+        ]
+
+    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+        # Translate the LLM-facing operation + args onto the internal handlers.
+        args = dict(args or {})
+        if op == "list_github_directory":
+            return await self._execute("list_directory", path=args.get("path", ""))
+        elif op == "read_github_file":
+            return await self._execute("read_file", path=args.get("path", ""))
+        elif op == "push_github_file":
+            return await self._execute(
+                "create_or_update_file",
+                path=args.get("path", ""),
+                content=args.get("content", ""),
+                message=args.get("message", ""),
+            )
+        elif op == "delete_github_file":
+            return await self._execute(
+                "delete_file",
+                path=args.get("path", ""),
+                message=args.get("message", ""),
+            )
+        elif op == "trigger_github_workflow":
+            return await self._execute("trigger_workflow", name=args.get("workflow_id", ""))
+        elif op == "list_github_workflow_runs":
+            kwargs = {}
+            if "limit" in args:
+                # Preserve the historical limit -> per_page remap.
+                kwargs["per_page"] = args["limit"]
+            return await self._execute("list_workflow_runs", **kwargs)
+        elif op == "get_github_workflow_run":
+            return await self._execute("get_workflow_run", run_id=args.get("run_id"))
+        elif op == "get_github_workflow_run_jobs":
+            return await self._execute("get_workflow_run_jobs", run_id=args.get("run_id"))
+        return ToolResult(
+            tool_name=op,
+            status=ToolStatus.ERROR,
+            error=f"Unknown operation '{op}' for connector '{self.name}'",
+        )
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
     async def connect(self) -> bool:
         # Establish connection with the GitHub API
         try:
@@ -67,7 +267,7 @@ class GithubTool(BaseTool):
             raise ConnectionError(f"Failed to connect to GitHub: {str(e)}")
         return False
 
-    async def validate(self) -> ToolResult:
+    async def health(self) -> ToolResult:
         # Validate the GitHub connection
         start_time = time.time()
 
@@ -78,9 +278,9 @@ class GithubTool(BaseTool):
             response = await self._client.get(f"/repos/{self._gh.owner}/{self._gh.repo}")
             response.raise_for_status()
             data = response.json()
-            
+
             execution_time = (time.time() - start_time) * 1000
-            
+
             return ToolResult(
                 tool_name=self.name,
                 status=ToolStatus.SUCCESS,
@@ -101,10 +301,10 @@ class GithubTool(BaseTool):
                 execution_time_ms=execution_time,
             )
 
-    async def execute(self, operation: str, **kwargs) -> ToolResult:
+    async def _execute(self, operation: str, **kwargs) -> ToolResult:
         # Execute a GitHub operation
         start_time = time.time()
-        
+
         if operation not in self.AVAILABLE_OPERATIONS:
             return ToolResult(
                 tool_name=self.name,
@@ -119,9 +319,9 @@ class GithubTool(BaseTool):
 
             handler = getattr(self, f"_op_{operation}")
             result_data = await handler(**kwargs)
-            
+
             execution_time = (time.time() - start_time) * 1000
-            
+
             if isinstance(result_data, dict) and "error" in result_data:
                 return ToolResult(
                     tool_name=self.name,
@@ -130,7 +330,7 @@ class GithubTool(BaseTool):
                     execution_time_ms=execution_time,
                     metadata={"operation": operation},
                 )
-            
+
             return ToolResult(
                 tool_name=self.name,
                 status=ToolStatus.SUCCESS,
@@ -148,7 +348,6 @@ class GithubTool(BaseTool):
                 metadata={"operation": operation},
             )
 
-
     # ================================================================
     # File Operations
     # ================================================================
@@ -165,7 +364,7 @@ class GithubTool(BaseTool):
         # Helper to get file SHA if it exists
         try:
             # We use a direct client call to avoid recursion or overhead of full _op_read_file
-            # but _op_read_file handles 404 cleanly, so we can use a simplified version of it 
+            # but _op_read_file handles 404 cleanly, so we can use a simplified version of it
             # or just call the API directly here.
             # Using API directly for efficiency:
             url = f"/repos/{self._gh.owner}/{self._gh.repo}/contents/{path}?ref={branch}"
@@ -183,7 +382,7 @@ class GithubTool(BaseTool):
         # Read a file from the repository
         branch = self._gh.branch
         response = await self._client.get(f"/repos/{self._gh.owner}/{self._gh.repo}/contents/{path}?ref={branch}")
-        
+
         if response.status_code == 404:
             return {"error": f"File not found: {path}"}
 
@@ -191,7 +390,7 @@ class GithubTool(BaseTool):
 
         data = response.json()
 
-        if isinstance(data, list): # Path is a directory, return content listing 
+        if isinstance(data, list):  # Path is a directory, return content listing
             return {
                 "path": path or "/",
                 "entries": await self._parse_directory_entries(data),
@@ -207,7 +406,6 @@ class GithubTool(BaseTool):
             "sha": data.get("sha"),
             "size": data.get("size", 0)
         }
-
 
     async def _op_create_or_update_file(self, path: str, content: str = "", message: str = "", **kwargs) -> Dict[str, Any]:
         # Create or update a file in the repository
@@ -226,10 +424,10 @@ class GithubTool(BaseTool):
         }
 
         if sha:
-            body["sha"] = sha # Specify the SHA for updates
+            body["sha"] = sha  # Specify the SHA for updates
 
         response = await self._client.put(url, json=body)
-        
+
         if response.status_code not in (200, 201):
             return {"error": f"HTTP {response.status_code}: {response.text}"}
 
@@ -248,15 +446,15 @@ class GithubTool(BaseTool):
         sha = kwargs.get("sha")
         if not sha:
             sha = await self._get_file_sha(path, branch)
-        
+
         if not sha:
-             return {"error": "File not found: {}".format(path)}
+            return {"error": "File not found: {}".format(path)}
 
         url = f"/repos/{self._gh.owner}/{self._gh.repo}/contents/{path}?ref={branch}"
         body = {
             "message": message,
-            "sha": sha 
-            }
+            "sha": sha
+        }
 
         response = await self._client.request("DELETE", url, json=body)
 
@@ -281,7 +479,7 @@ class GithubTool(BaseTool):
 
         data = response.json()
 
-        if not isinstance(data, list): 
+        if not isinstance(data, list):
             return {"error": f"Path '{path}' is a file, not a directory."}
 
         entries = await self._parse_directory_entries(data)
@@ -290,7 +488,6 @@ class GithubTool(BaseTool):
             "path": path or "/",
             "entries": entries
         }
-
 
     # ================================================================
     # Workflow Operations
@@ -303,21 +500,21 @@ class GithubTool(BaseTool):
                 path = f".github/workflows/{path}.yml"
             else:
                 path = f".github/workflows/{path}"
-        
+
         branch = self._gh.branch
-        
+
         # Update on target branch
         result = await self._op_create_or_update_file(path=path, content=content, message=message, branch=branch, **kwargs)
         if "error" in result:
             return result
-            
+
         # Ensure it is also on main if we didn't just update main (redundancy check not strictly required but saves a call)
         if branch != "main":
             # Original logic always pushed to main as well to ensure actions pickup
             result_main = await self._op_create_or_update_file(path=path, content=content, message=message, branch="main", **kwargs)
             if "error" in result_main:
                 return result_main
-                
+
         return result
 
     async def _op_list_workflow_runs(self, name: str = "", **kwargs) -> Dict[str, Any]:
@@ -344,7 +541,7 @@ class GithubTool(BaseTool):
             })
 
         return {"total_count": data.get("total_count", 0), "runs": runs}
-               
+
     async def _op_get_workflow_run(self, run_id: int = 0, **kwargs) -> Dict[str, Any]:
         # Get status of a specific workflow run
         response = await self._client.get(
@@ -367,18 +564,18 @@ class GithubTool(BaseTool):
             "run_attempt": run.get("run_attempt", 1),
         }
 
-    async def _op_trigger_workflow(self, name: str = "", **kwargs) -> Dict[str, Any]:    
+    async def _op_trigger_workflow(self, name: str = "", **kwargs) -> Dict[str, Any]:
         # Check if there is no workflow run in progress
         response = await self._client.get(
             f"/repos/{self._gh.owner}/{self._gh.repo}/actions/runs?status=in_progress"
         )
         if response.status_code != 200:
             return {"error": f"HTTP {response.status_code}: {response.text}"}
-        
+
         data = response.json()
         if data["total_count"] > 0:
             return {"error": "A workflow run is already in progress"}
-        
+
         # Normalize workflow path and ID
         if not name.startswith(".github/workflows/"):
             if not name.endswith(".yml") and not name.endswith(".yaml"):
@@ -390,17 +587,17 @@ class GithubTool(BaseTool):
         else:
             path = name
             workflow_id = name.split("/")[-1]
-        
+
         # Check if the workflow exists
         response = await self._client.get(
             f"/repos/{self._gh.owner}/{self._gh.repo}/contents/{path}"
         )
         if response.status_code != 200:
             return {"error": f"Workflow file not found: {path}"}
-        
+
         # Record timestamp BEFORE triggering
         before_timestamp = time.time()
-        
+
         # Trigger the workflow
         response = await self._client.post(
             f"/repos/{self._gh.owner}/{self._gh.repo}/actions/workflows/{workflow_id}/dispatches",
@@ -408,10 +605,10 @@ class GithubTool(BaseTool):
         )
         if response.status_code != 204:
             return {"error": f"Failed to trigger workflow: HTTP {response.status_code}: {response.text}"}
-        
+
         # Wait for run to appear in API
         await asyncio.sleep(5)
-        
+
         # Find the run we just triggered (by timestamp)
         run_id = None
         for attempt in range(6):  # Try for 30 seconds
@@ -421,48 +618,48 @@ class GithubTool(BaseTool):
             )
             if response.status_code != 200:
                 return {"error": f"Failed to fetch runs: HTTP {response.status_code}"}
-            
+
             data = response.json()
-            
+
             # Find run created after we triggered
             from datetime import datetime
             for run in data["workflow_runs"]:
                 run_created = datetime.strptime(
-                    run["created_at"], 
+                    run["created_at"],
                     "%Y-%m-%dT%H:%M:%SZ"
                 ).timestamp()
-                
+
                 if run_created >= before_timestamp:
                     run_id = run["id"]
                     break
-            
+
             if run_id:
                 break
-            
+
             await asyncio.sleep(5)
-        
+
         if not run_id:
             return {"error": "Could not find the triggered workflow run"}
-        
+
         # Poll until completion
         poll_interval = 30
         timeout = self._gh.workflow_timeout
         start_time = time.time()
-        
+
         while time.time() - start_time < timeout:
             response = await self._client.get(
                 f"/repos/{self._gh.owner}/{self._gh.repo}/actions/runs/{run_id}"
             )
             if response.status_code != 200:
                 return {"error": f"Failed to check run status: HTTP {response.status_code}"}
-            
+
             data = response.json()
             status = data["status"]
-            
+
             if status == "completed":
                 conclusion = data["conclusion"]
                 duration = int(time.time() - start_time)
-                
+
                 if conclusion == "success":
                     return {
                         "success": True,
@@ -475,7 +672,7 @@ class GithubTool(BaseTool):
                 else:
                     # Workflow failed - get detailed error information
                     error_details = await self._get_workflow_errors_with_logs(run_id)
-                    
+
                     return {
                         "success": False,
                         "conclusion": conclusion,
@@ -485,9 +682,9 @@ class GithubTool(BaseTool):
                         "duration_seconds": duration,
                         "error_details": error_details
                     }
-            
+
             await asyncio.sleep(poll_interval)
-        
+
         # Timeout occurred
         return {
             "error": "Workflow execution timed out",
@@ -495,6 +692,7 @@ class GithubTool(BaseTool):
             "run_id": run_id,
             "timeout_seconds": timeout
         }
+
     async def _op_get_workflow_run_jobs(self, run_id: int = 0, **kwargs) -> Dict[str, Any]:
         # Get jobs and step-level details for a workflow run
         response = await self._client.get(
@@ -537,45 +735,9 @@ class GithubTool(BaseTool):
 
         return {"run_id": run_id, "total_jobs": data.get("total_count", 0), "jobs": jobs}
 
-    def get_schema(self) -> Dict[str, Any]:
-        # Return JSON schema for GitHub tool parameters
-        return {
-            "type": "object",
-            "properties": {
-                "operation": {
-                    "type": "string",
-                    "description": "GitHub operation to perform",
-                    "enum": self.AVAILABLE_OPERATIONS,
-                },
-                "path": {
-                    "type": "string",
-                    "description": "File or directory path in the repo",
-                },
-                "content": {
-                    "type": "string",
-                    "description": "File content (for create_or_update_file)",
-                },
-                "message": {
-                    "type": "string",
-                    "description": "Commit message (for create_or_update_file, delete_file)",
-                },
-                "workflow_id": {
-                    "type": "string",
-                    "description": "Workflow filename (e.g. 'dbt_run.yml')",
-                },
-                "run_id": {
-                    "type": "integer",
-                    "description": "Workflow run ID",
-                },
-            },
-            "required": ["operation"],
-        }
-
-
     # -----------------------------------------------------------
     #     Functions to get the workflow logs and parse errors
     # -----------------------------------------------------------
-           
     async def _fetch_job_raw_log(self, job_id: int) -> Optional[str]:
         # Fetch the raw log for a specific job
         try:
@@ -595,10 +757,10 @@ class GithubTool(BaseTool):
             f"/repos/{self._gh.owner}/{self._gh.repo}/actions/runs/{run_id}/logs",
             follow_redirects=True
         )
-        
+
         if response.status_code != 200:
             return {"error": f"Failed to download logs: HTTP {response.status_code}"}
-        
+
         logs = {}
         try:
             with zipfile.ZipFile(io.BytesIO(response.content)) as zip_file:
@@ -607,9 +769,8 @@ class GithubTool(BaseTool):
                         logs[file_name] = log_file.read().decode('utf-8')
         except Exception as e:
             return {"error": f"Failed to extract logs: {str(e)}"}
-        
-        return logs
 
+        return logs
 
     def _extract_clean_errors(self, log_content: str) -> list:
         # Extract clean error messages from log content
@@ -617,11 +778,11 @@ class GithubTool(BaseTool):
         errors = []
         current_error = []
         in_error_block = False
-        
+
         for line in lines:
             # Remove timestamp prefix
             clean_line = line.split('Z ', 1)[-1] if 'Z ' in line and line[0].isdigit() else line
-            
+
             # Detect error start
             if 'Encountered an error:' in clean_line or '##[error]' in clean_line:
                 in_error_block = True
@@ -629,13 +790,13 @@ class GithubTool(BaseTool):
                     errors.append('\n'.join(current_error))
                     current_error = []
                 continue
-            
+
             # Capture error content
             if in_error_block:
                 # Skip GitHub Actions metadata
                 if clean_line.startswith('##['):
                     continue
-                
+
                 # Stop at empty line
                 if not clean_line.strip():
                     if current_error:
@@ -643,40 +804,39 @@ class GithubTool(BaseTool):
                         current_error = []
                     in_error_block = False
                     continue
-                
+
                 # Add meaningful lines
                 if clean_line.strip():
                     current_error.append(clean_line.strip())
-        
+
         # Add last error if exists
         if current_error:
             errors.append('\n'.join(current_error))
-        
-        return errors
 
+        return errors
 
     async def _get_workflow_errors_with_logs(self, run_id: int) -> Dict[str, Any]:
         # Get detailed error information including logs
-        
+
         # Get jobs info
         response = await self._client.get(
             f"/repos/{self._gh.owner}/{self._gh.repo}/actions/runs/{run_id}/jobs"
         )
         if response.status_code != 200:
             return {"error": f"Failed to fetch jobs: HTTP {response.status_code}"}
-        
+
         jobs_data = response.json()
-        
+
         # Download logs
         logs = await self._get_workflow_logs(run_id)
         if "error" in logs:
             # If we can't get logs, return basic error info
             return await self.get_workflow_errors(run_id)
-        
+
         result = {
             "failed_jobs": []
         }
-        
+
         for job in jobs_data["jobs"]:
             if job["conclusion"] in ["failure", "cancelled", "timed_out"]:
                 job_errors = {
@@ -685,7 +845,7 @@ class GithubTool(BaseTool):
                     "html_url": job["html_url"],
                     "errors": []
                 }
-                
+
                 # Find failed steps
                 for step in job["steps"]:
                     if step["conclusion"] in ["failure", "cancelled", "timed_out"]:
@@ -695,7 +855,7 @@ class GithubTool(BaseTool):
                             if step["name"] in log_file_name or f"{step['number']}_" in log_file_name:
                                 step_log = log_content
                                 break
-                        
+
                         if step_log:
                             error_messages = self._extract_clean_errors(step_log)
                             if error_messages:
@@ -703,11 +863,10 @@ class GithubTool(BaseTool):
                                     "step": step["name"],
                                     "error_messages": error_messages
                                 })
-                
-                result["failed_jobs"].append(job_errors)
-        
-        return result
 
+                result["failed_jobs"].append(job_errors)
+
+        return result
 
     async def get_workflow_errors(self, run_id: int) -> Dict[str, Any]:
         # Get basic error information (fallback when logs unavailable)
@@ -716,21 +875,21 @@ class GithubTool(BaseTool):
         )
         if response.status_code != 200:
             return {"error": f"Failed to fetch run: HTTP {response.status_code}"}
-        
+
         run_data = response.json()
-        
+
         response = await self._client.get(
             f"/repos/{self._gh.owner}/{self._gh.repo}/actions/runs/{run_id}/jobs"
         )
         if response.status_code != 200:
             return {"error": f"Failed to fetch jobs: HTTP {response.status_code}"}
-        
+
         jobs_data = response.json()
-        
+
         result = {
             "failed_jobs": []
         }
-        
+
         for job in jobs_data["jobs"]:
             if job["conclusion"] in ["failure", "cancelled", "timed_out"]:
                 job_error = {
@@ -739,14 +898,14 @@ class GithubTool(BaseTool):
                     "html_url": job["html_url"],
                     "failed_steps": []
                 }
-                
+
                 for step in job["steps"]:
                     if step["conclusion"] in ["failure", "cancelled", "timed_out"]:
                         job_error["failed_steps"].append({
                             "step_name": step["name"],
                             "conclusion": step["conclusion"]
                         })
-                
+
                 result["failed_jobs"].append(job_error)
-        
+
         return result
