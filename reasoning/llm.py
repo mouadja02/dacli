@@ -1,8 +1,13 @@
 import json
 import asyncio
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from config.settings import Settings
+
+# Type of the optional streaming callback: receives each text delta as it
+# arrives. Returning None; it is presentation-only and must not raise into the
+# generate path (the UI guards its own rendering).
+OnText = Optional[Callable[[str], None]]
 
 
 class LLMClient:
@@ -45,7 +50,7 @@ class LLMClient:
         else:
             raise ValueError(f"Unsupported LLM provider: {provider}")
 
-    async def generate(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None) -> Tuple[str, List[Dict]]:
+    async def generate(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None) -> Tuple[str, List[Dict]]:
         """
         Generate a response from the LLM.
 
@@ -53,6 +58,11 @@ class LLMClient:
             messages: Conversation messages
             tools: Available tool definitions
             system_prompt: System prompt to use
+            on_text: Optional callback invoked with each text delta as it is
+                generated. When provided (and the provider supports it) the
+                response is streamed; the return value is unchanged. Providers
+                without streaming call it once with the full text instead, so
+                the UI behaves identically.
 
         Returns:
             Tuple of (response content, tool calls)
@@ -62,13 +72,23 @@ class LLMClient:
 
         provider = self._provider.lower()
         if provider in ["openai", "openrouter"]:
-            return await self._generate_openai(messages, tools, system_prompt)
+            return await self._generate_openai(messages, tools, system_prompt, on_text=on_text)
         elif provider == "anthropic":
-            return await self._generate_anthropic(messages, tools, system_prompt)
+            return await self._generate_anthropic(messages, tools, system_prompt, on_text=on_text)
         elif provider == "google":
-            return await self._generate_google(messages, tools, system_prompt)
+            return await self._generate_google(messages, tools, system_prompt, on_text=on_text)
         else:
             raise ValueError(f"Unsupported provider: {provider}")
+
+    @staticmethod
+    def _emit(on_text: OnText, delta: str) -> None:
+        # Stream a delta to the UI without ever letting a rendering error break
+        # generation (reliability-first).
+        if on_text and delta:
+            try:
+                on_text(delta)
+            except Exception:
+                pass
 
     async def classify(self, text: str, labels: List[str], instructions: Optional[str] = None) -> str:
         """
@@ -103,7 +123,7 @@ class LLMClient:
                 return label
         return answer
 
-    async def _generate_openai(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None) -> Tuple[str, List[Dict]]:
+    async def _generate_openai(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None) -> Tuple[str, List[Dict]]:
         # Generate using OpenAI-compatibile API
 
         # Prepare messages includes system prompt
@@ -125,6 +145,9 @@ class LLMClient:
             request_kwargs["tools"] = tools
             request_kwargs["tool_choice"] = "auto"
 
+        if on_text is not None:
+            return await self._stream_openai(request_kwargs, on_text)
+
         # Make request
         response = await self._client.chat.completions.create(**request_kwargs)
 
@@ -140,7 +163,48 @@ class LLMClient:
 
         return content, tool_calls
 
-    async def _generate_anthropic(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None) -> Tuple[str, List[Dict]]:
+    async def _stream_openai(self, request_kwargs: Dict, on_text: OnText) -> Tuple[str, List[Dict]]:
+        # Streaming variant: accumulate text deltas (emitted live) and reassemble
+        # tool calls, which arrive as indexed fragments across chunks.
+        request_kwargs = {**request_kwargs, "stream": True}
+        stream = await self._client.chat.completions.create(**request_kwargs)
+
+        content = ""
+        # index -> {"id", "name", "arguments"(str)}
+        acc: Dict[int, Dict[str, str]] = {}
+
+        async for chunk in stream:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            if getattr(delta, "content", None):
+                content += delta.content
+                self._emit(on_text, delta.content)
+            for tc in (getattr(delta, "tool_calls", None) or []):
+                slot = acc.setdefault(tc.index, {"id": "", "name": "", "arguments": ""})
+                if getattr(tc, "id", None):
+                    slot["id"] = tc.id
+                fn = getattr(tc, "function", None)
+                if fn is not None:
+                    if getattr(fn, "name", None):
+                        slot["name"] = fn.name
+                    if getattr(fn, "arguments", None):
+                        slot["arguments"] += fn.arguments
+
+        tool_calls = []
+        for index in sorted(acc):
+            slot = acc[index]
+            if not slot["name"]:
+                continue
+            try:
+                arguments = json.loads(slot["arguments"] or "{}")
+            except json.JSONDecodeError:
+                arguments = {}
+            tool_calls.append({"id": slot["id"], "name": slot["name"], "arguments": arguments})
+
+        return content, tool_calls
+
+    async def _generate_anthropic(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None) -> Tuple[str, List[Dict]]:
         # Generate using Anthropic API
         # Prepare request
         request_kwargs = {
@@ -163,21 +227,33 @@ class LLMClient:
                 })
             request_kwargs["tools"] = anthropic_tools
 
-        response = await self._client.messages.create(**request_kwargs)
+        if on_text is not None:
+            return await self._stream_anthropic(request_kwargs, on_text)
 
-        # Extract response
+        response = await self._client.messages.create(**request_kwargs)
+        return self._extract_anthropic(response.content)
+
+    async def _stream_anthropic(self, request_kwargs: Dict, on_text: OnText) -> Tuple[str, List[Dict]]:
+        # Streaming variant: emit text events live, then read the assembled
+        # final message for the authoritative content + tool_use blocks.
+        async with self._client.messages.stream(**request_kwargs) as stream:
+            async for text in stream.text_stream:
+                self._emit(on_text, text)
+            final = await stream.get_final_message()
+        return self._extract_anthropic(final.content)
+
+    @staticmethod
+    def _extract_anthropic(blocks) -> Tuple[str, List[Dict]]:
         content = ""
         tool_calls = []
-
-        for block in response.content:
+        for block in blocks:
             if block.type == "text":
                 content += block.text
             elif block.type == "tool_use":
                 tool_calls.append({"id": block.id, "name": block.name, "arguments": block.input})
-
         return content, tool_calls
 
-    async def _generate_google(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None) -> Tuple[str, List[Dict]]:
+    async def _generate_google(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None) -> Tuple[str, List[Dict]]:
         # Generate using Google Gemini API
 
         # Reliability: tool calling is not implemented for Gemini. Rather than
@@ -200,4 +276,7 @@ class LLMClient:
 
         response = await asyncio.to_thread(model.generate_content, gemini_messages)
 
+        # Gemini has no streaming path here; emit the full text once so the
+        # streaming UI still renders it.
+        self._emit(on_text, response.text)
         return response.text, []

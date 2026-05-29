@@ -29,6 +29,9 @@ class DACLI:
         on_tool_start: Optional[Callable[[str, Dict], None]] = None,
         on_tool_end: Optional[Callable[[str, ToolResult], None]] = None,
         on_user_input_needed: Optional[Callable[[str], str]] = None,
+        on_stream_start: Optional[Callable[[], None]] = None,
+        on_text: Optional[Callable[[str], None]] = None,
+        on_stream_end: Optional[Callable[[str], None]] = None,
         connectors_config_path: str = CONNECTORS_CONFIG_PATH,
     ):
         self.settings = settings
@@ -66,6 +69,12 @@ class DACLI:
             on_tool_end=on_tool_end,
         )
 
+        # Context Constructor (Phase 3) wiring. Builds the per-turn collaborators
+        # the kernel uses instead of a fixed window: a token counter + budget, a
+        # selection-policy assembler (with progressive disclosure + dynamic
+        # prompt), off-context result spill, and budget-pressure compaction.
+        self._context = self._build_context_pipeline()
+
         # The kernel owns the loop and talks only to reasoning/dispatcher/memory.
         self.kernel = Kernel(
             llm=self.llm,
@@ -75,7 +84,83 @@ class DACLI:
             system_prompt=self.system_prompt,
             max_iterations=settings.agent.max_iterations,
             on_status_update=on_status_update,
+            on_stream_start=on_stream_start,
+            on_text=on_text,
+            on_stream_end=on_stream_end,
+            context_builder=self._context["build"],
+            result_spill=self._context["spill"],
+            maybe_compact=self._context["maybe_compact"],
         )
+
+    def _build_context_pipeline(self) -> Dict:
+        """Construct the Phase 3 context collaborators and return them as hooks.
+
+        Returns ``{"build", "spill", "maybe_compact", "explain"}``. ``explain`` is
+        used by ``dacli context --explain`` to inspect an assembled context.
+        """
+        from context.assembler import build_context
+        from context.budget import Budget
+        from context.compaction import compact, needs_compaction
+        from context.disclosure import disclose
+        from context.spill import ResultStore, summarize_or_inline
+        from context.tokenizer import make_counter
+        from prompts.system_prompt import compose_system_prompt
+
+        settings = self.settings
+        counter = make_counter(settings)
+        budget = Budget.from_settings(settings)
+        store = ResultStore(session_id=self.memory.session_id)
+
+        # Late-bind collaborators the system connector needs (3.3 / 3.4).
+        self._system_connector.bind_registry(self.registry)
+        self._system_connector.bind_result_store(store)
+
+        def _build(task, working, disclosed):
+            effective = disclose(task, self.registry, already_disclosed=disclosed)
+            base = compose_system_prompt(task, effective)
+            return build_context(
+                task,
+                memory=self.memory,
+                registry=self.registry,
+                recent_messages=working,
+                counter=counter,
+                budget=budget,
+                disclosed=effective,
+                base_system_prompt=base,
+            )
+
+        def _spill(result) -> str:
+            return summarize_or_inline(
+                result, counter, settings.context.spill_threshold_tokens, store
+            )
+
+        async def _maybe_compact(working):
+            if needs_compaction(
+                working, counter, budget.total,
+                pressure=settings.context.compaction_pressure,
+            ):
+                result = await compact(
+                    working,
+                    self.llm,
+                    store_fn=lambda note: self._remember_compaction(note),
+                )
+                return result.messages
+            return working
+
+        return {
+            "build": _build,
+            "spill": _spill,
+            "maybe_compact": _maybe_compact,
+            "counter": counter,
+            "budget": budget,
+        }
+
+    def _remember_compaction(self, note: str) -> None:
+        # Persist a compaction summary to durable memory with provenance so a
+        # folded fact is never lost (raw history also stays on disk).
+        remember = getattr(self.memory, "remember_fact", None)
+        if remember is not None:
+            remember(note, source="compaction", tags=["compaction"])
 
     def _emit_status(self, message: str) -> None:
         if self._on_status_update:

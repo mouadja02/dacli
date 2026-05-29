@@ -1,8 +1,48 @@
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 # Default location for the system prompt
 SYSTEM_PROMPT_FILE = Path(__file__).parent / "system_message.md"
+
+# Decomposed prompt fragments (Phase 3.6): an invariant core + per-connector
+# fragments disclosed only when that connector is in play.
+FRAGMENTS_DIR = Path(__file__).parent / "fragments"
+CORE_FRAGMENT = FRAGMENTS_DIR / "core.md"
+
+
+def _read(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except Exception:
+        return ""
+
+
+def compose_system_prompt(
+    task: str = "",
+    disclosed_connectors: Optional[Iterable[str]] = None,
+) -> str:
+    """Assemble the dynamic system prompt (Phase 3.6).
+
+    Returns the invariant core plus the fragments for the disclosed connectors
+    (``prompts/fragments/<connector_id>.md``). It deliberately does **not** load
+    ``DACLI.md`` priors — those are layer L1 of the context assembler
+    (``context.assembler.build_context``), which pins them, so loading them here
+    too would duplicate them. ``task`` is accepted for future task-conditioned
+    fragments; unused today.
+
+    Falls back to the legacy monolithic ``system_message.md`` if the core
+    fragment is missing.
+    """
+    core = _read(CORE_FRAGMENT)
+    if not core:
+        return _read(SYSTEM_PROMPT_FILE)
+
+    parts = [core]
+    for connector_id in disclosed_connectors or []:
+        fragment = _read(FRAGMENTS_DIR / f"{connector_id}.md")
+        if fragment:
+            parts.append(fragment)
+    return "\n\n".join(parts)
 
 def get_default_system_prompt() -> str:
     """Return the default system prompt for the Data Warehouse Agent."""
@@ -30,14 +70,22 @@ def load_system_prompt(custom_path: Optional[str] = None) -> str:
     else:
         raise FileNotFoundError(f"Default system prompt not found at {SYSTEM_PROMPT_FILE}")
 
-    # Check for GUIDELINES.md
-    guidelines_file = SYSTEM_PROMPT_FILE.parent / "GUIDELINES.md"
-    if guidelines_file.exists():
-        try:
-            guidelines_content = guidelines_file.read_text(encoding="utf-8")
-            prompt_content += f"\n\n{guidelines_content}"
-        except Exception:
-            pass # Ignore if guidelines cannot be read
+    # Persistent priors (Phase 2, 2.6): DACLI.md is the top layer of context —
+    # connection profiles, naming conventions, the medallion rules. It supersedes
+    # the legacy prompts/GUIDELINES.md, which is used only as a fallback.
+    from memory.priors import load_priors
+
+    priors = load_priors()
+    if priors:
+        prompt_content = f"{priors}\n\n---\n\n{prompt_content}"
+    else:
+        guidelines_file = SYSTEM_PROMPT_FILE.parent / "GUIDELINES.md"
+        if guidelines_file.exists():
+            try:
+                guidelines_content = guidelines_file.read_text(encoding="utf-8")
+                prompt_content += f"\n\n{guidelines_content}"
+            except Exception:
+                pass  # Ignore if guidelines cannot be read
 
     return prompt_content
 
