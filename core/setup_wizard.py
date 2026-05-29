@@ -1,51 +1,46 @@
-# Setup Wizard - Interactive CLI for configuring DACLI tools
-import asyncio
-from typing import Dict, List, Optional, Tuple, Any
-from pathlib import Path
+# Setup Wizard - Interactive CLI for configuring DACLI connectors.
+#
+# Fully manifest/registry-driven: it knows nothing about specific platforms. It
+# iterates over whatever connectors the ConnectorRegistry discovered and writes
+# the user's selections to config/connectors.yaml.
+from typing import Any, Dict, Optional, Tuple
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.prompt import Prompt, Confirm
+from rich.prompt import Confirm
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.markdown import Markdown
 from rich import box
 
-from config.tool_registry import (
-    ToolCategory, 
-    ToolConfig, 
-    ToolsSettings, 
-    ToolRegistry,
-    TOOL_CATALOG
-)
+from connectors.registry import ConnectorRegistry, CONNECTORS_CONFIG_PATH
 
 
 class SetupWizard:
     """
-    Interactive setup wizard for DACLI tool configuration.
-    
+    Interactive setup wizard for DACLI connector configuration.
+
     Guides users through:
-    1. Selecting which tool categories to enable
-    2. Choosing specific operations within each category
-    3. Validating credentials for enabled tools
-    4. Saving configuration to YAML
+    1. Selecting which connectors to enable
+    2. Choosing specific operations within each connector
+    3. Validating credentials for enabled connectors
+    4. Producing a config/connectors.yaml document
     """
-    
-    def __init__(self, settings: Any, config_path: str = "config.yaml"):
+
+    def __init__(self, settings: Any, registry: ConnectorRegistry, config_path: str = CONNECTORS_CONFIG_PATH):
         self.settings = settings
+        self.registry = registry
         self.config_path = config_path
         self.console = Console()
-        self.tools_settings = ToolsSettings()
-        
-        # Try to load existing tools settings if present
-        if hasattr(settings, 'tools') and settings.tools:
-            self.tools_settings = settings.tools
-    
+        self.catalog = registry.get_catalog()
+        # {connector_id: {"enabled": bool, "operations": {op: bool}}}
+        self.selections: Dict[str, Dict[str, Any]] = {}
+
     def print_welcome(self):
         """Print welcome banner"""
         welcome_text = """
 # 🚀 Welcome to DACLI Setup Wizard
 
-This wizard will help you configure which tools and capabilities 
+This wizard will help you configure which connectors and capabilities
 you want to use with your agent.
 
 You can always re-run this wizard later by using: `dacli --setup`
@@ -56,94 +51,83 @@ You can always re-run this wizard later by using: `dacli --setup`
             border_style="blue",
             box=box.DOUBLE
         ))
-    
+
     def needs_setup(self) -> bool:
         """Check if setup wizard should run"""
-        return not self.tools_settings.setup_completed
-    
-    async def run(self) -> ToolsSettings:
-        """Run the complete setup wizard"""
+        return not self.registry.setup_completed
+
+    async def run(self) -> Dict[str, Any]:
+        """Run the complete setup wizard. Returns a connectors-config dict."""
         self.print_welcome()
         self.console.print()
-        
-        # Step 1: Tool category selection
-        self.console.print("[bold cyan]Step 1/3:[/bold cyan] Select Tool Categories\n")
-        await self._select_tool_categories()
-        
-        # Step 2: Operation selection for each enabled tool
+
+        # Step 1: Connector selection
+        self.console.print("[bold cyan]Step 1/3:[/bold cyan] Select Connectors\n")
+        self._select_connectors()
+
+        # Step 2: Operation selection for each enabled connector
         self.console.print("\n[bold cyan]Step 2/3:[/bold cyan] Select Operations\n")
-        await self._select_operations()
-        
+        self._select_operations()
+
         # Step 3: Validate credentials
         self.console.print("\n[bold cyan]Step 3/3:[/bold cyan] Validating Credentials\n")
         validation_results = await self._validate_credentials()
-        
+
         # Show summary
         self._show_summary(validation_results)
-        
-        # Mark setup as completed
-        self.tools_settings.setup_completed = True
-        
-        return self.tools_settings
-    
-    async def _select_tool_categories(self):
-        """Interactive tool category selection"""
-        categories_table = Table(
-            title="Available Tool Categories",
+
+        return {"setup_completed": True, "connectors": self.selections}
+
+    def _select_connectors(self):
+        """Interactive connector selection"""
+        table = Table(
+            title="Available Connectors",
             box=box.ROUNDED,
             show_header=True,
             header_style="bold magenta"
         )
-        categories_table.add_column("#", style="dim", width=3)
-        categories_table.add_column("Tool", style="cyan")
-        categories_table.add_column("Description")
-        categories_table.add_column("Operations", justify="center")
-        
-        for idx, (category, info) in enumerate(TOOL_CATALOG.items(), 1):
-            categories_table.add_row(
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Connector", style="cyan")
+        table.add_column("Description")
+        table.add_column("Operations", justify="center")
+
+        for idx, (connector_id, info) in enumerate(self.catalog.items(), 1):
+            table.add_row(
                 str(idx),
                 f"{info['icon']} {info['name']}",
                 info['description'],
                 str(len(info['operations']))
             )
-        
-        self.console.print(categories_table)
+
+        self.console.print(table)
         self.console.print()
-        
-        # Ask about each tool category
-        for category in ToolCategory:
-            info = TOOL_CATALOG[category]
+
+        for connector_id, info in self.catalog.items():
             enabled = Confirm.ask(
                 f"Enable {info['icon']} [bold]{info['name']}[/bold]?",
                 default=True
             )
-            
-            config = ToolConfig(enabled=enabled)
-            if enabled:
-                # Enable all operations by default
-                config.operations = {op: True for op in info['operations'].keys()}
-            
-            self.tools_settings.set_tool_config(category, config)
-    
-    async def _select_operations(self):
-        """Let user select specific operations for enabled tools"""
-        enabled_categories = self.tools_settings.get_enabled_tools()
-        
-        if not enabled_categories:
-            self.console.print("[yellow]No tools enabled. You can re-run setup later.[/yellow]")
+            operations = {op: True for op in info['operations']} if enabled else {}
+            self.selections[connector_id] = {"enabled": enabled, "operations": operations}
+
+    def _select_operations(self):
+        """Let user select specific operations for enabled connectors"""
+        enabled_ids = [cid for cid, sel in self.selections.items() if sel["enabled"]]
+
+        if not enabled_ids:
+            self.console.print("[yellow]No connectors enabled. You can re-run setup later.[/yellow]")
             return
-        
-        for category in enabled_categories:
-            info = TOOL_CATALOG[category]
+
+        for connector_id in enabled_ids:
+            info = self.catalog[connector_id]
             self.console.print(f"\n{info['icon']} [bold cyan]{info['name']} Operations:[/bold cyan]")
-            
-            # Show operations table
+
             ops_table = Table(box=box.SIMPLE, show_header=True)
             ops_table.add_column("#", style="dim", width=3)
             ops_table.add_column("Operation", style="green")
             ops_table.add_column("Description")
             ops_table.add_column("Category", style="dim")
-            
+
             operations = list(info['operations'].items())
             for idx, (op_name, op_info) in enumerate(operations, 1):
                 ops_table.add_row(
@@ -152,337 +136,194 @@ You can always re-run this wizard later by using: `dacli --setup`
                     op_info['description'],
                     op_info['category']
                 )
-            
+
             self.console.print(ops_table)
-            
-            # Ask if user wants to customize
+
             customize = Confirm.ask(
                 "Would you like to customize which operations to enable?",
                 default=False
             )
-            
-            config = self.tools_settings.get_tool_config(category)
-            
+
             if customize:
                 new_operations = {}
                 for op_name, op_info in operations:
-                    enabled = Confirm.ask(
+                    op_enabled = Confirm.ask(
                         f"  Enable [green]{op_info['name']}[/green]?",
                         default=True
                     )
-                    new_operations[op_name] = enabled
-                config.operations = new_operations
+                    new_operations[op_name] = op_enabled
+                self.selections[connector_id]["operations"] = new_operations
             else:
-                # Keep all enabled
-                config.operations = {op: True for op in info['operations'].keys()}
-            
-            self.tools_settings.set_tool_config(category, config)
-    
-    async def _validate_credentials(self) -> Dict[ToolCategory, Tuple[bool, str]]:
-        """Validate credentials for enabled tools"""
-        results = {}
-        enabled_categories = self.tools_settings.get_enabled_tools()
-        
-        if not enabled_categories:
+                self.selections[connector_id]["operations"] = {op: True for op in info['operations']}
+
+    async def _validate_credentials(self) -> Dict[str, Tuple[bool, str]]:
+        """Validate credentials for enabled connectors"""
+        results: Dict[str, Tuple[bool, str]] = {}
+        enabled_ids = [cid for cid, sel in self.selections.items() if sel["enabled"]]
+
+        if not enabled_ids:
             return results
-        
+
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             console=self.console
         ) as progress:
-            for category in enabled_categories:
-                info = TOOL_CATALOG[category]
+            for connector_id in enabled_ids:
+                info = self.catalog[connector_id]
                 task = progress.add_task(
                     f"Validating {info['icon']} {info['name']}...",
                     total=None
                 )
-                
                 try:
-                    success, message = await self._validate_tool(category)
-                    results[category] = (success, message)
+                    results[connector_id] = await self._validate_connector(connector_id)
                 except Exception as e:
-                    results[category] = (False, str(e))
-                
+                    results[connector_id] = (False, str(e))
                 progress.remove_task(task)
-        
+
         return results
-    
-    async def _validate_tool(self, category: ToolCategory) -> Tuple[bool, str]:
-        """Validate a specific tool's credentials"""
-        try:
-            if category == ToolCategory.SNOWFLAKE:
-                return await self._validate_snowflake()
-            elif category == ToolCategory.GITHUB:
-                return await self._validate_github()
-            elif category == ToolCategory.PINECONE:
-                return await self._validate_pinecone()
-        except Exception as e:
-            return (False, f"Validation error: {str(e)}")
-        
-        return (True, "No validation implemented")
-    
-    async def _validate_snowflake(self) -> Tuple[bool, str]:
-        """Validate Snowflake credentials"""
-        if not hasattr(self.settings, 'snowflake'):
-            return (False, "Snowflake configuration missing in config.yaml")
-        
-        sf = self.settings.snowflake
-        
-        # Check required fields
+
+    async def _validate_connector(self, connector_id: str) -> Tuple[bool, str]:
+        """Validate a connector: required config present, then a live health check."""
+        info = self.catalog[connector_id]
+
+        # Check required config fields on the matching settings section.
+        section = getattr(self.settings, connector_id, None)
+        if section is None:
+            return (False, f"{info['name']} configuration missing in config.yaml")
+
         missing = []
-        for field in ['account', 'user', 'password', 'warehouse', 'database']:
-            value = getattr(sf, field, None)
-            if not value or value == "" or value.startswith("${"):
+        for field in info.get("required_config", []):
+            value = getattr(section, field, None)
+            if not value or (isinstance(value, str) and (value == "" or value.startswith("${"))):
                 missing.append(field)
-        
+
         if missing:
             return (False, f"Missing config: {', '.join(missing)}")
-        
-        # Try actual connection
+
+        # Live connection / health check.
+        connector = self.registry.get_connector(connector_id)
+        if connector is None:
+            return (True, "Config appears valid (connection test skipped)")
         try:
-            from tools.snowflake_tools import SnowflakeTool
-            tool = SnowflakeTool(self.settings)
-            result = await tool.validate()
+            result = await connector.health()
             if result.success:
                 return (True, "Connected successfully")
-            else:
-                return (False, result.error or "Connection failed")
-        except ImportError:
-            return (True, "Config appears valid (connection test skipped)")
+            return (False, result.error or "Connection failed")
         except Exception as e:
             return (False, f"Connection failed: {str(e)}")
-    
-    async def _validate_github(self) -> Tuple[bool, str]:
-        """Validate GitHub credentials"""
-        if not hasattr(self.settings, 'github'):
-            return (False, "GitHub configuration missing in config.yaml")
-        
-        gh = self.settings.github
-        
-        # Check required fields
-        missing = []
-        for field in ['token', 'owner', 'repo']:
-            value = getattr(gh, field, None)
-            if not value or value == "" or value.startswith("${"):
-                missing.append(field)
-        
-        if missing:
-            return (False, f"Missing config: {', '.join(missing)}")
-        
-        # Try actual connection
-        try:
-            from tools.github_tools import GithubTool
-            tool = GithubTool(self.settings)
-            result = await tool.validate()
-            if result.success:
-                return (True, f"Connected to {gh.owner}/{gh.repo}")
-            else:
-                return (False, result.error or "Connection failed")
-        except ImportError:
-            return (True, "Config appears valid (connection test skipped)")
-        except Exception as e:
-            return (False, f"Connection failed: {str(e)}")
-    
-    async def _validate_pinecone(self) -> Tuple[bool, str]:
-        """Validate Pinecone credentials"""
-        if not hasattr(self.settings, 'pinecone'):
-            return (False, "Pinecone configuration missing in config.yaml")
-        
-        pc = self.settings.pinecone
-        
-        # Check required fields
-        missing = []
-        for field in ['api_key', 'index_name']:
-            value = getattr(pc, field, None)
-            if not value or value == "" or value.startswith("${"):
-                missing.append(field)
-        
-        if missing:
-            return (False, f"Missing config: {', '.join(missing)}")
-        
-        # Check embeddings config too
-        if hasattr(self.settings, 'embeddings'):
-            emb = self.settings.embeddings
-            if not getattr(emb, 'api_key', None) or emb.api_key.startswith("${"):
-                return (False, "Missing embeddings API key")
-        
-        # Try actual connection
-        try:
-            from tools.pinecone_tools import PineconeTool
-            tool = PineconeTool(self.settings)
-            result = await tool.validate()
-            if result.success:
-                return (True, f"Connected to index: {pc.index_name}")
-            else:
-                return (False, result.error or "Connection failed")
-        except ImportError:
-            return (True, "Config appears valid (connection test skipped)")
-        except Exception as e:
-            return (False, f"Connection failed: {str(e)}")
-    
-    def _show_summary(self, validation_results: Dict[ToolCategory, Tuple[bool, str]]):
+
+    def _show_summary(self, validation_results: Dict[str, Tuple[bool, str]]):
         """Show configuration summary"""
         self.console.print("\n")
-        
-        # Summary table
+
         summary_table = Table(
             title="📋 Configuration Summary",
             box=box.DOUBLE,
             show_header=True,
             header_style="bold white on blue"
         )
-        summary_table.add_column("Tool", style="cyan")
+        summary_table.add_column("Connector", style="cyan")
         summary_table.add_column("Status", justify="center")
         summary_table.add_column("Operations", justify="center")
         summary_table.add_column("Validation")
-        
-        for category in ToolCategory:
-            info = TOOL_CATALOG[category]
-            config = self.tools_settings.get_tool_config(category)
-            
-            if config.enabled:
+
+        for connector_id, info in self.catalog.items():
+            sel = self.selections.get(connector_id, {"enabled": False, "operations": {}})
+
+            if sel["enabled"]:
                 status = "[green]✅ Enabled[/green]"
-                ops_count = len(config.get_enabled_operations())
-                
-                # Validation result
-                if category in validation_results:
-                    success, message = validation_results[category]
-                    if success:
-                        validation = f"[green]✓ {message}[/green]"
-                    else:
-                        validation = f"[red]✗ {message}[/red]"
+                ops_count = sum(1 for v in sel["operations"].values() if v)
+
+                if connector_id in validation_results:
+                    success, message = validation_results[connector_id]
+                    validation = f"[green]✓ {message}[/green]" if success else f"[red]✗ {message}[/red]"
                 else:
                     validation = "[dim]Not validated[/dim]"
             else:
                 status = "[dim]⊘ Disabled[/dim]"
                 ops_count = 0
                 validation = "[dim]—[/dim]"
-            
+
             summary_table.add_row(
                 f"{info['icon']} {info['name']}",
                 status,
                 str(ops_count) if ops_count > 0 else "—",
                 validation
             )
-        
+
         self.console.print(summary_table)
-        
-        # Warnings for failed validations
+
         warnings = []
-        for category, (success, message) in validation_results.items():
+        for connector_id, (success, message) in validation_results.items():
             if not success:
-                info = TOOL_CATALOG[category]
+                info = self.catalog[connector_id]
                 warnings.append(f"⚠️  {info['name']}: {message}")
-        
+
         if warnings:
             self.console.print("\n[bold yellow]Warnings:[/bold yellow]")
             for warning in warnings:
                 self.console.print(f"  {warning}")
             self.console.print(
-                "\n[dim]Tools with validation errors will be skipped during agent initialization.[/dim]"
+                "\n[dim]Connectors with validation errors will be skipped during agent initialization.[/dim]"
             )
-        
+
         self.console.print("\n[green]✓ Setup complete![/green] Your preferences will be saved.\n")
 
 
 class QuickSetup:
     """
     Quick setup for common profiles without going through the full wizard.
+
+    Profiles are derived from whatever the registry discovered:
+    - ``full``   : enable every connector and all its operations
+    - ``none``   : disable everything
+    - ``<id>_only`` : enable only that connector (e.g. ``<connector_id>_only``)
     """
-    
-    PROFILES = {
-        "full": {
-            "name": "Full Stack",
-            "description": "All tools enabled (Snowflake + GitHub + Pinecone)",
-            "config": lambda: ToolsSettings(
-                setup_completed=True,
-                snowflake=ToolConfig(
-                    enabled=True,
-                    operations={op: True for op in TOOL_CATALOG[ToolCategory.SNOWFLAKE]['operations']}
-                ),
-                github=ToolConfig(
-                    enabled=True,
-                    operations={op: True for op in TOOL_CATALOG[ToolCategory.GITHUB]['operations']}
-                ),
-                pinecone=ToolConfig(
-                    enabled=True,
-                    operations={op: True for op in TOOL_CATALOG[ToolCategory.PINECONE]['operations']}
-                )
-            )
-        },
-        "github_only": {
-            "name": "GitHub Only",
-            "description": "Only GitHub tools (file management, workflows)",
-            "config": lambda: ToolsSettings(
-                setup_completed=True,
-                snowflake=ToolConfig(enabled=False),
-                github=ToolConfig(
-                    enabled=True,
-                    operations={op: True for op in TOOL_CATALOG[ToolCategory.GITHUB]['operations']}
-                ),
-                pinecone=ToolConfig(enabled=False)
-            )
-        },
-        "snowflake_only": {
-            "name": "Snowflake Only",
-            "description": "Only Snowflake tools (SQL queries)",
-            "config": lambda: ToolsSettings(
-                setup_completed=True,
-                snowflake=ToolConfig(
-                    enabled=True,
-                    operations={op: True for op in TOOL_CATALOG[ToolCategory.SNOWFLAKE]['operations']}
-                ),
-                github=ToolConfig(enabled=False),
-                pinecone=ToolConfig(enabled=False)
-            )
-        },
-        "datawarehouse": {
-            "name": "Data Warehouse Builder",
-            "description": "Snowflake + GitHub (for dbt projects)",
-            "config": lambda: ToolsSettings(
-                setup_completed=True,
-                snowflake=ToolConfig(
-                    enabled=True,
-                    operations={op: True for op in TOOL_CATALOG[ToolCategory.SNOWFLAKE]['operations']}
-                ),
-                github=ToolConfig(
-                    enabled=True,
-                    operations={op: True for op in TOOL_CATALOG[ToolCategory.GITHUB]['operations']}
-                ),
-                pinecone=ToolConfig(enabled=False)
-            )
-        }
-    }
-    
+
+    @staticmethod
+    def _all_enabled(registry: ConnectorRegistry, only: Optional[str] = None) -> Dict[str, Any]:
+        catalog = registry.get_catalog()
+        connectors: Dict[str, Any] = {}
+        for connector_id, info in catalog.items():
+            enabled = (only is None) or (connector_id == only)
+            connectors[connector_id] = {
+                "enabled": enabled,
+                "operations": {op: enabled for op in info["operations"]},
+            }
+        return {"setup_completed": True, "connectors": connectors}
+
     @classmethod
-    def list_profiles(cls) -> Dict[str, Dict]:
-        """List all available quick profiles"""
-        return {
-            name: {"name": p["name"], "description": p["description"]}
-            for name, p in cls.PROFILES.items()
+    def list_profiles(cls, registry: ConnectorRegistry) -> Dict[str, Dict[str, str]]:
+        profiles = {
+            "full": {"name": "Full Stack", "description": "All connectors enabled"},
+            "none": {"name": "None", "description": "All connectors disabled"},
         }
-    
+        for connector_id, info in registry.get_catalog().items():
+            profiles[f"{connector_id}_only"] = {
+                "name": f"{info['name']} Only",
+                "description": f"Only {info['name']} enabled",
+            }
+        return profiles
+
     @classmethod
-    def get_profile(cls, profile_name: str) -> Optional[ToolsSettings]:
-        """Get a specific profile configuration"""
-        if profile_name in cls.PROFILES:
-            return cls.PROFILES[profile_name]["config"]()
+    def get_profile(cls, profile_name: str, registry: ConnectorRegistry) -> Optional[Dict[str, Any]]:
+        if profile_name == "full":
+            return cls._all_enabled(registry)
+        if profile_name == "none":
+            return cls._all_enabled(registry, only="__none__")
+        if profile_name.endswith("_only"):
+            connector_id = profile_name[: -len("_only")]
+            if connector_id in registry.get_catalog():
+                return cls._all_enabled(registry, only=connector_id)
         return None
-    
+
     @classmethod
-    def show_profiles(cls, console: Console):
-        """Display available profiles"""
-        table = Table(
-            title="Quick Setup Profiles",
-            box=box.ROUNDED,
-            show_header=True
-        )
+    def show_profiles(cls, console: Console, registry: ConnectorRegistry):
+        table = Table(title="Quick Setup Profiles", box=box.ROUNDED, show_header=True)
         table.add_column("Profile", style="cyan")
         table.add_column("Name", style="green")
         table.add_column("Description")
-        
-        for key, profile in cls.PROFILES.items():
+        for key, profile in cls.list_profiles(registry).items():
             table.add_row(key, profile["name"], profile["description"])
-        
         console.print(table)

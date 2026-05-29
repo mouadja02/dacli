@@ -1,0 +1,172 @@
+"""Connector contract for DACLI.
+
+This module is the evolution of the old ``tools/Base.py``. A *connector* is a
+self-describing capability provider: it owns the JSON schemas for the
+operations it exposes (instead of the agent hand-writing them) and routes calls
+through a single ``invoke`` entry point.
+
+It also keeps ``ToolResult`` / ``ToolStatus`` here so the rest of the runtime
+imports its result type from one place.
+"""
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from typing import Any, Dict, List, Optional
+
+
+class ToolStatus(Enum):
+    # Status of the tool execution
+    SUCCESS, ERROR, TIMEOUT, CANCELLED, PENDING_APPROVAL = "sucess", "error", "timeout", "cancelled", "pending_approval"
+
+
+@dataclass
+class ToolResult:
+    # Result of a connector operation
+    tool_name: str
+    status: ToolStatus
+    data: Any = None
+    error: Optional[str] = None
+    execution_time_ms: float = 0.0
+    timestamp: datetime = field(default_factory=datetime.now)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def success(self) -> bool:
+        # Check if the tool execution was succesful
+        return self.status == ToolStatus.SUCCESS
+
+    def to_dict(self) -> Dict[str, Any]:
+        # Convert the result to dictionary for serialization
+        return {
+            "tool_name": self.tool_name,
+            "status": self.status,
+            "data": self.data,
+            "error": self.error,
+            "execution_time_ms": self.execution_time_ms,
+            "timestamp": self.timestamp.isoformat(),
+            "metadata": self.metadata
+        }
+
+    def to_message(self) -> str:
+        # Convert the result to a message string for LLM context
+        if self.success:
+            if isinstance(self.data, list):
+                if len(self.data) == 0:
+                    return f"[{self.tool_name}] Executed successfully. No results returned"
+                return f"[{self.tool_name}] Executed successfully. Returned {len(self.data)} rows:\n{self._format_data()}"
+            elif self.data:
+                return f"[{self.tool_name}] Executed successfully:\n{self._format_data()}"
+            else:
+                return f"[{self.tool_name}] Executed successfully."
+        else:
+            return f"[{self.tool_name}] failed with error: {self.error}"
+
+    def _format_data(self) -> str:
+        # Format data for display
+        if isinstance(self.data, list) and len(self.data) > 0:
+            # Limit to first 20 rows for the console print
+            # TODO: Add a log files to log full data
+            display_data = self.data[:20]
+            if isinstance(display_data[0], dict):
+                # Format as table-like structure
+                lines = []
+                for i, row in enumerate(display_data):
+                    lines.append(f" Row {i+1}: {row}")
+                if len(self.data) > 20:
+                    lines.append(f"... and {len(self.data) - 20} more rows")
+                return "\n".join(lines)
+        return str(self.data)
+
+
+class Risk(str, Enum):
+    """Risk hint for an operation.
+
+    Captured at the contract level from day 1. Enforcement (approval gating)
+    lands in Phase 5; capturing it now avoids re-walking every operation later.
+    """
+    SAFE = "safe"               # read-only / no side effects
+    WRITE = "write"             # creates or mutates state, recoverable
+    RISKY = "risky"             # arbitrary or hard-to-predict side effects
+    IRREVERSIBLE = "irreversible"  # destructive, not easily undone
+
+
+@dataclass
+class OperationSpec:
+    """Self-describing operation a connector exposes to the LLM.
+
+    ``name`` is the LLM-facing tool name (e.g. ``execute_snowflake_query``).
+    ``parameters`` is the JSON schema for the arguments. ``risk`` and
+    ``capability`` are metadata consumed by later phases (governance / routing).
+    """
+    name: str
+    description: str
+    parameters: Dict[str, Any]
+    capability: str
+    risk: Risk = Risk.SAFE
+    # Optional presentation metadata for the setup wizard. Falls back to
+    # ``name`` / ``description`` when absent.
+    display_name: Optional[str] = None
+    category: Optional[str] = None
+
+    def to_tool_definition(self) -> Dict[str, Any]:
+        """Render as an OpenAI-style function tool definition."""
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.parameters,
+            },
+        }
+
+
+class Connector(ABC):
+    """Base class for all connectors.
+
+    A connector is capability-scoped and self-describing. It declares its
+    operations (with schemas + risk metadata) and routes calls through a single
+    ``invoke`` method. Lifecycle is ``connect`` / ``disconnect``; ``health``
+    replaces the old ad-hoc ``validate``.
+    """
+
+    #: Stable connector id (e.g. "snowflake"). Subclasses must set this.
+    name: str = ""
+
+    def __init__(self, settings: Any):
+        self.settings = settings
+        self._is_connected = False
+
+    @property
+    def is_connected(self) -> bool:
+        return self._is_connected
+
+    @is_connected.setter
+    def is_connected(self, value: bool):
+        self._is_connected = value
+
+    @abstractmethod
+    def operations(self) -> List[OperationSpec]:
+        """Return the operations this connector exposes."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+        """Execute operation ``op`` with ``args`` and return a ToolResult."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def health(self) -> ToolResult:
+        """Check connectivity / readiness. Replaces ad-hoc validate()."""
+        raise NotImplementedError
+
+    async def connect(self) -> bool:
+        """Establish a connection if needed. Default: mark healthy via health()."""
+        result = await self.health()
+        self.is_connected = result.success
+        return self.is_connected
+
+    async def disconnect(self) -> None:
+        """Clean up connection resources."""
+        self.is_connected = False

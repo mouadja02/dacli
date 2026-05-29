@@ -1,15 +1,14 @@
 import snowflake.connector
 import time
-from typing import Any, Dict, List, Optional
-from tabulate import tabulate
+from typing import Any, Dict, List
 
-from tools.Base import BaseTool, ToolResult, ToolStatus
+from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from config.settings import Settings
 
 
-class SnowflakeTool(BaseTool):
+class SnowflakeConnector(Connector):
     """
-    Snowflake toolkit
+    Snowflake connector
 
     [UC1] Bronze layer operations:
     - Schema creation
@@ -19,36 +18,81 @@ class SnowflakeTool(BaseTool):
     - Data validation queries
     """
 
+    name = "snowflake"
+
     def __init__(self, settings: Settings):
-        # Initialize the Snowflake tool with settings
         super().__init__(settings)
         self._connection = None
         self._cursor = None
 
-    @property
-    def name(self) -> str:
-        return "snowflake"
+    # ------------------------------------------------------------------
+    # Connector contract
+    # ------------------------------------------------------------------
+    def operations(self) -> List[OperationSpec]:
+        return [
+            OperationSpec(
+                name="execute_snowflake_query",
+                description="Execute a SQL query on Snowflake. Use for Bronze layer operations: schema creation, file format creation, table creation, COPY INTO, and validation queries. Execute ONE statement at a time.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "The SQL query to execute. Must be a single statement."
+                        }
+                    },
+                    "required": ["query"]
+                },
+                capability="snowflake.query",
+                risk=Risk.RISKY,
+                display_name="Execute SQL Query",
+                category="query",
+            ),
+            OperationSpec(
+                name="validate_snowflake_connection",
+                description="Test the Snowflake connection and get current context (warehouse, database, schema, role, user).",
+                parameters={
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                },
+                capability="snowflake.connection",
+                risk=Risk.SAFE,
+                display_name="Validate Connection",
+                category="connection",
+            ),
+        ]
 
-    @property
-    def description(self) -> str:
-        return "Snowflake toolkit"
+    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+        if op == "execute_snowflake_query":
+            return await self._execute_query(query=args.get("query", ""))
+        elif op == "validate_snowflake_connection":
+            return await self.health()
+        return ToolResult(
+            tool_name=op,
+            status=ToolStatus.ERROR,
+            error=f"Unknown operation '{op}' for connector '{self.name}'",
+        )
 
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
     async def connect(self) -> bool:
         # Establish connection with the user snowflake account
         try:
             snowflake_settings = self.settings.snowflake
 
             self._connection = snowflake.connector.connect(
-                account= snowflake_settings.account,
-                user= snowflake_settings.user,
-                password= snowflake_settings.password,
-                role= snowflake_settings.role,
-                warehouse = snowflake_settings.warehouse,
-                database= snowflake_settings.database,
-                schema= snowflake_settings.db_schema,
-                login_timeout= snowflake_settings.login_timeout,
-                network_timeout= snowflake_settings.network_timeout
-                )
+                account=snowflake_settings.account,
+                user=snowflake_settings.user,
+                password=snowflake_settings.password,
+                role=snowflake_settings.role,
+                warehouse=snowflake_settings.warehouse,
+                database=snowflake_settings.database,
+                schema=snowflake_settings.db_schema,
+                login_timeout=snowflake_settings.login_timeout,
+                network_timeout=snowflake_settings.network_timeout
+            )
             self._cursor = self._connection.cursor()
             self.is_connected = True
             return True
@@ -66,21 +110,21 @@ class SnowflakeTool(BaseTool):
             self._connection.close()
             self._connection = None
         self._is_connected = False
-    
-    async def validate(self) -> ToolResult:
+
+    async def health(self) -> ToolResult:
         # Validate the Snowflake connection
         start_time = time.time()
 
         try:
             if not self.is_connected:
                 await self.connect()
-            
+
             # Context query
             self._cursor.execute("SELECT CURRENT_WAREHOUSE() AS WAREHOUSE,CURRENT_DATABASE() AS DATABASE,CURRENT_SCHEMA() AS SCHEMA,CURRENT_ROLE() AS ROLE,CURRENT_USER() AS USER;")
             result = self._cursor.fetchone()
             columns = [desc[0] for desc in self._cursor.description]
             context = dict(zip(columns, result))
-            
+
             execution_time = (time.time() - start_time) * 1000
             return ToolResult(
                 tool_name=self.name,
@@ -89,7 +133,7 @@ class SnowflakeTool(BaseTool):
                 execution_time_ms=execution_time,
                 metadata={"query": "VALIDATE CONNECTION AND GET CONTEXT"}
             )
-        
+
         except Exception as e:
             execution_time = (time.time() - start_time) * 1000
             return ToolResult(
@@ -100,14 +144,17 @@ class SnowflakeTool(BaseTool):
                 metadata={"query": "SELECT CURRENT_WAREHOUSE() AS WAREHOUSE,CURRENT_DATABASE() AS DATABASE,CURRENT_SCHEMA() AS SCHEMA,CURRENT_ROLE() AS ROLE,CURRENT_USER() AS USER"}
             )
 
-    async def execute(self, query: str, **kwargs) -> ToolResult:
+    # ------------------------------------------------------------------
+    # Operations
+    # ------------------------------------------------------------------
+    async def _execute_query(self, query: str, **kwargs) -> ToolResult:
         """
         Execute a SQL query on Snowflake.
-        
+
         Args:
             query: SQL query to execute
             **kwargs: Additional parameters (fetch_limit, etc.)
-        
+
         Returns:
             ToolResult with query results or error
         """
@@ -118,7 +165,7 @@ class SnowflakeTool(BaseTool):
         try:
             if not self.is_connected:
                 await self.connect()
-            
+
             # Execute the query
             self._cursor.execute(query)
 
@@ -130,11 +177,11 @@ class SnowflakeTool(BaseTool):
 
                 # Convert to list of dicts
                 results = [dict(zip(columns, row)) for row in rows]
-                
+
                 total_rows = self._cursor.rowcount if self._cursor.rowcount >= 0 else len(results)
-                
+
                 execution_time = (time.time() - start_time) * 1000
-                
+
                 return ToolResult(
                     tool_name=self.name,
                     status=ToolStatus.SUCCESS,
@@ -148,7 +195,7 @@ class SnowflakeTool(BaseTool):
                     }
                 )
 
-            else: # DDL or DML without results
+            else:  # DDL or DML without results
                 rows_affected = self._cursor.rowcount if self._cursor.rowcount >= 0 else 0
                 execution_time = (time.time() - start_time) * 1000
                 return ToolResult(
@@ -171,72 +218,3 @@ class SnowflakeTool(BaseTool):
                 error=str(e),
                 metadata={"query": query}
             )
-
-    def get_schema(self) -> Dict[str, Any]:
-        # Return JSON schema for Snowflake tool parameters
-        return {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "SQL query to execute on Snowflake"
-                },
-                "fetch_limit": {
-                    "type": "integer",
-                    "description": "Maximum number of rows to fetch",
-                    "default": 1000
-                }
-            },
-            "required": ["query"]
-        }
-
-    def format_results_table(self, results: List[Dict[str, Any]], max_rows: int = 20) -> str:
-        """
-        Format query results as a table string.
-        
-        Args:
-            results: List of result dictionaries
-            max_rows: Maximum rows to display
-        
-        Returns:
-            Formatted table string
-
-            Inputy exmaple:
-            [
-                {"id": 1, "name": "Person X1", "number": 0102030405},
-                {"id": 2, "name": "Person X2", "number": 0203040506},
-                {"id": 3, "name": "Person X3", "number": 0304050607}
-            ]
-
-            Output example:
-            +----+-------------+--------------+
-            | id | name        | number       |
-            +----+-------------+--------------+
-            | 1  | Person X1   | 0102030405   |
-            | 2  | Person X2   | 0203040506   |
-            | 3  | Person X3   | 0304050607   |
-            +----+-------------+--------------+
-        """
-        if not results:
-            return "No results"
-        
-        try:          
-            display_data = results[:max_rows]
-            headers = list(display_data[0].keys())
-            rows = [[str(row.get(h, "")) for h in headers] for row in display_data]
-            
-            table = tabulate(rows, headers=headers, tablefmt=self.settings.ui.table_format)
-            
-            if len(results) > max_rows:
-                table += f"\n\n... and {len(results) - max_rows} more rows"
-            
-            return table
-            
-        except ImportError:
-            # Fallback without tabulate
-            lines = []
-            for i, row in enumerate(results[:max_rows]):
-                lines.append(f"Row {i+1}: {row}")
-            if len(results) > max_rows:
-                lines.append(f"... and {len(results) - max_rows} more rows")
-            return "\n".join(lines)

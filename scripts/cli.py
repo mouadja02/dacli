@@ -1,6 +1,4 @@
 import asyncio
-import os
-import sys
 import click
 from typing import Optional
 
@@ -9,28 +7,26 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.table import Table
-from rich.live import Live
-from rich.spinner import Spinner
 from rich.text import Text
 from rich.syntax import Syntax
 from rich.prompt import Prompt, Confirm
-from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.theme import Theme
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-from prompt_toolkit.styles import Style as PTStyle
 
-from core import __author__,__version__
+from core import __author__, __version__
 from config import CLI_COMMANDS
-from config.settings import load_config, Settings, save_config, save_tools_config
-from config.tool_registry import ToolsSettings, ToolRegistry, TOOL_CATALOG, ToolCategory
-from tools import DACLI_tools, get_available_tools
+from config.settings import load_config, Settings
+from connectors.registry import (
+    ConnectorRegistry,
+    save_connectors_config,
+    CONNECTORS_CONFIG_PATH,
+)
 from core.agent import DACLI
 from core.memory import AgentMemory
 from core.setup_wizard import SetupWizard, QuickSetup
 from prompts.system_prompt import load_system_prompt, save_system_prompt, SYSTEM_PROMPT_FILE
-from prompts.user_prompt import load_user_prompt, save_user_prompt, USER_PROMPT_FILE
 
 # -----------------------------------------
 #  CUSTOMIZE CONSOLE THEME
@@ -160,7 +156,7 @@ def format_response(content: str) -> Panel:
 
 def format_tool_result(tool_name: str, result) -> Panel:
     # Format tool result for display.
-    from tools.Base import ToolResult, ToolStatus
+    from connectors.base import ToolResult, ToolStatus
     
     if isinstance(result, ToolResult):
         if result.success:
@@ -228,33 +224,35 @@ def chat(ctx, config, session, run_setup):
 
 @cli.command()
 @click.option('--config', '-c', type=click.Path(), help='Path to config.yaml file')
-@click.option('--profile', '-p', type=str, help='Quick profile: full, github_only, snowflake_only, datawarehouse')
+@click.option('--profile', '-p', type=str, help='Quick profile: full, none, or <connector>_only (e.g. github_only)')
 def setup(config, profile):
-    """Run the interactive tool setup wizard."""
+    """Run the interactive connector setup wizard."""
     config_path = config or "config.yaml"
     settings = load_config(config_path)
-    
+    registry = ConnectorRegistry(settings, config_path=CONNECTORS_CONFIG_PATH)
+
     if profile:
         # Use quick profile
-        QuickSetup.show_profiles(console)
-        tools_settings = QuickSetup.get_profile(profile)
-        if tools_settings:
-            save_tools_config(tools_settings, config_path)
+        QuickSetup.show_profiles(console, registry)
+        connectors_config = QuickSetup.get_profile(profile, registry)
+        if connectors_config:
+            save_connectors_config(connectors_config, CONNECTORS_CONFIG_PATH)
             console.print(f"[success]✓ Applied profile: {profile}[/success]")
         else:
             console.print(f"[error]Unknown profile: {profile}[/error]")
-            console.print("Available profiles: full, github_only, snowflake_only, datawarehouse")
+            console.print("Available profiles: " + ", ".join(QuickSetup.list_profiles(registry).keys()))
     else:
         # Run full wizard
         asyncio.run(_run_setup_wizard(config_path, settings))
 
 
-async def _run_setup_wizard(config_path: str, settings: Settings) -> ToolsSettings:
+async def _run_setup_wizard(config_path: str, settings: Settings) -> dict:
     """Run the setup wizard and save results."""
-    wizard = SetupWizard(settings, config_path)
-    tools_settings = await wizard.run()
-    save_tools_config(tools_settings, config_path)
-    return tools_settings
+    registry = ConnectorRegistry(settings, config_path=CONNECTORS_CONFIG_PATH)
+    wizard = SetupWizard(settings, registry, CONNECTORS_CONFIG_PATH)
+    connectors_config = await wizard.run()
+    save_connectors_config(connectors_config, CONNECTORS_CONFIG_PATH)
+    return connectors_config
 
 
 @cli.command()
@@ -352,40 +350,25 @@ def prompt(output):
 # ============================================================
 
 async def _validate_connections(settings: Settings):
-    # Validate all connections.
-    from tools.snowflake_tool import SnowflakeTool
-    from tools.pinecone_tool import PineconeTool
-    
-    results = []
-    
-    # Snowflake
-    with console.status("[bold green]Testing Snowflake connection..."):
-        try:
-            sf = SnowflakeTool(settings)
-            result = await sf.validate()
-            if result.success:
-                console.print("[success]✅ Snowflake: Connected[/success]")
-                console.print(f"   {result.data}")
-            else:
-                console.print(f"[error]❌ Snowflake: {result.error}[/error]")
-            await sf.disconnect()
-        except Exception as e:
-            console.print(f"[error]❌ Snowflake: {e}[/error]")
-    
-    # Pinecone
-    with console.status("[bold green]Testing Pinecone connection..."):
-        try:
-            pc = PineconeTool(settings)
-            result = await pc.validate()
-            if result.success:
-                console.print("[success]✅ Pinecone: Connected[/success]")
-                console.print(f"   Index: {result.data.get('index_name')}, Vectors: {result.data.get('total_vectors')}")
-            else:
-                console.print(f"[error]❌ Pinecone: {result.error}[/error]")
-            await pc.disconnect()
-        except Exception as e:
-            console.print(f"[warning]⚠️ Pinecone: {e}[/warning]")
-    
+    # Validate all discovered connectors via a live health check.
+    registry = ConnectorRegistry(settings, config_path=CONNECTORS_CONFIG_PATH)
+    catalog = registry.get_catalog()
+
+    for connector_id, info in catalog.items():
+        label = f"{info['icon']} {info['name']}"
+        with console.status(f"[bold green]Testing {info['name']} connection..."):
+            connector = registry.get_connector(connector_id)
+            try:
+                result = await connector.health()
+                if result.success:
+                    console.print(f"[success]✅ {label}: Connected[/success]")
+                    console.print(f"   {result.data}")
+                else:
+                    console.print(f"[error]❌ {label}: {result.error}[/error]")
+                await connector.disconnect()
+            except Exception as e:
+                console.print(f"[warning]⚠️ {label}: {e}[/warning]")
+
 async def _run_chat(config_path: Optional[str], session_id: Optional[str], force_setup: bool = False):
     # Run the interactive chat session.
     print_banner()
@@ -395,32 +378,29 @@ async def _run_chat(config_path: Optional[str], session_id: Optional[str], force
     settings = load_config(config_path)
     
     # Check if setup wizard should run
-    tools_settings = settings.tools if settings.tools else ToolsSettings()
-    
-    if force_setup or not tools_settings.setup_completed:
+    registry = ConnectorRegistry(settings, config_path=CONNECTORS_CONFIG_PATH)
+
+    if force_setup or not registry.setup_completed:
         console.print()
-        if not tools_settings.setup_completed:
+        if not registry.setup_completed:
             console.print("[yellow]First time setup detected![/yellow]")
             run_wizard = Confirm.ask(
-                "Would you like to configure which tools to use?",
+                "Would you like to configure which connectors to use?",
                 default=True
             )
         else:
             run_wizard = True
-        
+
         if run_wizard:
-            wizard = SetupWizard(settings, config_path or "config.yaml")
-            tools_settings = await wizard.run()
-            save_tools_config(tools_settings, config_path or "config.yaml")
-            # Reload settings with new tools config
-            settings = load_config(config_path)
-            tools_settings = settings.tools if settings.tools else tools_settings
+            wizard = SetupWizard(settings, registry, CONNECTORS_CONFIG_PATH)
+            connectors_config = await wizard.run()
+            save_connectors_config(connectors_config, CONNECTORS_CONFIG_PATH)
         else:
-            # Enable all tools by default if user skips wizard
-            console.print("[dim]Using default configuration (all tools enabled)[/dim]")
-            tools_settings = QuickSetup.get_profile("full")
-            save_tools_config(tools_settings, config_path or "config.yaml")
-    
+            # Enable all connectors by default if user skips wizard
+            console.print("[dim]Using default configuration (all connectors enabled)[/dim]")
+            connectors_config = QuickSetup.get_profile("full", registry)
+            save_connectors_config(connectors_config, CONNECTORS_CONFIG_PATH)
+
     # Initialize memory
     memory = AgentMemory(
         state_path=settings.agent.state_path,
@@ -467,12 +447,12 @@ async def _run_chat(config_path: Optional[str], session_id: Optional[str], force
     # Initialize agent
     agent = DACLI(
         settings=settings,
-        tools_settings=tools_settings,
         memory=memory,
         on_status_update=on_status_update,
         on_tool_start=on_tool_start,
         on_tool_end=on_tool_end,
-        on_user_input_needed=on_user_input_needed
+        on_user_input_needed=on_user_input_needed,
+        connectors_config_path=CONNECTORS_CONFIG_PATH,
     )
     
     # Initialize connections
@@ -576,17 +556,18 @@ async def _run_chat(config_path: Optional[str], session_id: Optional[str], force
                             console.print("[success]Agent state reset.[/success]")
                     
                     elif cmd == "/tools":
-                        # Show enabled tools
-                        table = Table(title="🔧 Enabled Tools", show_header=True)
-                        table.add_column("Category", style="cyan")
+                        # Show enabled connectors (from the agent's live registry)
+                        table = Table(title="🔧 Enabled Connectors", show_header=True)
+                        table.add_column("Connector", style="cyan")
                         table.add_column("Status", justify="center")
                         table.add_column("Operations", justify="center")
-                        
-                        for category in ToolCategory:
-                            info = TOOL_CATALOG[category]
-                            config = tools_settings.get_tool_config(category)
-                            if config.enabled:
-                                ops = config.get_enabled_operations()
+
+                        for connector_id, info in agent.registry.get_catalog().items():
+                            if agent.registry.is_connector_enabled(connector_id):
+                                ops = [
+                                    op for op in info["operations"]
+                                    if agent.registry.is_operation_enabled(op)
+                                ]
                                 table.add_row(
                                     f"{info['icon']} {info['name']}",
                                     "[green]✅ Enabled[/green]",
@@ -599,15 +580,16 @@ async def _run_chat(config_path: Optional[str], session_id: Optional[str], force
                                     "—"
                                 )
                         console.print(table)
-                        console.print("[dim]Use /setup to reconfigure tools[/dim]")
-                    
+                        console.print("[dim]Use /setup to reconfigure connectors[/dim]")
+
                     elif cmd == "/setup":
                         # Run setup wizard
                         console.print("[info]Running setup wizard...[/info]")
-                        wizard = SetupWizard(settings, config_path or "config.yaml")
-                        tools_settings = await wizard.run()
-                        save_tools_config(tools_settings, config_path or "config.yaml")
-                        console.print("[success]Tools reconfigured. Restart the agent to apply changes.[/success]")
+                        setup_registry = ConnectorRegistry(settings, config_path=CONNECTORS_CONFIG_PATH)
+                        wizard = SetupWizard(settings, setup_registry, CONNECTORS_CONFIG_PATH)
+                        connectors_config = await wizard.run()
+                        save_connectors_config(connectors_config, CONNECTORS_CONFIG_PATH)
+                        console.print("[success]Connectors reconfigured. Restart the agent to apply changes.[/success]")
                     
                     else:
                         console.print(f"[warning]Unknown command: {cmd}[/warning]")

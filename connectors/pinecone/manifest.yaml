@@ -1,0 +1,7 @@
+id: pinecone
+name: Pinecone (Vector Search)
+description: Search documentation using vector embeddings for RAG
+icon: "🌲"
+class: connectors.pinecone.connector.PineconeConnector
+required_config: [api_key, index_name]
+enabled: true

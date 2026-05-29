@@ -1,18 +1,34 @@
+# Secrets & environment
 .env
+
+# Virtual environments
 .venv/
 venv/
+
+# Python build artifacts
 *.pyc
 __pycache__/
 *.egg-info/
 dist/
 build/
 .eggs/
+
+# Test & coverage
 *.log
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Databases
 *.db
 *.sqlite3
+
+# Local runtime state (generated, not committed)
 config.yaml
-test.py
+config/connectors.yaml
 .dacli
+
+# Local-only working dirs
+test.py
+roadmap/
+.claude/
