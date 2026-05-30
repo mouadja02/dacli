@@ -101,7 +101,8 @@ class CatalogEntry:
         """Stale = invalidated by a write, OR older than its TTL."""
         if not self.valid:
             return True
-        return self.age_seconds(now) > self.ttl_seconds
+        # At or beyond TTL the entry is a hint, not a fact (ttl=0 -> stale now).
+        return self.age_seconds(now) >= self.ttl_seconds
 
     def to_record(self) -> Dict[str, Any]:
         data = asdict(self)

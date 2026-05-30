@@ -22,7 +22,6 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from enum import Enum
 
 from memory.store import MemoryStore, MemoryEntry
 from memory.catalog import CatalogCache
@@ -31,14 +30,6 @@ from memory.episodic import EpisodicMemory
 from memory.procedural import ProceduralMemory
 from memory.retrieval import retrieve
 
-
-class PhaseStatus(Enum):
-    # Status of a phase in the workflow.
-    NOT_STARTED = "not_started"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    PAUSED = "paused"
 
 @dataclass
 class ToolExecution:
@@ -50,17 +41,6 @@ class ToolExecution:
     result: Optional[Any] = None
     error: Optional[str] = None
     execution_time_ms: float = 0.0
-
-@dataclass
-class PhaseProgress:
-    phase_name: str
-    status: str = PhaseStatus.NOT_STARTED.value
-    total_steps: int = 0
-    current_step: int = 0
-    steps_completed: List[str] = field(default_factory=list)
-    errors: List[str] = field(default_factory=list)
-    started_at: Optional[str] = None
-    completed_at: Optional[str] = None
 
 @dataclass
 class Message:
@@ -84,15 +64,12 @@ class AgentState:
     created_at: str
     updated_at: str
 
-    # Work progress
-    current_phase: str = "Initialization"
-    phases: Dict[str, Any] = field(default_factory=dict)
+    # Work progress — a generic todo list (Claude-Code style), not pipeline phases.
+    # Each item: {"content": str, "status": "pending"|"in_progress"|"completed"}.
+    todos: List[Dict[str, Any]] = field(default_factory=list)
 
     # Generic discovery surface (not platform-specific)
     discovered_files: Dict[str, Any] = field(default_factory=dict)
-
-    # Configuration state
-    infrastructure_ready: bool = False
 
     # Error tracking
     last_error: Optional[str] = None
@@ -168,7 +145,6 @@ class AgentMemory:
             session_id=self.session_id,
             created_at=now,
             updated_at=now,
-            phases={},
         )
 
 
@@ -234,38 +210,14 @@ class AgentMemory:
     # State Management
     # ========================
 
-    def update_phase(self, phase_key: str, status: Optional[PhaseStatus] = None, current_step: Optional[int] = None, step_completed: Optional[str] = None, error: Optional[str] = None) -> None:
-        # Update phase progress
-        if phase_key not in self.state.phases:
-            self.state.phases[phase_key] = asdict(PhaseProgress(phase_name=phase_key))
+    def set_todos(self, todos: List[Dict[str, Any]]) -> None:
+        """Replace the task todo list (Claude-Code style planning).
 
-        phase = self.state.phases[phase_key]
-
-        if status:
-            phase["status"] = status.value
-            if status == PhaseStatus.IN_PROGRESS and not phase.get("started_at"):
-                phase["started_at"] = datetime.now().isoformat()
-            elif status == PhaseStatus.COMPLETED:
-                phase["completed_at"] = datetime.now().isoformat()
-
-        if current_step is not None:
-            phase["current_step"] = current_step
-
-        if step_completed:
-            if step_completed not in phase.get("steps_completed", []):
-                phase.setdefault("steps_completed", []).append(step_completed)
-
-        if error:
-            phase.setdefault("errors", []).append(error)
-            self.state.last_error = error
-            self.state.errors_count += 1
-
+        Each todo is ``{"content": str, "status": "pending"|"in_progress"|
+        "completed"}``. The full list is replaced on every call.
+        """
+        self.state.todos = list(todos)
         self.state.updated_at = datetime.now().isoformat()
-        self._save_state()
-
-    def set_current_phase(self, phase: str) -> None:
-        # Set current phase
-        self.state.current_phase = phase
         self._save_state()
 
     def add_discovered_file(self, source: str, filename: str) -> None:
@@ -273,11 +225,6 @@ class AgentMemory:
         self.state.discovered_files.setdefault(source, [])
         if filename not in self.state.discovered_files[source]:
             self.state.discovered_files[source].append(filename)
-        self._save_state()
-
-    def set_infrastructure_ready(self) -> None:
-        # Mark infrastructure as ready
-        self.state.infrastructure_ready = True
         self._save_state()
 
     # ========================
@@ -424,11 +371,13 @@ class AgentMemory:
                 with open(state_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
+                todos = data.get("todos", []) or []
+                active = next((t.get("content") for t in todos if t.get("status") == "in_progress"), None)
                 sessions.append({
                     "session_id": data.get("session_id"),
                     "created_at": data.get("created_at"),
                     "updated_at": data.get("updated_at"),
-                    "current_phase": data.get("current_phase"),
+                    "active_task": active,
                     "errors_count": data.get("errors_count", 0),
                     # Tolerate both new (catalog-derived) and legacy state files.
                     "tables_created": len(data.get("created_tables", [])),
@@ -502,10 +451,12 @@ class AgentMemory:
         # Get a summary of current progress (counts derived from the catalog).
         tables = self.catalog.list_objects(object_type="table")
         loaded = [t for t in tables if t.row_count_estimate is not None]
+        todos = list(self.state.todos)
+        active = next((t.get("content") for t in todos if t.get("status") == "in_progress"), None)
         return {
             "session_id": self.session_id,
-            "current_phase": self.state.current_phase,
-            "infrastructure_ready": self.state.infrastructure_ready,
+            "todos": todos,
+            "active_task": active,
             "tables_created": len(tables),
             "tables_loaded": len(loaded),
             "total_rows_loaded": sum(t.row_count_estimate or 0 for t in loaded),
@@ -514,13 +465,6 @@ class AgentMemory:
             "files_discovered": sum(len(f) for f in self.state.discovered_files.values()),
             "errors_count": self.state.errors_count,
             "last_error": self.state.last_error,
-            "phases": {
-                k: {
-                    "status": v.get("status"),
-                    "progress": "{} / {}".format(v.get("current_step", 0), v.get("total_steps", 0))
-                }
-                for k, v in self.state.phases.items()
-            }
         }
 
     def export_state(self) -> str:

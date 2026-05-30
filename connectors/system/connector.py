@@ -1,8 +1,8 @@
 """Built-in 'system' connector.
 
-The two built-in tools (``request_user_input`` and ``update_progress``) used to
-be special-cased inside the agent's dispatch ladder. Modelling them as a
-connector means *all* tools flow through the single dispatch path.
+The built-in tools (``request_user_input``, ``update_plan``, …) used to be
+special-cased inside the agent's dispatch ladder. Modelling them as a connector
+means *all* tools flow through the single dispatch path.
 
 Unlike the platform connectors, the system connector needs runtime collaborators
 (the user-input callback and the agent's memory), so it is constructed and
@@ -75,30 +75,42 @@ class SystemConnector(Connector):
                 category="system",
             ),
             OperationSpec(
-                name="update_progress",
-                description="Update the current progress status. Use to track phases and steps completed.",
+                name="update_plan",
+                description=(
+                    "Maintain your task plan as a todo list. Pass the FULL ordered "
+                    "list every call — it replaces the previous plan. Use it to "
+                    "break a multi-step task into steps and show the user progress: "
+                    "keep exactly one item 'in_progress' while you work it, then "
+                    "mark it 'completed' and start the next."
+                ),
                 parameters={
                     "type": "object",
                     "properties": {
-                        "phase": {
-                            "type": "string",
-                            "description": "Current phase (phase_0_infrastructure, phase_1_discovery, etc.)"
-                        },
-                        "step": {
-                            "type": "string",
-                            "description": "Description of the step completed"
-                        },
-                        "status": {
-                            "type": "string",
-                            "enum": ["in_progress", "completed", "failed"],
-                            "description": "Status of the phase"
+                        "todos": {
+                            "type": "array",
+                            "description": "The complete, ordered todo list for the current task.",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "content": {
+                                        "type": "string",
+                                        "description": "Concise description of the step.",
+                                    },
+                                    "status": {
+                                        "type": "string",
+                                        "enum": ["pending", "in_progress", "completed"],
+                                        "description": "Status of this step.",
+                                    },
+                                },
+                                "required": ["content", "status"],
+                            },
                         }
                     },
-                    "required": ["phase", "step"]
+                    "required": ["todos"],
                 },
-                capability="system.progress",
+                capability="system.plan",
                 risk=Risk.SAFE,
-                display_name="Update Progress",
+                display_name="Update Plan",
                 category="system",
             ),
             OperationSpec(
@@ -150,8 +162,8 @@ class SystemConnector(Connector):
     async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
         if op == "request_user_input":
             return self._request_user_input(args)
-        elif op == "update_progress":
-            return self._update_progress(args)
+        elif op == "update_plan":
+            return self._update_plan(args)
         elif op == "load_connector_tools":
             return self._load_connector_tools(args)
         elif op == "fetch_result":
@@ -259,24 +271,27 @@ class SystemConnector(Connector):
             metadata={k: v for k, v in payload.items() if k != "data"},
         )
 
-    def _update_progress(self, args: Dict[str, Any]) -> ToolResult:
-        # Imported lazily to avoid a core <-> connectors import cycle at load time.
-        from core.memory import PhaseStatus
+    def _update_plan(self, args: Dict[str, Any]) -> ToolResult:
+        # Generic todo-list planning (Claude-Code style); replaces the whole list.
+        valid = {"pending", "in_progress", "completed"}
+        todos: List[Dict[str, Any]] = []
+        for item in args.get("todos") or []:
+            if not isinstance(item, dict):
+                continue
+            content = str(item.get("content", "")).strip()
+            if not content:
+                continue
+            status = item.get("status", "pending")
+            todos.append({
+                "content": content,
+                "status": status if status in valid else "pending",
+            })
 
-        phase = args.get("phase", "")
-        step = args.get("step", "")
-        status = args.get("status", "in_progress")
+        self._memory.set_todos(todos)
 
-        status_enum = {
-            "in_progress": PhaseStatus.IN_PROGRESS,
-            "completed": PhaseStatus.COMPLETED,
-            "failed": PhaseStatus.FAILED
-        }.get(status, PhaseStatus.IN_PROGRESS)
-
-        self._memory.update_phase(phase, status=status_enum, step_completed=step)
-
+        completed = sum(1 for t in todos if t["status"] == "completed")
         return ToolResult(
-            tool_name="update_progress",
+            tool_name="update_plan",
             status=ToolStatus.SUCCESS,
-            data={"phase": phase, "step": step, "status": status}
+            data={"todos": todos, "completed": completed, "total": len(todos)},
         )

@@ -103,38 +103,27 @@ def print_status(memory: AgentMemory, target: Optional[DacliUI] = None):
 
     # Main status panel
     status_text = Text()
-    status_text.append("Session       ", style="muted")
+    status_text.append("Session     ", style="muted")
     status_text.append(f"{summary['session_id']}\n", style="accent")
-    status_text.append("Current phase  ", style="muted")
-    status_text.append(f"{summary['current_phase']}\n", style="phase")
-    status_text.append("Infrastructure ", style="muted")
-    status_text.append(
-        "● ready" if summary['infrastructure_ready'] else "○ pending",
-        style="ok" if summary['infrastructure_ready'] else "warning"
-    )
+    status_text.append("Active task ", style="muted")
+    status_text.append(f"{summary.get('active_task') or '—'}", style="phase")
     con.print(Panel(status_text, title="[accent]Status[/accent]", border_style="border", padding=(1, 2)))
 
-    # Progress table
-    if summary.get('phases'):
-        table = Table(title="[accent]Phase progress[/accent]", show_header=True,
+    # Plan (todo list)
+    if summary.get('todos'):
+        table = Table(title="[accent]Plan[/accent]", show_header=True,
                       header_style="muted", border_style="border", box=None, padding=(0, 2, 0, 0))
-        table.add_column("Phase", style="info")
+        table.add_column("#", style="muted", justify="right")
         table.add_column("Status")
-        table.add_column("Progress", style="step")
-        for phase, info in summary.get('phases', {}).items():
-            status = info.get('status', 'not_started')
+        table.add_column("Task", style="info")
+        for i, todo in enumerate(summary.get('todos', []), 1):
+            status = todo.get('status', 'pending')
             status_icon = {
-                "not_started": "○",
+                "pending": "○",
                 "in_progress": "◐",
                 "completed": "●",
-                "failed": "✗",
-                "paused": "‖",
             }.get(status, "○")
-            table.add_row(
-                phase.replace("_", " ").title(),
-                f"{status_icon} {status}",
-                info.get('progress', '0/0'),
-            )
+            table.add_row(str(i), f"{status_icon} {status}", todo.get('content', ''))
         con.print(table)
 
     # Stats
@@ -294,15 +283,15 @@ def sessions():
     table = Table(title="Available Sessions", show_header=True)
     table.add_column("Session ID", style="cyan")
     table.add_column("Created")
-    table.add_column("Phase")
+    table.add_column("Active task")
     table.add_column("Tables")
     table.add_column("Errors")
-    
+
     for s in session_list:
         table.add_row(
             s['session_id'],
             s['created_at'][:19] if s.get('created_at') else "?",
-            s.get('current_phase', 'unknown'),
+            s.get('active_task') or "—",
             str(s.get('tables_created', 0)),
             str(s.get('errors_count', 0))
         )
