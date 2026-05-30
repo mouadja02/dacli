@@ -28,6 +28,7 @@ from config.tool_registry import ToolsSettings, ToolRegistry, TOOL_CATALOG, Tool
 from tools import DACLI_tools, get_available_tools
 from core.agent import DACLI
 from core.memory import AgentMemory
+from core.store import DacliStore
 from core.setup_wizard import SetupWizard, QuickSetup
 from prompts.system_prompt import load_system_prompt, save_system_prompt, SYSTEM_PROMPT_FILE
 from prompts.user_prompt import load_user_prompt, save_user_prompt, USER_PROMPT_FILE
@@ -144,6 +145,71 @@ def print_status(memory: AgentMemory):
     if summary.get('last_error'):
         console.print(f"[error]Last Error:[/error] {summary['last_error']}")
 
+
+def _fmt_int(n) -> str:
+    try:
+        return f"{int(n):,}"
+    except Exception:
+        return str(n)
+
+
+def _fmt_cost(c) -> str:
+    try:
+        c = float(c)
+    except Exception:
+        return "n/a"
+    if c <= 0:
+        return "$0.00"
+    return f"${c:.4f}" if c < 0.01 else f"${c:.2f}"
+
+
+def print_usage(store: DacliStore, session_id: Optional[str] = None):
+    # Render token/cost usage: all-time totals, split by model, this session.
+    summary = store.usage_summary(session_id)
+    totals = summary["totals"]
+    by_model = summary["byModel"]
+    session = summary.get("session")
+
+    t = Text()
+    t.append("Startups    ", style="dim"); t.append(f"{summary.get('numStartups', 0)}\n", style="cyan")
+    t.append("Requests    ", style="dim"); t.append(f"{_fmt_int(totals.get('requests', 0))}\n", style="cyan")
+    t.append("Input       ", style="dim"); t.append(f"{_fmt_int(totals.get('input', 0))} tok\n")
+    t.append("Output      ", style="dim"); t.append(f"{_fmt_int(totals.get('output', 0))} tok\n")
+    t.append("Cache read  ", style="dim"); t.append(f"{_fmt_int(totals.get('cache_read', 0))} tok\n")
+    t.append("Cache write ", style="dim"); t.append(f"{_fmt_int(totals.get('cache_creation', 0))} tok\n")
+    t.append("Total cost  ", style="dim"); t.append(_fmt_cost(totals.get('costUSD', 0)), style="success")
+    console.print(Panel(t, title="Usage — all time", border_style="cyan"))
+
+    if by_model:
+        table = Table(title="By model", show_header=True)
+        table.add_column("Model", style="cyan")
+        table.add_column("Reqs", justify="right")
+        table.add_column("Input", justify="right")
+        table.add_column("Output", justify="right")
+        table.add_column("Cache R/W", justify="right")
+        table.add_column("Cost", justify="right", style="success")
+        for model, b in sorted(by_model.items(), key=lambda kv: kv[1].get("costUSD", 0), reverse=True):
+            table.add_row(
+                model,
+                _fmt_int(b.get("requests", 0)),
+                _fmt_int(b.get("input", 0)),
+                _fmt_int(b.get("output", 0)),
+                f"{_fmt_int(b.get('cache_read', 0))}/{_fmt_int(b.get('cache_creation', 0))}",
+                _fmt_cost(b.get("costUSD", 0)),
+            )
+        console.print(table)
+
+    if session:
+        s = Text()
+        s.append("Model ", style="dim"); s.append(f"{session.get('model', '?')}   ", style="cyan")
+        s.append("Reqs ", style="dim"); s.append(f"{_fmt_int(session.get('requests', 0))}   ")
+        s.append("In/Out ", style="dim")
+        s.append(f"{_fmt_int(session.get('input', 0))}/{_fmt_int(session.get('output', 0))} tok   ")
+        s.append("Cost ", style="dim"); s.append(_fmt_cost(session.get('costUSD', 0)), style="success")
+        console.print(Panel(s, title=f"This session ({session_id})", border_style="blue"))
+
+    if totals.get("requests") and not totals.get("costUSD"):
+        console.print("[dim]Cost shows $0.00 — models.dev pricing unavailable for this model (offline or unlisted).[/dim]")
 
 
 def format_sql(sql: str) -> Panel:
@@ -464,6 +530,9 @@ async def _run_chat(config_path: Optional[str], session_id: Optional[str], force
             spinner_ctx["status"].start()
         return response
     
+    # Persistent project store (.dacli/dacli.json): startups, config snapshot, usage/cost
+    store = DacliStore(base_dir=str(Path(settings.agent.state_path).parent))
+
     # Initialize agent
     agent = DACLI(
         settings=settings,
@@ -472,7 +541,8 @@ async def _run_chat(config_path: Optional[str], session_id: Optional[str], force
         on_status_update=on_status_update,
         on_tool_start=on_tool_start,
         on_tool_end=on_tool_end,
-        on_user_input_needed=on_user_input_needed
+        on_user_input_needed=on_user_input_needed,
+        store=store,
     )
     
     # Initialize connections
@@ -487,6 +557,11 @@ async def _run_chat(config_path: Optional[str], session_id: Optional[str], force
         console.print("[dim]Check your config.yaml and ensure credentials are set.[/dim]")
         return
     
+    # Persist startup + a secret-redacted snapshot of the effective config.
+    store.record_startup()
+    store.snapshot_config(settings)
+    store.save()
+
     console.print("[success]✅ Agent ready![/success]")
     print_help_commands()
     console.print()
@@ -525,7 +600,10 @@ async def _run_chat(config_path: Optional[str], session_id: Optional[str], force
                     
                     elif cmd == "/status":
                         print_status(memory)
-                    
+
+                    elif cmd == "/usage":
+                        print_usage(agent.store, memory.session_id)
+
                     elif cmd == "/history":
                         for msg in memory.get_full_history()[-20:]:
                             role_style = "user" if msg.role == "user" else "assistant"
@@ -607,6 +685,9 @@ async def _run_chat(config_path: Optional[str], session_id: Optional[str], force
                         wizard = SetupWizard(settings, config_path or "config.yaml")
                         tools_settings = await wizard.run()
                         save_tools_config(tools_settings, config_path or "config.yaml")
+                        # Re-snapshot the (now updated) config into .dacli/dacli.json
+                        store.snapshot_config(load_config(config_path))
+                        store.save()
                         console.print("[success]Tools reconfigured. Restart the agent to apply changes.[/success]")
                     
                     else:

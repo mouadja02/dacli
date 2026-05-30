@@ -74,8 +74,9 @@ You can always re-run this wizard later by using: `dacli --setup`
         self.console.print("\n[bold cyan]Step 2/3:[/bold cyan] Select Operations\n")
         await self._select_operations()
         
-        # Step 3: Validate credentials
+        # Step 3: Collect any missing secrets, then validate credentials
         self.console.print("\n[bold cyan]Step 3/3:[/bold cyan] Validating Credentials\n")
+        await self._collect_secrets()
         validation_results = await self._validate_credentials()
         
         # Show summary
@@ -178,6 +179,73 @@ You can always re-run this wizard later by using: `dacli --setup`
             
             self.tools_settings.set_tool_config(category, config)
     
+    # Always-required secrets (not tied to an optional tool): the LLM key.
+    _ALWAYS_SECRETS = [("llm", "api_key", "LLM API key")]
+
+    # Required secret fields per tool: (config section, field, human label).
+    _SECRET_FIELDS = {
+        ToolCategory.SNOWFLAKE: [("snowflake", "password", "Snowflake password")],
+        ToolCategory.GITHUB: [("github", "token", "GitHub personal access token")],
+        ToolCategory.PINECONE: [
+            ("pinecone", "api_key", "Pinecone API key"),
+            ("embeddings", "api_key", "Embeddings API key"),
+        ],
+    }
+
+    def _current_secret(self, section: str, field: str):
+        sec = getattr(self.settings, section, None)
+        return getattr(sec, field, None) if sec is not None else None
+
+    @staticmethod
+    def _is_missing(value) -> bool:
+        return not value or value == "" or (isinstance(value, str) and value.startswith("${"))
+
+    def _get_store(self):
+        from core.store import DacliStore
+
+        state_path = getattr(getattr(self.settings, "agent", None), "state_path", ".dacli/state/")
+        return DacliStore(base_dir=str(Path(state_path).parent))
+
+    async def _collect_secrets(self):
+        """Prompt for any missing secret of an enabled tool and persist it.
+
+        Secrets are written to ``.dacli/dacli.json`` (gitignored) and the config
+        is reloaded so the credentials resolve for validation and at runtime —
+        no ``.env`` required.
+        """
+        enabled = self.tools_settings.get_enabled_tools()
+        candidates = list(self._ALWAYS_SECRETS)
+        for cat in enabled:
+            candidates.extend(self._SECRET_FIELDS.get(cat, []))
+        # Only prompt for what's actually missing (a value from .env/config wins).
+        needed = [
+            (section, field, label)
+            for (section, field, label) in candidates
+            if self._is_missing(self._current_secret(section, field))
+        ]
+        if not needed:
+            return
+
+        self.console.print(
+            "[bold]Some credentials are missing.[/bold] They will be stored in "
+            "[cyan].dacli/dacli.json[/cyan] (gitignored). Press Enter to skip any.\n"
+        )
+        store = self._get_store()
+        changed = False
+        for section, field, label in needed:
+            value = Prompt.ask(f"  Enter {label}", password=True, default="")
+            if value:
+                store.set_secret(section, field, value)
+                changed = True
+
+        if changed:
+            store.save()
+            # Reload settings so the just-saved secrets are overlaid for validation.
+            from config.settings import load_config
+
+            self.settings = load_config(self.config_path)
+            self.console.print("[green]✓ Credentials saved.[/green]\n")
+
     async def _validate_credentials(self) -> Dict[ToolCategory, Tuple[bool, str]]:
         """Validate credentials for enabled tools"""
         results = {}

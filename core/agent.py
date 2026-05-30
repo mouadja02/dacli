@@ -1,12 +1,15 @@
 import json
 import asyncio
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Callable
 from dataclasses import dataclass
 
 from config.settings import Settings
 from config.tool_registry import ToolsSettings, ToolRegistry, ToolCategory, TOOL_CATALOG
 from core.memory import AgentMemory, PhaseStatus
+from core.pricing import TokenUsage, fetch_pricing
+from core.store import DacliStore
 from tools.Base import ToolResult, ToolStatus
 from tools.snowflake_tools import SnowflakeTool
 from tools.github_tools import GithubTool
@@ -64,17 +67,18 @@ class LLMClient:
         else:
             raise ValueError(f"Unsupported LLM provider: {provider}")
     
-    async def generate(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None) -> Tuple[str, List[Dict]]:
+    async def generate(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None) -> Tuple[str, List[Dict], Dict[str, int]]:
         """
         Generate a response from the LLM.
-        
+
         Args:
             messages: Conversation messages
             tools: Available tool definitions
             system_prompt: System prompt to use
-            
+
         Returns:
-            Tuple of (response content, tool calls)
+            Tuple of (response content, tool calls, token-usage dict). The usage
+            dict is provider-normalized: input/output/cache_read/cache_creation.
         """
         if not self._client:
             await self.initialize()
@@ -89,7 +93,7 @@ class LLMClient:
         else:
             raise ValueError(f"Unsupported provider: {provider}")
     
-    async def _generate_openai(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None) -> Tuple[str, List[Dict]]:
+    async def _generate_openai(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None) -> Tuple[str, List[Dict], Dict[str, int]]:
         # Generate using OpenAI-compatibile API
         
         # Prepare messages includes system prompt
@@ -123,10 +127,24 @@ class LLMClient:
         if hasattr(choice.message, "tool_calls") and choice.message.tool_calls:
             for tc in choice.message.tool_calls:
                 tool_calls.append({"id": tc.id,"name": tc.function.name,"arguments": json.loads(tc.function.arguments)})
-        
-        return content, tool_calls
 
-    async def _generate_anthropic(self,messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None) -> Tuple[str, List[Dict]]:
+        # Extract token usage (prompt_tokens includes cached -> split it out so
+        # cost is not double-counted).
+        usage = {}
+        u = getattr(response, "usage", None)
+        if u is not None:
+            details = getattr(u, "prompt_tokens_details", None)
+            cached = (getattr(details, "cached_tokens", 0) or 0) if details is not None else 0
+            usage = {
+                "input": max(0, (getattr(u, "prompt_tokens", 0) or 0) - cached),
+                "output": getattr(u, "completion_tokens", 0) or 0,
+                "cache_read": cached,
+                "cache_creation": 0,
+            }
+
+        return content, tool_calls, usage
+
+    async def _generate_anthropic(self,messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None) -> Tuple[str, List[Dict], Dict[str, int]]:
         # Generate using Anthropic API
         # Prepare request
         request_kwargs = {
@@ -160,23 +178,46 @@ class LLMClient:
                 content += block.text
             elif block.type == "tool_use":
                 tool_calls.append({"id": block.id,"name": block.name,"arguments": block.input})
-        
-        return content, tool_calls
+
+        # Anthropic reports cache tokens as separate fields from input_tokens.
+        usage = {}
+        u = getattr(response, "usage", None)
+        if u is not None:
+            usage = {
+                "input": getattr(u, "input_tokens", 0) or 0,
+                "output": getattr(u, "output_tokens", 0) or 0,
+                "cache_read": getattr(u, "cache_read_input_tokens", 0) or 0,
+                "cache_creation": getattr(u, "cache_creation_input_tokens", 0) or 0,
+            }
+
+        return content, tool_calls, usage
     
-    async def _generate_google(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None) -> Tuple[str, List[Dict]]:
+    async def _generate_google(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None) -> Tuple[str, List[Dict], Dict[str, int]]:
         # Generate using Google Gemini API
         model = self._client.GenerativeModel(self.settings.llm.model, system_instruction=system_prompt)
-        
+
         # Convert messages to Gemini format
         gemini_messages = []
         for msg in messages:
             role = "user" if msg["role"] == "user" else "model"
             gemini_messages.append({"role": role, "parts": [msg["content"]]})
-        
+
         # TODO: Tool calling for Gemini would need additional handling
         response = await asyncio.to_thread(model.generate_content,gemini_messages)
-        
-        return response.text, []
+
+        # Gemini reports cached tokens inside prompt_token_count -> split it out.
+        usage = {}
+        um = getattr(response, "usage_metadata", None)
+        if um is not None:
+            cached = getattr(um, "cached_content_token_count", 0) or 0
+            usage = {
+                "input": max(0, (getattr(um, "prompt_token_count", 0) or 0) - cached),
+                "output": getattr(um, "candidates_token_count", 0) or 0,
+                "cache_read": cached,
+                "cache_creation": 0,
+            }
+
+        return response.text, [], usage
 
 class DACLI:
     # Main Data Agent CLI: Orchestrates the workflow for building data agent using:
@@ -190,6 +231,7 @@ class DACLI:
         on_tool_start: Optional[Callable[[str, Dict], None]] = None,
         on_tool_end: Optional[Callable[[str, ToolResult], None]] = None,
         on_user_input_needed: Optional[Callable[[str], str]] = None,
+        store: Optional[DacliStore] = None,
     ):
         # Initialize the DACLI class
         self.settings = settings
@@ -214,6 +256,13 @@ class DACLI:
 
         # Initialize components
         self.llm = LLMClient(settings)
+
+        # Usage/cost tracking: persistent .dacli/dacli.json + models.dev pricing
+        # for the configured provider+model (None when offline -> tokens still
+        # tracked, cost reported as unknown).
+        _base_dir = str(Path(settings.agent.state_path).parent)
+        self.store = store or DacliStore(base_dir=_base_dir)
+        self._pricing = fetch_pricing(settings.llm.provider, settings.llm.model, cache_dir=_base_dir)
 
         # Tools - only instantiate if enabled
         self.snowflake = None
@@ -733,7 +782,26 @@ class DACLI:
             self._on_tool_end(tool_name, result)
         
         return result
-    
+
+    def _record_usage(self, usage_dict: Dict[str, int], user_message: str) -> None:
+        # Fold one LLM call's token usage + computed cost into the persistent
+        # store. Best-effort: usage tracking must never break the chat loop.
+        usage = TokenUsage.from_dict(usage_dict)
+        if usage.total == 0:
+            return
+        cost = self._pricing.cost_for(usage) if self._pricing else 0.0
+        try:
+            self.store.record_usage(
+                self.memory.session_id,
+                self.settings.llm.model,
+                usage,
+                cost,
+                first_prompt=user_message,
+            )
+            self.store.save()
+        except Exception:
+            pass
+
     async def process_message(self, user_message: str) -> AgentResponse:
         # Process a user message and generate a response.
         # Add user message to memory
@@ -751,11 +819,12 @@ class DACLI:
             
             try:
                 # Generate response from LLM
-                content, tool_calls = await self.llm.generate(
+                content, tool_calls, usage = await self.llm.generate(
                     messages=messages,
                     tools=self._tools,
                     system_prompt=self.system_prompt
                 )
+                self._record_usage(usage, user_message)
 
                 # If no tool call, we have a final response
                 if not tool_calls:

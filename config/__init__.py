@@ -3,6 +3,7 @@ from config.settings import Settings, load_config
 CLI_COMMANDS = [
     ("/help", "Show this help message"),
     ("/status", "Show current progress and state"),
+    ("/usage", "Show token usage and cost (overall, by model, this session)"),
     ("/tools", "Show enabled tools and capabilities"),
     ("/setup", "Run the tool configuration wizard"),
     ("/history", "Show conversation history"),

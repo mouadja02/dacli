@@ -16,3 +16,5 @@ htmlcov/
 config.yaml
 test.py
 .dacli
+roadmap/
+.claude/

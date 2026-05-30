@@ -1,0 +1,199 @@
+"""Persistent project state for dacli — the ``.claude.json`` analogue.
+
+Writes ``.dacli/dacli.json`` next to the session ``state/`` and ``history/``
+dirs. Holds: startup counters, a **secret-redacted** snapshot of the effective
+config, and accumulated token/cost usage (all-time totals, split by model, plus
+a per-session breakdown). This is what the ``/usage`` command renders.
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+from core.pricing import TokenUsage
+
+# Config keys whose values must never be written to disk.
+_SECRET_KEYS = {"api_key", "password", "token", "secret", "access_key", "secret_key"}
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _empty_bucket() -> Dict[str, Any]:
+    return {
+        "input": 0,
+        "output": 0,
+        "cache_read": 0,
+        "cache_creation": 0,
+        "requests": 0,
+        "costUSD": 0.0,
+    }
+
+
+def _redact(value: Any) -> Any:
+    """Recursively replace secret-keyed values with ``***``."""
+    if isinstance(value, dict):
+        out: Dict[str, Any] = {}
+        for k, v in value.items():
+            if isinstance(k, str) and k.lower() in _SECRET_KEYS and v not in (None, ""):
+                out[k] = "***"
+            else:
+                out[k] = _redact(v)
+        return out
+    if isinstance(value, list):
+        return [_redact(v) for v in value]
+    return value
+
+
+class DacliStore:
+    """Load/update/persist ``.dacli/dacli.json``."""
+
+    def __init__(self, base_dir: str = ".dacli", install_method: str = "source"):
+        self.base_dir = Path(base_dir)
+        self.path = self.base_dir / "dacli.json"
+        self._install_method = install_method
+        self._data: Dict[str, Any] = self._default()
+        self.load()
+
+    # ------------------------------------------------------------------
+    # persistence
+    # ------------------------------------------------------------------
+    def _default(self) -> Dict[str, Any]:
+        return {
+            "version": 1,
+            "numStartups": 0,
+            "installMethod": self._install_method,
+            "firstStartTime": None,
+            "lastStartTime": None,
+            "config": {},
+            # Real credentials live here (source of truth the config loader reads).
+            # The `config` block above is a redacted, human-readable snapshot.
+            "secrets": {},
+            "usage": {"totals": _empty_bucket(), "byModel": {}, "sessions": {}},
+        }
+
+    def load(self) -> "DacliStore":
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                self._data = self._merge_defaults(data)
+        except Exception:
+            pass  # missing/corrupt file -> keep defaults
+        return self
+
+    def _merge_defaults(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        base = self._default()
+        base.update(data)
+        base["secrets"] = data.get("secrets") or {}
+        usage = data.get("usage") or {}
+        base["usage"] = {
+            "totals": {**_empty_bucket(), **(usage.get("totals") or {})},
+            "byModel": usage.get("byModel") or {},
+            "sessions": usage.get("sessions") or {},
+        }
+        return base
+
+    def save(self) -> None:
+        try:
+            self.base_dir.mkdir(parents=True, exist_ok=True)
+            self.path.write_text(
+                json.dumps(self._data, indent=2, default=str), encoding="utf-8"
+            )
+        except Exception:
+            pass  # best-effort; never crash the session over telemetry
+
+    # ------------------------------------------------------------------
+    # mutations
+    # ------------------------------------------------------------------
+    def record_startup(self) -> None:
+        now = _now_iso()
+        self._data["numStartups"] = int(self._data.get("numStartups", 0)) + 1
+        if not self._data.get("firstStartTime"):
+            self._data["firstStartTime"] = now
+        self._data["lastStartTime"] = now
+
+    def snapshot_config(self, settings: Any) -> None:
+        """Store a secret-redacted snapshot of the effective settings."""
+        try:
+            dump = settings.model_dump(mode="json")
+        except Exception:
+            dump = {}
+        red = _redact(dump)
+        sf = red.get("snowflake") or {}
+        gh = red.get("github") or {}
+        pc = red.get("pinecone") or {}
+        emb = red.get("embeddings") or {}
+        self._data["config"] = {
+            "llm": red.get("llm") or {},
+            "agent": red.get("agent") or {},
+            "ui": red.get("ui") or {},
+            "connectors": {
+                "snowflake": {
+                    k: sf.get(k)
+                    for k in ("account", "user", "warehouse", "role", "database", "db_schema")
+                },
+                "github": {k: gh.get(k) for k in ("owner", "repo", "branch", "repository_url")},
+                "pinecone": {k: pc.get(k) for k in ("index_name", "environment", "top_k")},
+                "embeddings": {k: emb.get(k) for k in ("provider", "model")},
+            },
+        }
+
+    def set_secret(self, section: str, field: str, value: str) -> None:
+        """Store a real credential (e.g. ``set_secret('snowflake', 'password', ...)``)."""
+        self._data.setdefault("secrets", {}).setdefault(section, {})[field] = value
+
+    def get_secrets(self) -> Dict[str, Any]:
+        return self._data.get("secrets", {})
+
+    def _accumulate(self, bucket: Dict[str, Any], usage: TokenUsage, cost: float) -> None:
+        bucket["input"] = bucket.get("input", 0) + usage.input
+        bucket["output"] = bucket.get("output", 0) + usage.output
+        bucket["cache_read"] = bucket.get("cache_read", 0) + usage.cache_read
+        bucket["cache_creation"] = bucket.get("cache_creation", 0) + usage.cache_creation
+        bucket["requests"] = bucket.get("requests", 0) + 1
+        bucket["costUSD"] = round(bucket.get("costUSD", 0.0) + (cost or 0.0), 6)
+
+    def record_usage(
+        self,
+        session_id: str,
+        model: str,
+        usage: TokenUsage,
+        cost: float,
+        first_prompt: Optional[str] = None,
+    ) -> None:
+        """Fold one turn's usage into totals, by-model, and per-session buckets."""
+        now = _now_iso()
+        u = self._data["usage"]
+        self._accumulate(u["totals"], usage, cost)
+        self._accumulate(u["byModel"].setdefault(model, _empty_bucket()), usage, cost)
+
+        sess = u["sessions"].get(session_id)
+        if sess is None:
+            sess = _empty_bucket()
+            sess["startedAt"] = now
+            if first_prompt:
+                sess["firstPrompt"] = first_prompt[:200]
+            u["sessions"][session_id] = sess
+        sess["model"] = model
+        sess["updatedAt"] = now
+        self._accumulate(sess, usage, cost)
+
+    # ------------------------------------------------------------------
+    # reads
+    # ------------------------------------------------------------------
+    def usage_summary(self, session_id: Optional[str] = None) -> Dict[str, Any]:
+        u = self._data["usage"]
+        return {
+            "numStartups": self._data.get("numStartups", 0),
+            "totals": dict(u["totals"]),
+            "byModel": {m: dict(b) for m, b in u["byModel"].items()},
+            "session": dict(u["sessions"].get(session_id, {})) if session_id else None,
+        }
+
+    @property
+    def data(self) -> Dict[str, Any]:
+        return self._data

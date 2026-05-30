@@ -175,6 +175,50 @@ class Settings(BaseModel):
         return data
 
 
+def _is_secret_placeholder(v: Any) -> bool:
+    # A field is "missing" if empty or still an unresolved ${ENV_VAR} reference.
+    return v is None or v == "" or (isinstance(v, str) and v.startswith("${"))
+
+
+def _dacli_base_dir(config_data: Dict[str, Any]) -> str:
+    state_path = ".dacli/state/"
+    agent = config_data.get("agent")
+    if isinstance(agent, dict) and agent.get("state_path"):
+        state_path = agent["state_path"]
+    return str(Path(state_path).parent)
+
+
+def _load_dacli_secrets(base_dir: str) -> Dict[str, Any]:
+    # Read the `secrets` block from .dacli/dacli.json (written by the setup wizard).
+    import json
+
+    try:
+        data = json.loads((Path(base_dir) / "dacli.json").read_text(encoding="utf-8"))
+        secrets = data.get("secrets")
+        return secrets if isinstance(secrets, dict) else {}
+    except Exception:
+        return {}
+
+
+def _overlay_secrets(config_data: Dict[str, Any], secrets: Dict[str, Any]) -> Dict[str, Any]:
+    """Fill missing/placeholder config fields from the dacli.json secrets block.
+
+    Explicit values from config.yaml / env take precedence; dacli.json only fills
+    holes (empty or unresolved ``${VAR}``), so the wizard-stored credentials make
+    the agent work without a .env file.
+    """
+    for section, fields in secrets.items():
+        if not isinstance(fields, dict):
+            continue
+        sec = config_data.get(section)
+        if not isinstance(sec, dict):
+            continue
+        for field, val in fields.items():
+            if val and _is_secret_placeholder(sec.get(field)):
+                sec[field] = val
+    return config_data
+
+
 def load_config(config_path: Optional[str] = None) -> Settings:
     """
     Load configuration from YAML file with environment variable substitution.
@@ -214,6 +258,12 @@ def load_config(config_path: Optional[str] = None) -> Settings:
     
     # Substitute environment variables
     config_data = _substitute_env_vars(raw_config)
+
+    # Overlay credentials stored in .dacli/dacli.json (the setup wizard writes
+    # them there); these fill any field left missing/placeholder by config+env.
+    if isinstance(config_data, dict):
+        secrets = _load_dacli_secrets(_dacli_base_dir(config_data))
+        config_data = _overlay_secrets(config_data, secrets)
 
     return Settings(**config_data)
 
