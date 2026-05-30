@@ -44,7 +44,7 @@ class FakeMemory:
         self.user_messages = []
         self.assistant_finals = []
         self.tool_logs = []
-        self.phase_updates = []
+        self.todo_updates = []
 
     def add_user_message(self, content):
         self.user_messages.append(content)
@@ -59,8 +59,8 @@ class FakeMemory:
     def log_tool_execution(self, tool_name, input_params, result=None, error=None, execution_time_ms=0.0):
         self.tool_logs.append(tool_name)
 
-    def update_phase(self, phase_key, status=None, current_step=None, step_completed=None, error=None):
-        self.phase_updates.append((phase_key, getattr(status, "value", status), step_completed))
+    def set_todos(self, todos):
+        self.todo_updates.append(list(todos))
 
 
 def _tc(call_id, name, arguments):
@@ -98,16 +98,17 @@ def build_spine(script, memory, on_user_input_needed=None):
     return kernel, dispatched, registry
 
 
-# The recorded session: echo a string, record progress, then answer.
+# The recorded session: echo a string, record a plan, then answer.
+_PLAN = [{"content": "did the thing", "status": "completed"}]
 GOLDEN_SCRIPT = [
     ("", [_tc("c1", "echo_say", {"text": "hello"})]),
-    ("", [_tc("c2", "update_progress", {"phase": "p1", "step": "did the thing", "status": "completed"})]),
+    ("", [_tc("c2", "update_plan", {"todos": _PLAN})]),
     ("done", []),
 ]
 
 GOLDEN_DISPATCH = [
     ("echo_say", {"text": "hello"}),
-    ("update_progress", {"phase": "p1", "step": "did the thing", "status": "completed"}),
+    ("update_plan", {"todos": _PLAN}),
 ]
 
 
@@ -131,8 +132,8 @@ class GoldenTranscriptTest(unittest.TestCase):
         # Side effects flowed through the single dispatch path.
         self.assertEqual(memory.user_messages, ["GO"])
         self.assertEqual(memory.assistant_finals, ["done"])
-        self.assertEqual(memory.tool_logs, ["echo_say", "update_progress"])
-        self.assertEqual(memory.phase_updates, [("p1", "completed", "did the thing")])
+        self.assertEqual(memory.tool_logs, ["echo_say", "update_plan"])
+        self.assertEqual(memory.todo_updates, [_PLAN])
 
     def test_replay_is_deterministic(self):
         runs = []
@@ -151,7 +152,7 @@ class GoldenTranscriptTest(unittest.TestCase):
         names = {d["function"]["name"] for d in registry.get_tool_definitions()}
         self.assertIn("echo_say", names)
         self.assertIn("request_user_input", names)
-        self.assertIn("update_progress", names)
+        self.assertIn("update_plan", names)
 
     def test_pending_approval_pauses_for_user_input(self):
         # With no user-input callback, request_user_input yields PENDING_APPROVAL,

@@ -395,14 +395,14 @@ class DacliUI:
         )
         table.add_column("Session", style="accent", no_wrap=True)
         table.add_column("Updated", style="step")
-        table.add_column("Phase", style="info")
+        table.add_column("Active task", style="info")
         table.add_column("Errors", justify="right", style="step")
         for s in sessions[:limit]:
             updated = (s.get("updated_at") or s.get("created_at") or "")[:19]
             table.add_row(
                 str(s.get("session_id", "?")),
                 updated,
-                str(s.get("current_phase", "?")),
+                str(s.get("active_task") or "—"),
                 str(s.get("errors_count", 0)),
             )
         self.console.print(table)

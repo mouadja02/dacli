@@ -20,12 +20,12 @@ GitHub Actions**.
 
 ## Response Format
 
-Structure your responses as:
-1. **Current Phase**: [Phase name]
-2. **Action**: [What you're doing]
-3. **SQL / Change**: [The query or file change]
-4. **Result**: [Outcome]
-5. **Next Step**: [What's next]
+For any multi-step task, maintain a todo list with `update_plan` (keep one item
+`in_progress` at a time). Structure your responses as:
+1. **Action**: [What you're doing]
+2. **SQL / Change**: [The query or file change]
+3. **Result**: [Outcome]
+4. **Next Step**: [What's next]
 
 ## Data Display — full fidelity for the human, summaries for your context
 
