@@ -1,149 +1,146 @@
 import asyncio
-import os
-import sys
 import click
 from typing import Optional
 
 from pathlib import Path
-from rich.console import Console
-from rich.panel import Panel
 from rich.markdown import Markdown
+from rich.panel import Panel
 from rich.table import Table
-from rich.live import Live
-from rich.spinner import Spinner
 from rich.text import Text
-from rich.syntax import Syntax
 from rich.prompt import Prompt, Confirm
-from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.theme import Theme
 from prompt_toolkit import PromptSession
+from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-from prompt_toolkit.styles import Style as PTStyle
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.key_binding import KeyBindings
 
-from core import __author__,__version__
+from core import __author__, __version__
 from config import CLI_COMMANDS
-from config.settings import load_config, Settings, save_config, save_tools_config
-from config.tool_registry import ToolsSettings, ToolRegistry, TOOL_CATALOG, ToolCategory
-from tools import DACLI_tools, get_available_tools
+from config.settings import load_config, Settings
+from connectors.registry import (
+    ConnectorRegistry,
+    save_connectors_config,
+    CONNECTORS_CONFIG_PATH,
+)
 from core.agent import DACLI
 from core.memory import AgentMemory
 from core.store import DacliStore
 from core.setup_wizard import SetupWizard, QuickSetup
 from prompts.system_prompt import load_system_prompt, save_system_prompt, SYSTEM_PROMPT_FILE
-from prompts.user_prompt import load_user_prompt, save_user_prompt, USER_PROMPT_FILE
+from tui import DacliUI, THEMES
 
-# -----------------------------------------
-#  CUSTOMIZE CONSOLE THEME
-# -----------------------------------------
-CUSTOM_THEME = Theme({
-    "info": "cyan",
-    "warning": "yellow",
-    "error": "bold red",
-    "success": "bold green",
-    "prompt": "bold magenta",
-    "tool": "blue",
-    "sql": "green",
-    "user": "bold white",
-    "assistant": "cyan",
-    "phase": "bold yellow",
-    "step": "dim white",
-})
+# Module-level UI for the standalone (non-chat) click commands. The interactive
+# chat in ``_run_chat`` builds its own themed instance once settings are loaded.
+ui = DacliUI(version=__version__, author=__author__)
+console = ui.console
 
-console = Console(theme=CUSTOM_THEME)
+
+class SlashCommandCompleter(Completer):
+    """Autocomplete chat slash-commands (e.g. ``/st`` -> ``/status``).
+
+    Only activates while the line starts with ``/`` so it never interferes with
+    normal prompts to the agent.
+    """
+
+    def __init__(self, commands):
+        # commands: list of (cmd, description); ``cmd`` may include args like "/load <id>".
+        self._commands = [(c.split()[0], desc) for c, desc in commands]
+
+    @staticmethod
+    def _subsequence(needle: str, haystack: str) -> bool:
+        # Fuzzy match: are needle's chars an in-order subsequence of haystack?
+        it = iter(haystack)
+        return all(ch in it for ch in needle)
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor.lstrip()
+        if not text.startswith("/") or " " in text:
+            return  # not a command, or already past the command word
+        query = text[1:].lower()  # chars after the leading slash
+        prefix, fuzzy = [], []
+        for cmd, desc in self._commands:
+            name = cmd[1:].lower()
+            if name.startswith(query):
+                prefix.append((cmd, desc))
+            elif query and self._subsequence(query, name):
+                fuzzy.append((cmd, desc))
+        # Prefix matches first (most expected), then looser fuzzy matches.
+        for cmd, desc in prefix + fuzzy:
+            yield Completion(cmd, start_position=-len(text), display=cmd, display_meta=desc)
+
+
+def build_completion_keybindings() -> KeyBindings:
+    """Tab opens/advances the completion menu; Shift-Tab steps back."""
+    kb = KeyBindings()
+
+    @kb.add("tab")
+    def _(event):
+        buff = event.app.current_buffer
+        if buff.complete_state:
+            buff.complete_next()          # menu open -> next suggestion
+        else:
+            buff.start_completion(select_first=True)  # open menu, pick first
+
+    @kb.add("s-tab")  # Shift-Tab
+    def _(event):
+        buff = event.app.current_buffer
+        if buff.complete_state:
+            buff.complete_previous()
+        else:
+            buff.start_completion(select_last=True)
+
+    return kb
 
 
 # -----------------------------------------
 #  UI components
 # -----------------------------------------
-def print_banner():
-    banner_in_box = """
-╔════════════════════════════════════════════════════════════════════╗
-║                                                                    ║
-║               ██████╗   █████╗   ██████╗ ██╗      ██╗              ║
-║               ██╔══██╗ ██╔══██╗ ██╔════╝ ██║      ██║              ║
-║               ██║  ██║ ███████║ ██║      ██║      ██║              ║
-║               ██║  ██║ ██╔══██║ ██║      ██║      ██║              ║
-║               ██████╔╝ ██║  ██║ ╚██████╗ ███████╗ ██║              ║
-║               ╚═════╝  ╚═╝  ╚═╝  ╚═════╝ ╚══════╝ ╚═╝              ║
-║              Your Autonomous Data Engineering CLI Agent            ║
-║                                                                    ║
-╚════════════════════════════════════════════════════════════════════╝    
-"""
-    console.print(banner_in_box, style="dim")
-    console.print(f"Version: {__version__}", style="dim")
-    console.print(f"Author: {__author__}", style="dim")
-
-def print_help_commands():
-    # Print available tolls
-    table = Table(title="Available Tools", show_header=True, header_style="bold magenta")
-    table.add_column("Tool Name", style="cyan")
-    table.add_column("Description")
-
-    for cmd, desc in CLI_COMMANDS:
-        table.add_row(cmd, desc)
-
-    console.print(table)
-
-
-def print_status(memory: AgentMemory):
-    # Print current agent status
+def print_status(memory: AgentMemory, target: Optional[DacliUI] = None):
+    # Print current agent status through the active themed UI.
+    out = target or ui
+    con = out.console
     summary = memory.get_progress_summary()
-    
+
     # Main status panel
     status_text = Text()
-    status_text.append("Session: ", style="dim")
-    status_text.append(f"{summary['session_id']}\n", style="cyan")
-    status_text.append("Current Phase: ", style="dim")
-    status_text.append(f"{summary['current_phase']}\n", style="phase")
-    status_text.append("Infrastructure: ", style="dim")
-    status_text.append(
-        "✅ Ready" if summary['infrastructure_ready'] else "⏳ Pending",
-        style="success" if summary['infrastructure_ready'] else "warning"
-    )
-    
-    console.print(Panel(status_text, title="Agent Status", border_style="cyan"))
-    
-    # Progress table
-    table = Table(title="Phase Progress", show_header=True)
-    table.add_column("Phase", style="cyan")
-    table.add_column("Status")
-    table.add_column("Progress")
-    
-    for phase, info in summary.get('phases', {}).items():
-        status = info.get('status', 'not_started')
-        status_icon = {
-            "not_started": "⬜",
-            "in_progress": "🔄",
-            "completed": "✅",
-            "failed": "❌",
-            "paused": "⏸️"
-        }.get(status, "⬜")
-        
-        table.add_row(
-            phase.replace("_", " ").title(),
-            f"{status_icon} {status}",
-            info.get('progress', '0/0')
-        )
-    
-    console.print(table)
-    
+    status_text.append("Session     ", style="muted")
+    status_text.append(f"{summary['session_id']}\n", style="accent")
+    status_text.append("Active task ", style="muted")
+    status_text.append(f"{summary.get('active_task') or '—'}", style="phase")
+    con.print(Panel(status_text, title="[accent]Status[/accent]", border_style="border", padding=(1, 2)))
+
+    # Plan (todo list)
+    if summary.get('todos'):
+        table = Table(title="[accent]Plan[/accent]", show_header=True,
+                      header_style="muted", border_style="border", box=None, padding=(0, 2, 0, 0))
+        table.add_column("#", style="muted", justify="right")
+        table.add_column("Status")
+        table.add_column("Task", style="info")
+        for i, todo in enumerate(summary.get('todos', []), 1):
+            status = todo.get('status', 'pending')
+            status_icon = {
+                "pending": "○",
+                "in_progress": "◐",
+                "completed": "●",
+            }.get(status, "○")
+            table.add_row(str(i), f"{status_icon} {status}", todo.get('content', ''))
+        con.print(table)
+
     # Stats
-    stats_table = Table(show_header=False, box=None)
-    stats_table.add_column("Metric", style="dim")
-    stats_table.add_column("Value", style="cyan")
-    
-    stats_table.add_row("Schemas Created", str(len(summary.get('schemas_created', []))))
-    stats_table.add_row("Tables Created", str(summary.get('tables_created', 0)))
-    stats_table.add_row("Tables Loaded", str(summary.get('tables_loaded', 0)))
-    stats_table.add_row("Total Rows", str(summary.get('total_rows_loaded', 0)))
-    stats_table.add_row("Files Discovered", str(summary.get('files_discovered', 0)))
+    stats_table = Table(show_header=False, box=None, padding=(0, 2, 0, 0))
+    stats_table.add_column("Metric", style="muted")
+    stats_table.add_column("Value", style="info", justify="right")
+    stats_table.add_row("Schemas created", str(summary.get('schemas_created', 0)))
+    stats_table.add_row("Tables created", str(summary.get('tables_created', 0)))
+    stats_table.add_row("Tables loaded", str(summary.get('tables_loaded', 0)))
+    stats_table.add_row("Total rows", str(summary.get('total_rows_loaded', 0)))
+    stats_table.add_row("Files discovered", str(summary.get('files_discovered', 0)))
     stats_table.add_row("Errors", str(summary.get('errors_count', 0)))
-    
-    console.print(Panel(stats_table, title="Statistics", border_style="blue"))
-    
+    con.print(Panel(stats_table, title="[accent]Statistics[/accent]", border_style="border", padding=(1, 2)))
+
     if summary.get('last_error'):
-        console.print(f"[error]Last Error:[/error] {summary['last_error']}")
+        con.print(f"[error]Last error:[/error] {summary['last_error']}")
 
 
 def _fmt_int(n) -> str:
@@ -163,26 +160,28 @@ def _fmt_cost(c) -> str:
     return f"${c:.4f}" if c < 0.01 else f"${c:.2f}"
 
 
-def print_usage(store: DacliStore, session_id: Optional[str] = None):
-    # Render token/cost usage: all-time totals, split by model, this session.
+def print_usage(store: DacliStore, session_id: Optional[str] = None, target: Optional[DacliUI] = None):
+    # Token/cost usage through the themed UI: all-time totals, by model, this session.
+    con = (target or ui).console
     summary = store.usage_summary(session_id)
     totals = summary["totals"]
     by_model = summary["byModel"]
     session = summary.get("session")
 
     t = Text()
-    t.append("Startups    ", style="dim"); t.append(f"{summary.get('numStartups', 0)}\n", style="cyan")
-    t.append("Requests    ", style="dim"); t.append(f"{_fmt_int(totals.get('requests', 0))}\n", style="cyan")
-    t.append("Input       ", style="dim"); t.append(f"{_fmt_int(totals.get('input', 0))} tok\n")
-    t.append("Output      ", style="dim"); t.append(f"{_fmt_int(totals.get('output', 0))} tok\n")
-    t.append("Cache read  ", style="dim"); t.append(f"{_fmt_int(totals.get('cache_read', 0))} tok\n")
-    t.append("Cache write ", style="dim"); t.append(f"{_fmt_int(totals.get('cache_creation', 0))} tok\n")
-    t.append("Total cost  ", style="dim"); t.append(_fmt_cost(totals.get('costUSD', 0)), style="success")
-    console.print(Panel(t, title="Usage — all time", border_style="cyan"))
+    t.append("Startups    ", style="muted"); t.append(f"{summary.get('numStartups', 0)}\n", style="accent")
+    t.append("Requests    ", style="muted"); t.append(f"{_fmt_int(totals.get('requests', 0))}\n", style="accent")
+    t.append("Input       ", style="muted"); t.append(f"{_fmt_int(totals.get('input', 0))} tok\n", style="info")
+    t.append("Output      ", style="muted"); t.append(f"{_fmt_int(totals.get('output', 0))} tok\n", style="info")
+    t.append("Cache read  ", style="muted"); t.append(f"{_fmt_int(totals.get('cache_read', 0))} tok\n", style="info")
+    t.append("Cache write ", style="muted"); t.append(f"{_fmt_int(totals.get('cache_creation', 0))} tok\n", style="info")
+    t.append("Total cost  ", style="muted"); t.append(_fmt_cost(totals.get('costUSD', 0)), style="success")
+    con.print(Panel(t, title="[accent]Usage — all time[/accent]", border_style="border", padding=(1, 2)))
 
     if by_model:
-        table = Table(title="By model", show_header=True)
-        table.add_column("Model", style="cyan")
+        table = Table(title="[accent]By model[/accent]", show_header=True,
+                      header_style="muted", border_style="border", box=None, padding=(0, 2, 0, 0))
+        table.add_column("Model", style="info")
         table.add_column("Reqs", justify="right")
         table.add_column("Input", justify="right")
         table.add_column("Output", justify="right")
@@ -197,59 +196,39 @@ def print_usage(store: DacliStore, session_id: Optional[str] = None):
                 f"{_fmt_int(b.get('cache_read', 0))}/{_fmt_int(b.get('cache_creation', 0))}",
                 _fmt_cost(b.get("costUSD", 0)),
             )
-        console.print(table)
+        con.print(table)
 
     if session:
         s = Text()
-        s.append("Model ", style="dim"); s.append(f"{session.get('model', '?')}   ", style="cyan")
-        s.append("Reqs ", style="dim"); s.append(f"{_fmt_int(session.get('requests', 0))}   ")
-        s.append("In/Out ", style="dim")
-        s.append(f"{_fmt_int(session.get('input', 0))}/{_fmt_int(session.get('output', 0))} tok   ")
-        s.append("Cost ", style="dim"); s.append(_fmt_cost(session.get('costUSD', 0)), style="success")
-        console.print(Panel(s, title=f"This session ({session_id})", border_style="blue"))
+        s.append("Model ", style="muted"); s.append(f"{session.get('model', '?')}   ", style="accent")
+        s.append("Reqs ", style="muted"); s.append(f"{_fmt_int(session.get('requests', 0))}   ", style="info")
+        s.append("In/Out ", style="muted")
+        s.append(f"{_fmt_int(session.get('input', 0))}/{_fmt_int(session.get('output', 0))} tok   ", style="info")
+        s.append("Cost ", style="muted"); s.append(_fmt_cost(session.get('costUSD', 0)), style="success")
+        con.print(Panel(s, title=f"[accent]This session ({session_id})[/accent]", border_style="border", padding=(1, 2)))
 
     if totals.get("requests") and not totals.get("costUSD"):
-        console.print("[dim]Cost shows $0.00 — models.dev pricing unavailable for this model (offline or unlisted).[/dim]")
+        con.print("[muted]Cost shows $0.00 — models.dev pricing unavailable for this model (offline or unlisted).[/muted]")
 
 
-def format_sql(sql: str) -> Panel:
-    # Format SQL for display.
-    syntax = Syntax(sql, "sql", theme="monokai", line_numbers=True)
-    return Panel(syntax, title="SQL Query", border_style="green")
+
+def _init_dacli_md(settings: Settings) -> None:
+    """`/init`: draft a DACLI.md priors file from config (no secrets)."""
+    from memory.priors import generate_dacli_md, DACLI_PRIORS_FILE
+
+    target = Path(DACLI_PRIORS_FILE.name)
+    if target.exists():
+        if not Confirm.ask(f"[warning]{target} already exists. Overwrite?[/warning]", default=False):
+            console.print("[dim]Cancelled — DACLI.md left unchanged.[/dim]")
+            return
+
+    content = generate_dacli_md(settings)
+    target.write_text(content, encoding="utf-8")
+    console.print(f"[success]✓ Wrote {target}[/success] from config (secrets excluded).")
+    console.print("[dim]Review/edit it — it loads as the top layer of context next session.[/dim]")
 
 
-def format_response(content: str) -> Panel:
-    # Format agent response for display.
-    md = Markdown(content)
-    return Panel(md, title="🤖 Agent", border_style="cyan")
-
-
-def format_tool_result(tool_name: str, result) -> Panel:
-    # Format tool result for display.
-    from tools.Base import ToolResult, ToolStatus
-    
-    if isinstance(result, ToolResult):
-        if result.success:
-            content = Text()
-            content.append("✅ Success\n", style="success")
-            content.append(f"Time: {result.execution_time_ms:.0f}ms\n", style="dim")
-            
-            if isinstance(result.data, list):
-                content.append(f"Rows: {len(result.data)}\n", style="dim")
-            elif isinstance(result.data, dict):
-                for k, v in result.data.items():
-                    content.append(f"{k}: {v}\n")
-            else:
-                content.append(str(result.data))
-            
-            return Panel(content, title=f"🔧 {tool_name}", border_style="green")
-        else:
-            content = Text()
-            content.append("❌ Error\n", style="error")
-            content.append(str(result.error), style="dim red")
-            return Panel(content, title=f"🔧 {tool_name}", border_style="red")
-    else:
-        return Panel(str(result), title=f"🔧 {tool_name}", border_style="blue")
+# Tool-call and agent-response rendering now lives in :mod:`tui.ui` (DacliUI).
 
 
 # ============================================================
@@ -294,33 +273,35 @@ def chat(ctx, config, session, run_setup):
 
 @cli.command()
 @click.option('--config', '-c', type=click.Path(), help='Path to config.yaml file')
-@click.option('--profile', '-p', type=str, help='Quick profile: full, github_only, snowflake_only, datawarehouse')
+@click.option('--profile', '-p', type=str, help='Quick profile: full, none, or <connector>_only (e.g. github_only)')
 def setup(config, profile):
-    """Run the interactive tool setup wizard."""
+    """Run the interactive connector setup wizard."""
     config_path = config or "config.yaml"
     settings = load_config(config_path)
-    
+    registry = ConnectorRegistry(settings, config_path=CONNECTORS_CONFIG_PATH)
+
     if profile:
         # Use quick profile
-        QuickSetup.show_profiles(console)
-        tools_settings = QuickSetup.get_profile(profile)
-        if tools_settings:
-            save_tools_config(tools_settings, config_path)
+        QuickSetup.show_profiles(console, registry)
+        connectors_config = QuickSetup.get_profile(profile, registry)
+        if connectors_config:
+            save_connectors_config(connectors_config, CONNECTORS_CONFIG_PATH)
             console.print(f"[success]✓ Applied profile: {profile}[/success]")
         else:
             console.print(f"[error]Unknown profile: {profile}[/error]")
-            console.print("Available profiles: full, github_only, snowflake_only, datawarehouse")
+            console.print("Available profiles: " + ", ".join(QuickSetup.list_profiles(registry).keys()))
     else:
         # Run full wizard
         asyncio.run(_run_setup_wizard(config_path, settings))
 
 
-async def _run_setup_wizard(config_path: str, settings: Settings) -> ToolsSettings:
+async def _run_setup_wizard(config_path: str, settings: Settings) -> dict:
     """Run the setup wizard and save results."""
-    wizard = SetupWizard(settings, config_path)
-    tools_settings = await wizard.run()
-    save_tools_config(tools_settings, config_path)
-    return tools_settings
+    registry = ConnectorRegistry(settings, config_path=CONNECTORS_CONFIG_PATH)
+    wizard = SetupWizard(settings, registry, CONNECTORS_CONFIG_PATH)
+    connectors_config = await wizard.run()
+    save_connectors_config(connectors_config, CONNECTORS_CONFIG_PATH)
+    return connectors_config
 
 
 @cli.command()
@@ -371,15 +352,15 @@ def sessions():
     table = Table(title="Available Sessions", show_header=True)
     table.add_column("Session ID", style="cyan")
     table.add_column("Created")
-    table.add_column("Phase")
+    table.add_column("Active task")
     table.add_column("Tables")
     table.add_column("Errors")
-    
+
     for s in session_list:
         table.add_row(
             s['session_id'],
             s['created_at'][:19] if s.get('created_at') else "?",
-            s.get('current_phase', 'unknown'),
+            s.get('active_task') or "—",
             str(s.get('tables_created', 0)),
             str(s.get('errors_count', 0))
         )
@@ -393,6 +374,80 @@ def sessions():
 def load(session_id, config):
     """Load and resume a previous session."""
     asyncio.run(_run_chat(config, session_id))
+
+
+@cli.command()
+@click.option('--config', '-c', type=click.Path(), help='Path to config.yaml file')
+@click.option('--session', '-s', type=str, help='Session ID to inspect')
+@click.option('--task', '-t', type=str, help='Task to assemble context for (defaults to the last user message)')
+@click.option('--explain', is_flag=True, help='Print each context chunk with its source, timestamp and token cost')
+def context(config, session, task, explain):
+    """Inspect the assembled context (Context Constructor, Phase 3)."""
+    settings = load_config(config)
+    memory = AgentMemory(
+        state_path=settings.agent.state_path,
+        history_path=settings.agent.history_path,
+        memory_window=settings.agent.memory_window,
+    )
+    if session and not memory.load_session(session):
+        console.print(f"[error]Session not found: {session}[/error]")
+        return
+
+    # Build the agent (no initialize() -> no network) just for its context pipeline.
+    agent = DACLI(settings=settings, memory=memory)
+    build = agent._context["build"]
+
+    working = [{"role": m.role, "content": m.content} for m in memory.get_full_history()]
+    if not task:
+        task = next(
+            (m["content"] for m in reversed(working) if m.get("role") == "user"),
+            "(no task — provide --task)",
+        )
+
+    ctx = build(task, working, set())
+    _print_context_explain(ctx, task, explain)
+
+
+def _print_context_explain(ctx, task, explain: bool) -> None:
+    # Render the assembled context for `dacli context --explain`.
+    from context.tokenizer import make_counter
+
+    console.print(Panel(Text(task, style="info"), title="[accent]Task[/accent]", border_style="border", padding=(0, 2)))
+
+    if explain:
+        table = Table(title="[accent]Context chunks[/accent]", show_header=True,
+                      header_style="muted", border_style="border", box=None, padding=(0, 2, 0, 0))
+        table.add_column("Source", style="info")
+        table.add_column("Label", style="step")
+        table.add_column("Timestamp", style="muted")
+        table.add_column("Tokens", justify="right", style="accent")
+        table.add_column("Pinned", justify="center")
+        for row in ctx.explain():
+            table.add_row(
+                row["source"],
+                str(row["label"])[:48],
+                (row["timestamp"] or "")[:19],
+                str(row["tokens"]),
+                "📌" if row["pinned"] else "",
+            )
+        console.print(table)
+
+    # Per-source budget usage.
+    budget_table = Table(title="[accent]Budget usage[/accent]", show_header=True,
+                         header_style="muted", border_style="border", box=None, padding=(0, 2, 0, 0))
+    budget_table.add_column("Source", style="info")
+    budget_table.add_column("Used", justify="right", style="accent")
+    budget_table.add_column("Cap", justify="right", style="muted")
+    for source, vals in ctx.budget.items():
+        budget_table.add_row(source, str(vals["used"]), str(vals["cap"]))
+    console.print(budget_table)
+
+    sys_tokens = make_counter().count(ctx.system_prompt)
+    console.print(
+        f"[muted]System prompt:[/muted] {sys_tokens} tokens  ·  "
+        f"[muted]Messages:[/muted] {len(ctx.messages)}  ·  "
+        f"[muted]Tools disclosed:[/muted] {len(ctx.tools)}"
+    )
 
 
 @cli.command()
@@ -418,313 +473,297 @@ def prompt(output):
 # ============================================================
 
 async def _validate_connections(settings: Settings):
-    # Validate all connections.
-    from tools.snowflake_tool import SnowflakeTool
-    from tools.pinecone_tool import PineconeTool
-    
-    results = []
-    
-    # Snowflake
-    with console.status("[bold green]Testing Snowflake connection..."):
-        try:
-            sf = SnowflakeTool(settings)
-            result = await sf.validate()
-            if result.success:
-                console.print("[success]✅ Snowflake: Connected[/success]")
-                console.print(f"   {result.data}")
-            else:
-                console.print(f"[error]❌ Snowflake: {result.error}[/error]")
-            await sf.disconnect()
-        except Exception as e:
-            console.print(f"[error]❌ Snowflake: {e}[/error]")
-    
-    # Pinecone
-    with console.status("[bold green]Testing Pinecone connection..."):
-        try:
-            pc = PineconeTool(settings)
-            result = await pc.validate()
-            if result.success:
-                console.print("[success]✅ Pinecone: Connected[/success]")
-                console.print(f"   Index: {result.data.get('index_name')}, Vectors: {result.data.get('total_vectors')}")
-            else:
-                console.print(f"[error]❌ Pinecone: {result.error}[/error]")
-            await pc.disconnect()
-        except Exception as e:
-            console.print(f"[warning]⚠️ Pinecone: {e}[/warning]")
-    
+    # Validate all discovered connectors via a live health check.
+    registry = ConnectorRegistry(settings, config_path=CONNECTORS_CONFIG_PATH)
+    catalog = registry.get_catalog()
+
+    for connector_id, info in catalog.items():
+        label = f"{info['icon']} {info['name']}"
+        with console.status(f"[bold green]Testing {info['name']} connection..."):
+            connector = registry.get_connector(connector_id)
+            try:
+                result = await connector.health()
+                if result.success:
+                    console.print(f"[success]✅ {label}: Connected[/success]")
+                    console.print(f"   {result.data}")
+                else:
+                    console.print(f"[error]❌ {label}: {result.error}[/error]")
+                await connector.disconnect()
+            except Exception as e:
+                console.print(f"[warning]⚠️ {label}: {e}[/warning]")
+
+def _enabled_connector_names(registry) -> list:
+    # Short connector names for the welcome card / status bar.
+    names = []
+    catalog = registry.get_catalog()
+    for connector_id in catalog:
+        if registry.is_connector_enabled(connector_id):
+            names.append(connector_id)
+    return names
+
+
+def _ctx_pct(memory) -> int:
+    # Context-window fill: how full the rolling message window is (0-100).
+    window = max(getattr(memory, "memory_window", 0) or 1, 1)
+    used = min(len(memory.get_full_history()), window)
+    return int(round(used / window * 100))
+
+
 async def _run_chat(config_path: Optional[str], session_id: Optional[str], force_setup: bool = False):
     # Run the interactive chat session.
-    print_banner()
-    
-    # Load configuration
-    console.print("[dim]Loading configuration...[/dim]")
+    # Load configuration first so the UI is themed from the user's settings.
     settings = load_config(config_path)
-    
+    chat_ui = DacliUI(settings=settings, version=__version__, author=__author__)
+    con = chat_ui.console
+
+    chat_ui.banner()
+    chat_ui.status("Loading configuration…")
+
     # Check if setup wizard should run
-    tools_settings = settings.tools if settings.tools else ToolsSettings()
-    
-    if force_setup or not tools_settings.setup_completed:
-        console.print()
-        if not tools_settings.setup_completed:
-            console.print("[yellow]First time setup detected![/yellow]")
+    registry = ConnectorRegistry(settings, config_path=CONNECTORS_CONFIG_PATH)
+
+    if force_setup or not registry.setup_completed:
+        con.print()
+        if not registry.setup_completed:
+            chat_ui.notice("First-time setup detected.", style="warning")
             run_wizard = Confirm.ask(
-                "Would you like to configure which tools to use?",
-                default=True
+                "Would you like to configure which connectors to use?",
+                default=True, console=con,
             )
         else:
             run_wizard = True
-        
+
         if run_wizard:
-            wizard = SetupWizard(settings, config_path or "config.yaml")
-            tools_settings = await wizard.run()
-            save_tools_config(tools_settings, config_path or "config.yaml")
-            # Reload settings with new tools config
-            settings = load_config(config_path)
-            tools_settings = settings.tools if settings.tools else tools_settings
+            wizard = SetupWizard(settings, registry, CONNECTORS_CONFIG_PATH)
+            connectors_config = await wizard.run()
+            save_connectors_config(connectors_config, CONNECTORS_CONFIG_PATH)
         else:
-            # Enable all tools by default if user skips wizard
-            console.print("[dim]Using default configuration (all tools enabled)[/dim]")
-            tools_settings = QuickSetup.get_profile("full")
-            save_tools_config(tools_settings, config_path or "config.yaml")
-    
+            chat_ui.status("Using default configuration (all connectors enabled)")
+            connectors_config = QuickSetup.get_profile("full", registry)
+            if connectors_config:
+                save_connectors_config(connectors_config, CONNECTORS_CONFIG_PATH)
+
+        # Reload settings so any secrets the wizard saved to dacli.json apply.
+        settings = load_config(config_path)
+
+    # Persistent project store (.dacli/dacli.json): startups, config snapshot, usage/cost
+    store = DacliStore(base_dir=str(Path(settings.agent.state_path).parent))
+
     # Initialize memory
     memory = AgentMemory(
         state_path=settings.agent.state_path,
         history_path=settings.agent.history_path,
         memory_window=settings.agent.memory_window
     )
-    
+
     # Load session if specified
     if session_id:
         if memory.load_session(session_id):
-            console.print(f"[success]Loaded session: {session_id}[/success]")
+            chat_ui.notice(f"Loaded session: {session_id}", style="success")
         else:
-            console.print(f"[error]Session not found: {session_id}[/error]")
+            chat_ui.error(f"Session not found: {session_id}")
             return
-    
-    # Status update callback
-    def on_status_update(message: str):
-        console.print(f"[dim]{message}[/dim]")
-    
-    # Tool callbacks
-    def on_tool_start(tool_name: str, args: dict):
-        console.print(f"[tool]🔧 Calling {tool_name}...[/tool]")
-        if "query" in args:
-            console.print(format_sql(args["query"]))
-    
-    def on_tool_end(tool_name: str, result):
-        console.print(format_tool_result(tool_name, result))
-    
-    # Mutable container for the status spinner so callbacks can stop it
-    spinner_ctx = {"status": None}
 
-    # User input callback
     def on_user_input_needed(question: str) -> str:
-        # Stop the spinner so the terminal is free for user input
-        if spinner_ctx["status"]:
-            spinner_ctx["status"].stop()
-        console.print(Panel(question, title="❓ Input Needed", border_style="yellow"))
-        response = Prompt.ask("[prompt]Your response[/prompt]")
-        # Restart the spinner after user responds
-        if spinner_ctx["status"]:
-            spinner_ctx["status"].start()
-        return response
-    
-    # Persistent project store (.dacli/dacli.json): startups, config snapshot, usage/cost
-    store = DacliStore(base_dir=str(Path(settings.agent.state_path).parent))
+        # Asked mid-loop (system connector); the stream is already torn down.
+        con.print(Panel(question, title="[warning]input needed[/warning]", border_style="warning", padding=(1, 2)))
+        return Prompt.ask("[prompt]your response[/prompt]", console=con)
 
-    # Initialize agent
+    # Initialize agent — UI methods wired directly as kernel callbacks.
     agent = DACLI(
         settings=settings,
-        tools_settings=tools_settings,
         memory=memory,
-        on_status_update=on_status_update,
-        on_tool_start=on_tool_start,
-        on_tool_end=on_tool_end,
+        on_status_update=chat_ui.status,
+        on_tool_start=chat_ui.tool_start,
+        on_tool_end=chat_ui.tool_end,
         on_user_input_needed=on_user_input_needed,
+        on_stream_start=chat_ui.on_stream_start,
+        on_text=chat_ui.on_text,
+        on_stream_end=chat_ui.on_stream_end,
+        connectors_config_path=CONNECTORS_CONFIG_PATH,
         store=store,
     )
-    
-    # Initialize connections
-    console.print("\n[info]Initializing agent...[/info]")
-    
+
+    # Initialize connections (the agent emits its own progress via on_status).
+    con.print()
     try:
         if not await agent.initialize():
-            console.print("[error]Failed to initialize agent. Check your configuration.[/error]")
+            chat_ui.error("Failed to initialize agent. Check your configuration.")
             return
     except Exception as e:
-        console.print(f"[error]Initialization error: {e}[/error]")
-        console.print("[dim]Check your config.yaml and ensure credentials are set.[/dim]")
+        chat_ui.error(f"Initialization error: {e}")
+        chat_ui.notice("Check your config.yaml and ensure credentials are set.", style="muted")
         return
-    
+
     # Persist startup + a secret-redacted snapshot of the effective config.
     store.record_startup()
     store.snapshot_config(settings)
     store.save()
 
-    console.print("[success]✅ Agent ready![/success]")
-    print_help_commands()
-    console.print()
-    
+    con.print()
+    chat_ui.welcome(
+        model=settings.llm.model,
+        provider=settings.llm.provider,
+        connectors=_enabled_connector_names(agent.registry),
+        cwd=str(Path.cwd()),
+    )
+
     # Set up prompt toolkit for better input
     history_file = Path(settings.agent.history_path) / "input_history.txt"
     history_file.parent.mkdir(parents=True, exist_ok=True)
-    
+
+    def bottom_toolbar():
+        return chat_ui.bottom_toolbar(
+            provider=settings.llm.provider,
+            model=settings.llm.model,
+            connectors=_enabled_connector_names(agent.registry),
+            ctx_pct=_ctx_pct(memory),
+            session=memory.session_id,
+        )
+
     pt_session = PromptSession(
         history=FileHistory(str(history_file)),
         auto_suggest=AutoSuggestFromHistory(),
+        completer=SlashCommandCompleter(CLI_COMMANDS),
+        complete_while_typing=True,
+        key_bindings=build_completion_keybindings(),
+        bottom_toolbar=bottom_toolbar,
     )
-    
+
     try:
         while True:
             try:
-                # Get user input
                 user_input = await asyncio.to_thread(
                     pt_session.prompt,
-                    "You > "
+                    HTML('<b>❯</b> '),
                 )
-                
+
                 if not user_input.strip():
                     continue
-                
+
                 # Handle commands
                 if user_input.startswith("/"):
                     cmd = user_input.lower().split()[0]
                     args = user_input.split()[1:] if len(user_input.split()) > 1 else []
-                    
-                    if cmd == "/exit" or cmd == "/quit":
+
+                    if cmd in ("/exit", "/quit"):
                         break
-                    
+
                     elif cmd == "/help":
-                        print_help_commands()
-                    
+                        chat_ui.help(CLI_COMMANDS)
+
+                    elif cmd == "/init":
+                        _init_dacli_md(settings)
+
                     elif cmd == "/status":
-                        print_status(memory)
+                        print_status(memory, chat_ui)
 
                     elif cmd == "/usage":
-                        print_usage(agent.store, memory.session_id)
+                        print_usage(agent.store, memory.session_id, chat_ui)
+
+                    elif cmd == "/context":
+                        working = [{"role": m.role, "content": m.content} for m in memory.get_full_history()]
+                        task_arg = " ".join(args) if args else next(
+                            (m["content"] for m in reversed(working) if m.get("role") == "user"),
+                            "(no task yet)",
+                        )
+                        ctx = agent._context["build"](task_arg, working, set())
+                        _print_context_explain(ctx, task_arg, explain=True)
 
                     elif cmd == "/history":
-                        for msg in memory.get_full_history()[-20:]:
-                            role_style = "user" if msg.role == "user" else "assistant"
-                            console.print(f"[{role_style}]{msg.role.upper()}:[/{role_style}] {msg.content[:200]}...")
-                    
+                        chat_ui.history(memory.get_full_history())
+
                     elif cmd == "/sessions":
-                        session_list = memory.list_sessions()
-                        table = Table(title="Sessions")
-                        table.add_column("ID", style="cyan")
-                        table.add_column("Phase")
-                        table.add_column("Tables")
-                        for s in session_list[:10]:
-                            table.add_row(s['session_id'], s.get('current_phase', '?'), str(s.get('tables_created', 0)))
-                        console.print(table)
-                    
+                        chat_ui.sessions_table(memory.list_sessions())
+
                     elif cmd == "/load" and args:
                         if memory.load_session(args[0]):
-                            console.print(f"[success]Loaded session: {args[0]}[/success]")
+                            chat_ui.notice(f"Loaded session: {args[0]}", style="success")
                         else:
-                            console.print(f"[error]Session not found: {args[0]}[/error]")
-                    
+                            chat_ui.error(f"Session not found: {args[0]}")
+
                     elif cmd == "/export":
-                        console.print(memory.export_state())
-                    
+                        con.print(memory.export_state())
+
                     elif cmd == "/config":
-                        table = Table(title="Configuration")
-                        table.add_column("Setting", style="cyan")
-                        table.add_column("Value")
-                        table.add_row("LLM Provider", settings.llm.provider)
-                        table.add_row("LLM Model", settings.llm.model)
-                        table.add_row("Snowflake Account", settings.snowflake.account[:10] + "..." if settings.snowflake.account else "Not set")
-                        table.add_row("Snowflake Database", settings.snowflake.database)
-                        table.add_row("Pinecone Index", settings.pinecone.index_name)
-                        console.print(table)
-                    
+                        chat_ui.config_table(settings)
+
+                    elif cmd == "/theme":
+                        if args and args[0].lower() in THEMES:
+                            chat_ui.set_theme(args[0])
+                            chat_ui.notice(f"Theme set to '{args[0].lower()}'.", style="success")
+                        else:
+                            available = ", ".join(THEMES.keys())
+                            chat_ui.notice(f"Usage: /theme <name>  ·  available: {available}", style="muted")
+
                     elif cmd == "/prompt":
                         prompt_content = load_system_prompt()
-                        console.print(Panel(Markdown(prompt_content[:2000] + "..."), title="System Prompt", border_style="cyan"))
-                    
+                        chat_ui.panel(Markdown(prompt_content[:2000] + "…"), title="[accent]System prompt[/accent]")
+
                     elif cmd == "/clear":
                         memory.clear_messages()
-                        console.print("[success]Conversation cleared.[/success]")
-                    
+                        chat_ui.notice("Conversation cleared.", style="success")
+
                     elif cmd == "/reset":
-                        if Confirm.ask("Are you sure you want to reset the agent state?"):
+                        if Confirm.ask("Reset the agent state?", console=con, default=False):
                             memory._state = memory._create_new_state()
                             memory.clear_messages()
-                            console.print("[success]Agent state reset.[/success]")
-                    
+                            chat_ui.notice("Agent state reset.", style="success")
+
                     elif cmd == "/tools":
-                        # Show enabled tools
-                        table = Table(title="🔧 Enabled Tools", show_header=True)
-                        table.add_column("Category", style="cyan")
-                        table.add_column("Status", justify="center")
-                        table.add_column("Operations", justify="center")
-                        
-                        for category in ToolCategory:
-                            info = TOOL_CATALOG[category]
-                            config = tools_settings.get_tool_config(category)
-                            if config.enabled:
-                                ops = config.get_enabled_operations()
-                                table.add_row(
-                                    f"{info['icon']} {info['name']}",
-                                    "[green]✅ Enabled[/green]",
-                                    str(len(ops))
-                                )
-                            else:
-                                table.add_row(
-                                    f"{info['icon']} {info['name']}",
-                                    "[dim]⊘ Disabled[/dim]",
-                                    "—"
-                                )
-                        console.print(table)
-                        console.print("[dim]Use /setup to reconfigure tools[/dim]")
-                    
+                        chat_ui.connectors_table(agent.registry)
+
                     elif cmd == "/setup":
-                        # Run setup wizard
-                        console.print("[info]Running setup wizard...[/info]")
-                        wizard = SetupWizard(settings, config_path or "config.yaml")
-                        tools_settings = await wizard.run()
-                        save_tools_config(tools_settings, config_path or "config.yaml")
-                        # Re-snapshot the (now updated) config into .dacli/dacli.json
+                        chat_ui.status("Running setup wizard…")
+                        setup_registry = ConnectorRegistry(settings, config_path=CONNECTORS_CONFIG_PATH)
+                        wizard = SetupWizard(settings, setup_registry, CONNECTORS_CONFIG_PATH)
+                        connectors_config = await wizard.run()
+                        save_connectors_config(connectors_config, CONNECTORS_CONFIG_PATH)
+                        # Re-snapshot the (possibly updated) config into dacli.json.
                         store.snapshot_config(load_config(config_path))
                         store.save()
-                        console.print("[success]Tools reconfigured. Restart the agent to apply changes.[/success]")
-                    
+                        chat_ui.notice("Connectors reconfigured. Restart to apply.", style="success")
+
                     else:
-                        console.print(f"[warning]Unknown command: {cmd}[/warning]")
-                    
+                        chat_ui.notice(f"Unknown command: {cmd}", style="warning")
+
                     continue
-                
-                # Process message with agent
-                console.print()
-                
-                status = console.status("[bold cyan]Thinking...", spinner="dots")
-                spinner_ctx["status"] = status
-                with status:
+
+                # Process the message with the agent. The kernel streams text +
+                # tool calls to the UI as it runs, so there is nothing to print
+                # here on success — only errors / hand-offs need a notice.
+                # (prompt_toolkit already leaves the typed "❯ …" line in the
+                # scrollback, so we don't re-echo it.)
+                con.print()
+
+                try:
                     response = await agent.process_message(user_input)
-                spinner_ctx["status"] = None
-                
+                except KeyboardInterrupt:
+                    chat_ui.stream.abort()
+                    chat_ui.notice("Interrupted.", style="warning")
+                    continue
+
                 if response.error:
-                    console.print(f"[error]Error: {response.error}[/error]")
-                else:
-                    console.print(format_response(response.content))
-                
+                    chat_ui.error(f"Error: {response.error}")
+
                 if response.needs_user_input:
-                    console.print("[warning]⏳ Agent is waiting for your input to continue.[/warning]")
-                
-                console.print()
-            
+                    chat_ui.notice("⏳ Agent is waiting for your input to continue.", style="warning")
+
+                con.print()
+
             except KeyboardInterrupt:
-                console.print("\n[dim]Use /exit to quit[/dim]")
+                chat_ui.stream.abort()
+                con.print("\n[muted]Use /exit to quit[/muted]")
                 continue
-            
+
             except EOFError:
                 break
-    
+
     finally:
-        console.print("\n[dim]Cleaning up...[/dim]")
+        chat_ui.stream.abort()
+        con.print("\n[muted]Cleaning up…[/muted]")
         await agent.shutdown()
-        console.print("[success]Goodbye! 👋[/success]")
+        chat_ui.notice("Goodbye 👋", style="success")
 
 
 # ============================================================

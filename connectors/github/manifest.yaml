@@ -1,0 +1,7 @@
+id: github
+name: GitHub
+description: Manage files, workflows, and repositories on GitHub
+icon: "🐙"
+class: connectors.github.connector.GithubConnector
+required_config: [token, owner, repo]
+enabled: true

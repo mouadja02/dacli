@@ -3,28 +3,20 @@ import os
 import yaml
 from pathlib import Path
 from urllib.parse import urlparse
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Import ToolsSettings (lazy import to avoid circular dependency)
-def _get_tools_settings_class():
-    from config.tool_registry import ToolsSettings
-    return ToolsSettings
 
 def _substitute_env_vars(value: Any) -> Any:
     # Recursively substitute environment variables in config values.
     if isinstance(value, str):
         # Match the  ${VAR_NAME} pattern
         pattern= r"\$\{([^}]+)\}"
-        matches = re.findall(pattern, value)
-        for match in matches:
-            env_value = os.environ.get(match, "")
-            value = value.replace(f"${{{match})}}", env_value)
-        return value
+        return re.sub(pattern, lambda match: os.environ.get(match.group(1), ""), value)
     elif isinstance(value, dict):
         return {k: _substitute_env_vars(v) for k,v in value.items()}
     elif isinstance(value, list):
@@ -126,6 +118,17 @@ class AgentSettings(BaseModel):
             raise ValueError(f"log_level must be one of {valid_levels}")
         return v.upper()
 
+class ContextSettings(BaseModel):
+    # Context Constructor (Phase 3) configuration.
+    budget_tokens: int = Field(default=12000, ge=512, description="Total token budget for one assembled turn of context")
+    spill_threshold_tokens: int = Field(default=1000, ge=0, description="Tool results estimated above this many tokens are spilled to the session workspace and replaced with a structured summary + fetch handle")
+    # Per-source fractional ceilings of the total budget (priors/memory/live/
+    # skills/history). Empty -> the assembler's DEFAULT_FRACTIONS are used.
+    source_fractions: dict = Field(default_factory=dict)
+    # Fraction of the total at which history compaction is triggered by pressure.
+    compaction_pressure: float = Field(default=0.9, ge=0.1, le=1.0)
+
+
 class UISettings(BaseModel):
     # UI/Display configuration
     theme: str = "dark"
@@ -155,24 +158,13 @@ class Settings(BaseModel):
     pinecone: PineconeSettings = Field(default_factory=PineconeSettings)
     embeddings: EmbeddingsSettings = Field(default_factory=EmbeddingsSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
+    context: ContextSettings = Field(default_factory=ContextSettings)
     ui: UISettings = Field(default_factory=UISettings)
     retry: RetrySettings = Field(default_factory=RetrySettings)
-    
-    # Dynamic tools configuration (managed by setup wizard)
-    tools: Optional[Any] = Field(default=None)
-    
-    @model_validator(mode="before")
-    @classmethod
-    def parse_tools_config(cls, data: Any) -> Any:
-        """Parse tools configuration from YAML"""
-        if isinstance(data, dict) and 'tools' in data:
-            try:
-                ToolsSettings = _get_tools_settings_class()
-                if isinstance(data['tools'], dict):
-                    data['tools'] = ToolsSettings(**data['tools'])
-            except Exception:
-                data['tools'] = None
-        return data
+
+    # NOTE: connector enable/disable state lives in config/connectors.yaml
+    # (see connectors.registry), not here. A legacy top-level ``tools:`` block in
+    # an old config.yaml is harmlessly ignored via ``extra="ignore"`` above.
 
 
 def _is_secret_placeholder(v: Any) -> bool:
@@ -204,8 +196,8 @@ def _overlay_secrets(config_data: Dict[str, Any], secrets: Dict[str, Any]) -> Di
     """Fill missing/placeholder config fields from the dacli.json secrets block.
 
     Explicit values from config.yaml / env take precedence; dacli.json only fills
-    holes (empty or unresolved ``${VAR}``), so the wizard-stored credentials make
-    the agent work without a .env file.
+    holes (empty or unresolved ``${VAR}``), so wizard-stored credentials make the
+    agent work without a .env file.
     """
     for section, fields in secrets.items():
         if not isinstance(fields, dict):
@@ -271,34 +263,6 @@ def load_config(config_path: Optional[str] = None) -> Settings:
 def save_config(settings: Settings, config_path: str = "config.yaml") -> None:
     # Save settings to YAML file
     config_dict = settings.model_dump()
-    
+
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
-
-
-def save_tools_config(tools_settings: Any, config_path: str = "config.yaml") -> None:
-    """
-    Save only the tools configuration to YAML, preserving other settings.
-    This is used by the setup wizard to update tool preferences.
-    """
-    path = Path(config_path)
-    
-    # Load existing config if it exists
-    existing_config = {}
-    if path.exists():
-        with open(path, "r", encoding="utf-8") as f:
-            existing_config = yaml.safe_load(f) or {}
-    
-    # Update only the tools section
-    existing_config['tools'] = tools_settings.model_dump()
-    
-    # Write back
-    with open(path, "w", encoding="utf-8") as f:
-        yaml.dump(existing_config, f, default_flow_style=False, sort_keys=False)
-
-def get_config_template() -> str:
-    # Return a template configuration file content
-    template_path = Path(__file__).parent.parent.parent / "config_template.yaml"
-    if template_path.exists():
-        return template_path.read_text()
-    return ""
