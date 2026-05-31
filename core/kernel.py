@@ -129,8 +129,11 @@ class Kernel:
             return self._result_spill(result)
         return result.to_message()
 
-    async def orchestrate(self, user_message: str) -> AgentResponse:
+    async def orchestrate(self, user_message: str, *, model: Optional[str] = None) -> AgentResponse:
         # Process a user message and generate a response.
+        # ``model`` (Phase 6 model tiering, ℛ) overrides the LLM model for *this*
+        # run only; None preserves the configured default, so the single-model
+        # path — and the golden transcript — is byte-for-byte unchanged.
         # Add user message to memory
         self._memory.add_user_message(user_message)
 
@@ -167,12 +170,18 @@ class Kernel:
                 content = ""
                 self._begin_stream()
                 try:
-                    content, tool_calls = await self._llm.generate(
+                    gen_kwargs = dict(
                         messages=messages,
                         tools=tools,
                         system_prompt=system_prompt,
                         on_text=self._on_text,
                     )
+                    # Only thread ``model`` when set — keeps the call signature
+                    # identical to the legacy path (and to test doubles that don't
+                    # accept a ``model`` kwarg) unless tiering is actually in use.
+                    if model is not None:
+                        gen_kwargs["model"] = model
+                    content, tool_calls = await self._llm.generate(**gen_kwargs)
                 finally:
                     # Always tear the live region down — even if generation
                     # raised — so the terminal is never left mid-stream.

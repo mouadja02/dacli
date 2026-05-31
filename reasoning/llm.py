@@ -53,7 +53,7 @@ class LLMClient:
         else:
             raise ValueError(f"Unsupported LLM provider: {provider}")
 
-    async def generate(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None) -> Tuple[str, List[Dict]]:
+    async def generate(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None, model: Optional[str] = None) -> Tuple[str, List[Dict]]:
         """
         Generate a response from the LLM.
 
@@ -66,6 +66,10 @@ class LLMClient:
                 response is streamed; the return value is unchanged. Providers
                 without streaming call it once with the full text instead, so
                 the UI behaves identically.
+            model: Optional per-call model override (Phase 6 model tiering, ℛ).
+                When None the configured ``settings.llm.model`` is used, so the
+                default single-model path is byte-for-byte unchanged. The
+                ``ModelRouter`` passes the cheap or strong tier id here.
 
         Returns:
             Tuple of (response content, tool calls)
@@ -74,13 +78,14 @@ class LLMClient:
             await self.initialize()
 
         self.last_usage = {}  # populated by the provider path below
+        model = model or self.settings.llm.model
         provider = self._provider.lower()
         if provider in ["openai", "openrouter"]:
-            return await self._generate_openai(messages, tools, system_prompt, on_text=on_text)
+            return await self._generate_openai(messages, tools, system_prompt, on_text=on_text, model=model)
         elif provider == "anthropic":
-            return await self._generate_anthropic(messages, tools, system_prompt, on_text=on_text)
+            return await self._generate_anthropic(messages, tools, system_prompt, on_text=on_text, model=model)
         elif provider == "google":
-            return await self._generate_google(messages, tools, system_prompt, on_text=on_text)
+            return await self._generate_google(messages, tools, system_prompt, on_text=on_text, model=model)
         else:
             raise ValueError(f"Unsupported provider: {provider}")
 
@@ -94,12 +99,14 @@ class LLMClient:
             except Exception:
                 pass
 
-    async def classify(self, text: str, labels: List[str], instructions: Optional[str] = None) -> str:
+    async def classify(self, text: str, labels: List[str], instructions: Optional[str] = None, model: Optional[str] = None) -> str:
         """
         Thin classification helper used by the router (Phase 4).
 
         Sends a tool-free completion asking the model to pick exactly one label
         from ``labels`` and normalizes the answer back onto that set when possible.
+        ``model`` (Phase 6) lets the caller force the cheap tier — classification
+        is the canonical cheap-model job.
         """
         system = instructions or (
             "You are a classifier. Respond with exactly one of the allowed labels "
@@ -115,6 +122,7 @@ class LLMClient:
             messages=[{"role": "user", "content": prompt}],
             tools=None,
             system_prompt=system,
+            model=model,
         )
         answer = (content or "").strip()
 
@@ -127,7 +135,7 @@ class LLMClient:
                 return label
         return answer
 
-    async def _generate_openai(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None) -> Tuple[str, List[Dict]]:
+    async def _generate_openai(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None, model: Optional[str] = None) -> Tuple[str, List[Dict]]:
         # Generate using OpenAI-compatibile API
 
         # Prepare messages includes system prompt
@@ -138,7 +146,7 @@ class LLMClient:
 
         # Prepare request
         request_kwargs = {
-            "model": self.settings.llm.model,
+            "model": model or self.settings.llm.model,
             "messages": full_messages,
             "temperature": self.settings.llm.temperature,
             "max_tokens": self.settings.llm.max_tokens,
@@ -213,11 +221,11 @@ class LLMClient:
         self.last_usage = self._usage_openai(usage_obj)
         return content, tool_calls
 
-    async def _generate_anthropic(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None) -> Tuple[str, List[Dict]]:
+    async def _generate_anthropic(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None, model: Optional[str] = None) -> Tuple[str, List[Dict]]:
         # Generate using Anthropic API
         # Prepare request
         request_kwargs = {
-            "model": self.settings.llm.model,
+            "model": model or self.settings.llm.model,
             "max_tokens": self.settings.llm.max_tokens,
             "messages": messages,
         }
@@ -303,7 +311,7 @@ class LLMClient:
                 tool_calls.append({"id": block.id, "name": block.name, "arguments": block.input})
         return content, tool_calls
 
-    async def _generate_google(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None) -> Tuple[str, List[Dict]]:
+    async def _generate_google(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None, model: Optional[str] = None) -> Tuple[str, List[Dict]]:
         # Generate using Google Gemini API
 
         # Reliability: tool calling is not implemented for Gemini. Rather than
@@ -316,7 +324,7 @@ class LLMClient:
                 "or disable tools for this request."
             )
 
-        model = self._client.GenerativeModel(self.settings.llm.model, system_instruction=system_prompt)
+        gen_model = self._client.GenerativeModel(model or self.settings.llm.model, system_instruction=system_prompt)
 
         # Convert messages to Gemini format
         gemini_messages = []
@@ -324,7 +332,7 @@ class LLMClient:
             role = "user" if msg["role"] == "user" else "model"
             gemini_messages.append({"role": role, "parts": [msg["content"]]})
 
-        response = await asyncio.to_thread(model.generate_content, gemini_messages)
+        response = await asyncio.to_thread(gen_model.generate_content, gemini_messages)
         self.last_usage = self._usage_google(getattr(response, "usage_metadata", None))
 
         # Gemini has no streaming path here; emit the full text once so the

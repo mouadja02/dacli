@@ -8,6 +8,11 @@ from core.pricing import TokenUsage, fetch_pricing
 from core.store import DacliStore
 from core.verify import Verifier
 from core.router import TierRouter, RoutingAuditLog
+from core.planner import Planner
+from core.loop import PlanActObserveVerify, StepResult, StepContext, CorrectionAuditLog
+from core.blackboard import Blackboard
+from core.subagent import Lead, Assignment, WorkerOutput
+from reasoning.model_router import ModelRouter, ModelRoutingAuditLog, Stakes
 from governance import (
     Governor, ActionClassifier, PolicyEngine, PermissionRegistry, Scope,
     AuditLedger, RollbackStrategist, ShadowExecutor,
@@ -173,6 +178,13 @@ class DACLI:
             on_usage=self._usage_sink,
         )
 
+        # Orchestration & multi-agent (Phase 6, 𝒪 / ℛ) — additive. The kernel
+        # stays the default single-step path (``process_message``); the
+        # planner→act→observe→verify controller is the opt-in path for complex,
+        # multi-step goals (``process_goal``). All components are offline-safe.
+        self._on_approval_cb = on_approval
+        self._build_orchestration(settings, _state_dir)
+
     def _usage_sink(self, usage_dict: Dict[str, int], user_message: str) -> None:
         # Price one LLM call's token usage and fold it into the persistent store.
         # Best-effort: usage tracking must never break the control loop.
@@ -301,9 +313,187 @@ class DACLI:
         for connector in self.registry.enabled_connectors():
             await connector.disconnect()
 
+    # ==================================================================
+    # Orchestration & multi-agent (Phase 6, 𝒪 / ℛ)
+    # ==================================================================
+    def _build_orchestration(self, settings: Settings, state_dir: str) -> None:
+        orch = getattr(settings, "orchestration", None)
+        self._orchestration_on = bool(getattr(orch, "enabled", True)) if orch else True
+
+        # ℛ model tiering: cheap = explicit cheap_model, else the fallback_model,
+        # else the default; strong = explicit strong_model, else the default. So a
+        # single-model config routes everything to the same model (no behavior
+        # change), while a tiered config spends strong tokens only where they pay.
+        llm_cfg = settings.llm
+        cheap = llm_cfg.cheap_model or llm_cfg.fallback_model or llm_cfg.model
+        strong = llm_cfg.strong_model or llm_cfg.model
+        self.model_router = ModelRouter(
+            llm=self.llm,
+            cheap_model=cheap,
+            strong_model=strong,
+            default_model=llm_cfg.model,
+            audit_log=ModelRoutingAuditLog(path=f"{state_dir}/model_routing.jsonl"),
+        )
+
+        # The DAG planner (with the complexity gate) and the shared blackboard.
+        gate = getattr(orch, "complexity_gate", 2) if orch else 2
+        self.planner = Planner(llm=self.llm, complexity_gate=gate)
+        self.blackboard = Blackboard(path=f"{state_dir}/blackboard.json")
+
+        # The lead for breadth-first sub-agent fan-out.
+        self.lead = Lead(
+            self.blackboard,
+            max_subagents=getattr(orch, "max_subagents", 6) if orch else 6,
+            summary_tokens=getattr(orch, "subagent_summary_tokens", 2000) if orch else 2000,
+            on_event=self._emit_status,
+        )
+
+        # The plan→act→observe→verify controller (verify-in-loop + bounded,
+        # informed self-correction). Its executor bridges each node to the kernel.
+        self.orchestrator = PlanActObserveVerify(
+            executor=self._make_node_executor(),
+            verifier=self._verify_node,
+            model_router=self.model_router,
+            on_approval=self._on_approval_cb,
+            correction_log=CorrectionAuditLog(path=f"{state_dir}/corrections.jsonl"),
+            correction_budget=getattr(orch, "correction_budget", 2) if orch else 2,
+            require_approval=getattr(orch, "require_plan_approval", True) if orch else True,
+            on_event=self._emit_status,
+        )
+
+    def _make_node_executor(self):
+        """An executor that runs one DAG node through the existing kernel.
+
+        A breadth-first node fans out to isolated-context sub-agents (6.5);
+        every other node is a focused kernel run. On a correction attempt the
+        model tier the router escalated to is threaded into the kernel, and the
+        environmental feedback from the previous failure is prepended to the
+        prompt — informed retry, not a blind one.
+        """
+        async def executor(node, ctx: StepContext) -> StepResult:
+            if node.breadth_first and getattr(
+                getattr(self.settings, "orchestration", None), "subagents_enabled", True
+            ):
+                return await self._run_breadth_first(node)
+
+            prompt = node.description
+            if ctx.feedback:
+                prompt = (
+                    f"{node.description}\n\n"
+                    f"The previous attempt failed verification. Use this feedback "
+                    f"to correct it (do not repeat the same step blindly):\n{ctx.feedback}"
+                )
+
+            # Resolve the model tier for this attempt (ℛ). On a correction attempt
+            # the loop already escalated ``ctx.model`` to strong; on a first
+            # attempt we pick by stakes — an irreversible step is a strong-model
+            # job, ordinary steps run cheap. Every choice is logged for audit.
+            model = ctx.model
+            if model is None:
+                choice = self.model_router.choose(
+                    "irreversible_plan" if node.irreversible else "routing",
+                    stakes=Stakes.HIGH if node.irreversible else Stakes.MEDIUM,
+                    irreversible=node.irreversible,
+                )
+                model = choice.model
+            response = await self.kernel.orchestrate(prompt, model=model)
+            success = not response.error and not response.needs_user_input
+            return StepResult(
+                success=success,
+                output=response.content,
+                error=response.error,
+                feedback=response.error or (None if success else response.content),
+            )
+        return executor
+
+    async def _verify_node(self, node, result: StepResult):
+        """Node-level verify. The heavy, environment-anchored checks already ran
+        inside the dispatcher (Phase 4 post-conditions + Phase 5 governance) for
+        every tool the node used; here we confirm the node didn't error or stall.
+        """
+        if not result.success:
+            return False, result.error or "node did not complete"
+        return True, "node completed; tool post-conditions verified in-dispatch"
+
+    async def _run_breadth_first(self, node) -> StepResult:
+        """Fan a breadth-first node out to parallel, isolated-context sub-agents."""
+        items = node.items or [node.description]
+        report = await self.lead.fan_out(node.description, items, self._make_subagent_worker())
+        ok = not report.failures
+        return StepResult(
+            success=ok,
+            output=report.merged_summary,
+            error=("; ".join(report.failures) if report.failures else None),
+            feedback=("; ".join(report.failures) if report.failures else None),
+        )
+
+    def _make_subagent_worker(self):
+        """A worker that runs one sub-agent in an isolated context window.
+
+        Isolation = a *fresh* :class:`AgentMemory`/:class:`Kernel` per sub-agent
+        (its own working list), but the *shared* dispatcher/registry/governor — so
+        sub-agents get clean context and parallel windows while every action they
+        take is still governed and verified identically. Sub-agent work runs on
+        the cheap tier where adequate (token-cost mitigation).
+        """
+        async def worker(assignment: Assignment) -> WorkerOutput:
+            sub_memory = AgentMemory(
+                state_path=self.settings.agent.state_path,
+                history_path=self.settings.agent.history_path,
+                memory_window=self.settings.agent.memory_window,
+            )
+            sub_kernel = Kernel(
+                llm=self.llm,
+                dispatcher=self.dispatcher,
+                memory=sub_memory,
+                tools=self.registry.get_tool_definitions(),
+                system_prompt=self.system_prompt,
+                max_iterations=self.settings.agent.max_iterations,
+                context_builder=self._context["build"],
+                result_spill=self._context["spill"],
+                maybe_compact=self._context["maybe_compact"],
+            )
+            focus = f"{assignment.task} — focus only on: {assignment.item}. Return a concise result."
+            cheap = self.model_router.choose("summarization", stakes=Stakes.LOW).model
+            response = await sub_kernel.orchestrate(focus, model=cheap)
+            return WorkerOutput(
+                text=response.content or "",
+                success=not response.error and not response.needs_user_input,
+                error=response.error,
+            )
+        return worker
+
     async def process_message(self, user_message: str) -> AgentResponse:
-        # Delegate the control loop to the kernel.
+        # Delegate the control loop to the kernel (the default single-step path).
         return await self.kernel.orchestrate(user_message)
+
+    async def process_goal(self, goal: str):
+        """Orchestrated entry point for complex, multi-step goals (Phase 6).
+
+        The **complexity gate** decides: a goal that does not decompose into
+        enough subtasks runs single-step through the kernel (no planner ceremony).
+        A genuinely multi-step goal is decomposed into an inspectable DAG,
+        presented for approval (plan-approve-execute), then driven by the
+        plan→act→observe→verify controller with bounded self-correction. Returns
+        the kernel's :class:`AgentResponse` for the simple path, or the
+        :class:`~core.loop.OrchestrationResult` for the orchestrated path.
+        """
+        if not self._orchestration_on or not self.planner.is_complex(goal):
+            return await self.process_message(goal)
+
+        dag = self.planner.decompose(goal)
+        # Present the plan for approval (the low-friction governance posture).
+        if self.orchestrator.require_approval and self._on_approval_cb is not None:
+            self._emit_status("Proposed plan:\n" + dag.render())
+            try:
+                approved = bool(self._on_approval_cb(dag))
+            except Exception:
+                approved = False
+            if not approved:
+                self._emit_status("Plan not approved — not executing.")
+                return dag
+        self.blackboard.record_decision(f"approved plan for goal: {goal}", agent="lead")
+        return await self.orchestrator.run_dag(dag)
 
     def get_progress(self) -> Dict:
         # Get current progress summary
