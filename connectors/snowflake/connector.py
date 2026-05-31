@@ -389,6 +389,42 @@ class SnowflakeConnector(Connector):
             raise ConnectionError(f"Failed to connect to Snowflake: {str(e)}")
         return False
 
+    # ------------------------------------------------------------------
+    # Governance: rollback-path verification (Phase 5.3)
+    # ------------------------------------------------------------------
+    async def verify_rollback(self, plan, args: Dict[str, Any]):
+        """Confirm a native rollback path actually exists before an irreversible op.
+
+        The governor calls this for ``irreversible`` actions; the action is
+        blocked unless this returns truthy. We anchor to the platform rather than
+        assume: a ``DROP``/``TRUNCATE`` is only recoverable while the object's
+        **Time Travel** retention (DATA_RETENTION_TIME_IN_DAYS) is > 0. We read
+        that live; any uncertainty returns *not verified* (fail-safe).
+        """
+        primitive = getattr(plan, "primitive", "")
+        if primitive == "transaction":
+            return True, "DML is wrapped in a transaction (BEGIN/ROLLBACK)"
+        if primitive != "time_travel_undrop":
+            return False, f"no verifiable rollback path for primitive '{primitive}'"
+        try:
+            if not self.is_connected:
+                await self.connect()
+            # Account-level retention is the floor; an object may set its own.
+            self._cursor.execute("SHOW PARAMETERS LIKE 'DATA_RETENTION_TIME_IN_DAYS' IN ACCOUNT")
+            rows = self._cursor.fetchall()
+            cols = [d[0].upper() for d in self._cursor.description]
+            value = None
+            for row in rows:
+                rec = dict(zip(cols, row))
+                value = rec.get("VALUE") or rec.get("value")
+                break
+            retention = int(value) if value is not None and str(value).isdigit() else 0
+            if retention > 0:
+                return True, f"Time Travel retention is {retention} day(s) — UNDROP available"
+            return False, "Time Travel retention is 0 — DROP/TRUNCATE cannot be undone"
+        except Exception as e:
+            return False, f"could not verify Time Travel retention: {e}"
+
     async def disconnect(self) -> None:
         # Close Snowflake connection
         if self._cursor:

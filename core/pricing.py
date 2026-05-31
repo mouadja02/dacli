@@ -10,13 +10,19 @@ gracefully when offline (tokens are still tracked; cost is reported as unknown).
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 MODELS_DEV_URL = "https://models.dev/api.json"
 CACHE_TTL_SECONDS = 24 * 60 * 60  # refresh pricing at most once a day
+
+# Minimum similarity score for a fuzzy model match to be trusted. Below this we
+# return no pricing (better an honest "unknown" than a wrong, confident price).
+SIMILARITY_THRESHOLD = 0.62
 
 
 @dataclass
@@ -67,6 +73,17 @@ class ModelPricing:
     output: float = 0.0
     cache_read: float = 0.0
     cache_write: float = 0.0
+    # The models.dev entry we actually priced against. Equal to ``model`` on an
+    # exact hit; on a fuzzy hit it names the closest catalog model (e.g.
+    # ``openai/gpt-oss-120b`` for a requested ``openai/gpt-oss-120b:nitro``).
+    resolved_model: str = ""
+    resolved_provider: str = ""
+    match: str = "exact"           # "exact" | "normalized" | "similar"
+    similarity: float = 1.0
+
+    @property
+    def is_fuzzy(self) -> bool:
+        return self.match != "exact"
 
     def cost_for(self, usage: TokenUsage) -> float:
         """Compute USD cost for a usage record (prices are per 1M tokens)."""
@@ -94,36 +111,126 @@ def _ci_get(d: Any, key: str) -> Any:
     return None
 
 
-def _find_model(payload: Any, provider: str, model: str) -> Optional[Tuple[dict, dict]]:
-    """Locate (provider_entry, model_entry) for provider+model in the payload.
+# Provider-routing variant suffixes (OpenRouter et al.) that don't change the
+# underlying model's price — stripped before matching, e.g.
+# ``openai/gpt-oss-120b:nitro`` -> ``openai/gpt-oss-120b``.
+_VARIANT_SUFFIX_RE = re.compile(r":[^:/]+$")
 
-    Tries the named provider first, then falls back to scanning every provider
-    for the model id (e.g. an OpenRouter-routed Anthropic model).
+
+def _normalize_model_id(model: str) -> str:
+    """Lowercase + drop the routing-variant suffix for matching."""
+    s = (model or "").strip().lower()
+    # Strip a trailing ``:variant`` (nitro/floor/free/beta/extended/online/...).
+    # models.dev ids never carry a ``:`` so this only removes routing noise.
+    s = _VARIANT_SUFFIX_RE.sub("", s)
+    return s.strip()
+
+
+def _basename(model_id: str) -> str:
+    # The vendor/model -> model part ("openai/gpt-oss-120b" -> "gpt-oss-120b").
+    return model_id.rsplit("/", 1)[-1]
+
+
+def _iter_models(payload: dict, provider: str):
+    """Yield ``(provider_id, provider_entry, model_id, model_entry)``.
+
+    The configured provider's models come first so a routed model is priced
+    against *that* provider's catalog (e.g. OpenRouter pricing for an
+    OpenRouter-routed model) before falling back to other providers.
+    """
+    seen_provider = None
+    prov = _ci_get(payload, provider)
+    if isinstance(prov, dict):
+        seen_provider = next((k for k in payload if k.lower() == (provider or "").lower()), provider)
+        for mid, entry in (prov.get("models", {}) or {}).items():
+            if isinstance(entry, dict):
+                yield seen_provider, prov, mid, entry
+    for pid, pval in payload.items():
+        if pid == seen_provider or not isinstance(pval, dict):
+            continue
+        for mid, entry in (pval.get("models", {}) or {}).items():
+            if isinstance(entry, dict):
+                yield pid, pval, mid, entry
+
+
+def _score(query_norm: str, candidate_id: str) -> float:
+    """Similarity in [0,1] between a normalized query and a candidate model id."""
+    cand_norm = _normalize_model_id(candidate_id)
+    if query_norm == cand_norm:
+        return 1.0
+    # A matching basename is a strong signal even if the vendor prefix differs.
+    base_q, base_c = _basename(query_norm), _basename(cand_norm)
+    if base_q == base_c:
+        return 0.97
+    full = SequenceMatcher(None, query_norm, cand_norm).ratio()
+    base = SequenceMatcher(None, base_q, base_c).ratio()
+    # Reward containment (e.g. "gpt-oss-120b" inside "openai/gpt-oss-120b").
+    contain = 0.9 if (base_q and base_q in base_c) or (base_c and base_c in base_q) else 0.0
+    return max(full, base, contain)
+
+
+def _find_model(payload: Any, provider: str, model: str) -> Optional[Tuple[dict, dict, str, str, str, float]]:
+    """Locate the best (provider_entry, model_entry, ...) for provider+model.
+
+    Returns ``(provider_entry, model_entry, resolved_provider_id, resolved_model_id,
+    match_kind, similarity)`` or ``None``. Match resolution, in order:
+
+    1. **exact** case-insensitive id in the named provider, then any provider;
+    2. **normalized** exact (after stripping the routing-variant suffix);
+    3. **similar** — the closest catalog id by similarity, above a threshold,
+       preferring the configured provider when its best match ties.
     """
     if not isinstance(payload, dict) or not model:
         return None
 
+    # 1. exact (preserves the original behavior + tests).
     prov = _ci_get(payload, provider)
     if isinstance(prov, dict):
         m = _ci_get(prov.get("models", {}), model)
         if isinstance(m, dict):
-            return prov, m
-
-    for pval in payload.values():
+            return prov, m, provider, model, "exact", 1.0
+    for pid, pval in payload.items():
         if not isinstance(pval, dict):
             continue
         m = _ci_get(pval.get("models", {}), model)
         if isinstance(m, dict):
-            return pval, m
+            return pval, m, pid, model, "exact", 1.0
+
+    # 2 & 3. normalized-exact + similarity over all candidates, provider-first.
+    query_norm = _normalize_model_id(model)
+    if not query_norm:
+        return None
+
+    best = None  # (score, is_same_provider, provider_id, prov_entry, model_id, entry)
+    same_provider_id = next((k for k in payload if k.lower() == (provider or "").lower()), None)
+    for pid, pval, mid, entry in _iter_models(payload, provider):
+        score = _score(query_norm, mid)
+        same = (pid == same_provider_id)
+        # A normalized-exact hit (score 1.0) wins immediately within the
+        # provider-first ordering.
+        if score >= 1.0 and same:
+            return pval, entry, pid, mid, "normalized", 1.0
+        cand = (score, same, pid, pval, mid, entry)
+        if best is None or (score, same) > (best[0], best[1]):
+            best = cand
+
+    if best and best[0] >= SIMILARITY_THRESHOLD:
+        score, _same, pid, pval, mid, entry = best
+        kind = "normalized" if score >= 1.0 else "similar"
+        return pval, entry, pid, mid, kind, round(score, 3)
     return None
 
 
 def pricing_from_payload(payload: Any, provider: str, model: str) -> Optional[ModelPricing]:
-    """Build :class:`ModelPricing` from an in-memory api.json payload (pure)."""
+    """Build :class:`ModelPricing` from an in-memory api.json payload (pure).
+
+    Falls back to a similarity search when an exact id isn't in the catalog, so
+    a routed/variant model (``…:nitro``) is priced against its closest match.
+    """
     found = _find_model(payload, (provider or "").strip(), (model or "").strip())
     if not found:
         return None
-    _, entry = found
+    _prov_entry, entry, resolved_provider, resolved_model, kind, similarity = found
     cost = entry.get("cost") or {}
     return ModelPricing(
         provider=provider,
@@ -132,6 +239,10 @@ def pricing_from_payload(payload: Any, provider: str, model: str) -> Optional[Mo
         output=float(cost.get("output", 0) or 0),
         cache_read=float(cost.get("cache_read", 0) or 0),
         cache_write=float(cost.get("cache_write", 0) or 0),
+        resolved_model=resolved_model,
+        resolved_provider=resolved_provider,
+        match=kind,
+        similarity=similarity,
     )
 
 

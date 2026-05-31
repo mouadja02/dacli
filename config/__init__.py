@@ -6,6 +6,7 @@ CLI_COMMANDS = [
     ("/status", "Show current progress and state"),
     ("/usage", "Show token usage and cost (overall, by model, this session)"),
     ("/context", "Explain the assembled context (sources, tokens, budget)"),
+    ("/audit", "Show governance decisions for this session (why the agent acted)"),
     ("/tools", "Show enabled tools and capabilities"),
     ("/setup", "Run the tool configuration wizard"),
     ("/history", "Show conversation history"),

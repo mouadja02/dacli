@@ -17,8 +17,11 @@ from typing import Any, Dict, List, Optional
 
 
 class ToolStatus(Enum):
-    # Status of the tool execution
+    # Status of the tool execution. DENIED/BLOCKED are governance verdicts
+    # (Phase 5): DENIED = a human declined; BLOCKED = policy refused before any
+    # human was asked (e.g. an irreversible op with no verified rollback path).
     SUCCESS, ERROR, TIMEOUT, CANCELLED, PENDING_APPROVAL = "sucess", "error", "timeout", "cancelled", "pending_approval"
+    DENIED, BLOCKED = "denied", "blocked"
 
 
 @dataclass

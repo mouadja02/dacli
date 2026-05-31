@@ -129,6 +129,26 @@ class ContextSettings(BaseModel):
     compaction_pressure: float = Field(default=0.9, ge=0.1, le=1.0)
 
 
+class GovernanceSettings(BaseModel):
+    # Governance (𝒢, Phase 5) configuration.
+    enabled: bool = Field(default=True, description="Gate every state-changing action through the classifier + policy engine. Disable only for trusted offline runs.")
+    policy_path: str = Field(default="config/policy.yaml", description="Path to the tier->decision policy overrides (per connector/environment).")
+    audit_path: Optional[str] = Field(default=None, description="Append-only audit ledger path. Defaults to <state_dir>/audit.jsonl.")
+    default_scope: str = Field(default="read_only", description="Least-privilege scope granted to a connector when its profile declares none: read_only | write | risky | admin.")
+    shadow_execution: bool = Field(default=True, description="Run risky transforms on a zero-copy clone and diff before promoting (where the connector supports it).")
+
+
+class SandboxSettings(BaseModel):
+    # Code-execution sandbox (Phase 5.6) configuration.
+    enabled: bool = Field(default=True, description="Allow the agent to run code in the governed sandbox for complex/multi-step jobs.")
+    workdir: str = Field(default=".dacli/sandbox/", description="Working directory where sandbox scripts and their (off-context) data outputs live.")
+    wall_clock_seconds: int = Field(default=300, ge=1, description="Hard wall-clock limit per sandbox run.")
+    max_memory_mb: int = Field(default=1024, ge=64, description="Soft memory ceiling per sandbox run (POSIX rlimit; advisory on Windows).")
+    max_output_chars: int = Field(default=20000, ge=256, description="Max characters of stdout/stderr returned to model context; the rest stays on disk.")
+    network: str = Field(default="allowlist", description="Egress policy: 'off' (no network), 'allowlist' (only configured platform endpoints), or 'open'.")
+    egress_allowlist: list = Field(default_factory=list, description="Extra host suffixes the sandbox may reach when network='allowlist'.")
+
+
 class UISettings(BaseModel):
     # UI/Display configuration
     theme: str = "dark"
@@ -159,6 +179,8 @@ class Settings(BaseModel):
     embeddings: EmbeddingsSettings = Field(default_factory=EmbeddingsSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
+    governance: GovernanceSettings = Field(default_factory=GovernanceSettings)
+    sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     ui: UISettings = Field(default_factory=UISettings)
     retry: RetrySettings = Field(default_factory=RetrySettings)
 

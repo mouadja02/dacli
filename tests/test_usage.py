@@ -55,6 +55,54 @@ class PricingTest(unittest.TestCase):
     def test_unknown_model_returns_none(self):
         self.assertIsNone(pricing_from_payload(PAYLOAD, "anthropic", "does-not-exist"))
 
+    def test_exact_match_is_not_fuzzy(self):
+        p = pricing_from_payload(PAYLOAD, "openai", "gpt-x")
+        self.assertEqual(p.match, "exact")
+        self.assertFalse(p.is_fuzzy)
+
+
+# A models.dev-shaped payload with an OpenRouter provider carrying routed ids.
+ROUTED_PAYLOAD = {
+    "openrouter": {
+        "models": {
+            "openai/gpt-oss-120b": {"cost": {"input": 0.05, "output": 0.25}},
+            "anthropic/claude-sonnet-4.6": {"cost": {"input": 3, "output": 15}},
+        }
+    },
+    "openai": {
+        "models": {"gpt-oss-120b": {"cost": {"input": 0.1, "output": 0.4}}}
+    },
+}
+
+
+class SimilarityPricingTest(unittest.TestCase):
+    def test_variant_suffix_resolves_to_base_in_same_provider(self):
+        # The reported bug: ':nitro' variant priced as the base model, and from
+        # the configured provider (OpenRouter), not the openai-native entry.
+        p = pricing_from_payload(ROUTED_PAYLOAD, "openrouter", "openai/gpt-oss-120b:nitro")
+        self.assertIsNotNone(p)
+        self.assertEqual(p.resolved_provider, "openrouter")
+        self.assertEqual(p.resolved_model, "openai/gpt-oss-120b")
+        self.assertEqual(p.input, 0.05)            # OpenRouter price, not openai's 0.10
+        self.assertTrue(p.is_fuzzy)
+        self.assertEqual(p.match, "normalized")
+
+    def test_basename_only_query_matches(self):
+        p = pricing_from_payload(ROUTED_PAYLOAD, "openrouter", "gpt-oss-120b")
+        self.assertIsNotNone(p)
+        self.assertEqual(p.resolved_model, "gpt-oss-120b")  # exact id in 'openai'
+
+    def test_close_but_distinct_model_matches_by_similarity(self):
+        p = pricing_from_payload(ROUTED_PAYLOAD, "openrouter", "anthropic/claude-sonnet-4.5:floor")
+        self.assertIsNotNone(p)
+        self.assertEqual(p.resolved_model, "anthropic/claude-sonnet-4.6")
+        self.assertGreaterEqual(p.similarity, 0.62)
+
+    def test_unrelated_model_stays_none(self):
+        # Better an honest "unknown" than a confidently wrong price.
+        self.assertIsNone(
+            pricing_from_payload(ROUTED_PAYLOAD, "openrouter", "mistral/totally-unrelated-xyz"))
+
     def test_token_usage_roundtrip_and_add(self):
         a = TokenUsage(input=10, output=5, cache_read=2, cache_creation=1)
         a.add(TokenUsage.from_dict({"input": 1, "output": 1}))

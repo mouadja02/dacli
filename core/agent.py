@@ -8,6 +8,11 @@ from core.pricing import TokenUsage, fetch_pricing
 from core.store import DacliStore
 from core.verify import Verifier
 from core.router import TierRouter, RoutingAuditLog
+from governance import (
+    Governor, ActionClassifier, PolicyEngine, PermissionRegistry, Scope,
+    AuditLedger, RollbackStrategist, ShadowExecutor,
+)
+from governance.policy_engine import load_policy_config
 from reasoning.llm import LLMClient
 from connectors.base import ToolResult
 from connectors.registry import ConnectorRegistry, CONNECTORS_CONFIG_PATH
@@ -18,6 +23,9 @@ from prompts.system_prompt import load_system_prompt
 from skills.registry import SkillRegistry
 from skills.spec import SkillContext
 from skills.connector import SkillConnector
+from sandbox.connector import SandboxConnector
+from sandbox.runtime import SandboxRuntime
+from sandbox.policy import SandboxPolicy
 
 
 class DACLI:
@@ -36,6 +44,7 @@ class DACLI:
         on_tool_start: Optional[Callable[[str, Dict], None]] = None,
         on_tool_end: Optional[Callable[[str, ToolResult], None]] = None,
         on_user_input_needed: Optional[Callable[[str], str]] = None,
+        on_approval: Optional[Callable[[object], bool]] = None,
         on_stream_start: Optional[Callable[[], None]] = None,
         on_text: Optional[Callable[[str], None]] = None,
         on_stream_end: Optional[Callable[[str], None]] = None,
@@ -75,13 +84,23 @@ class DACLI:
         self.skills = SkillRegistry()
         self._skill_connector = SkillConnector(self.skills)
 
+        # Sandbox (Phase 5.6): the code-execution tier, surfaced as a built-in
+        # connector so its single ``run_sandbox_code`` op flows through the one
+        # dispatch path. The runtime is late-bound after the dispatcher exists
+        # (its SDK needs the governed ``dispatcher.execute``).
+        _sandbox_on = getattr(getattr(settings, "sandbox", None), "enabled", True)
+        self._sandbox_connector = SandboxConnector(settings) if _sandbox_on else None
+
         # Connector plugin registry (manifest-discovered) + generic dispatcher.
         # ``enforce_postconditions`` makes "no post-condition, no registration"
         # structural: a capability that cannot be verified cannot be offered.
+        _builtins = [self._system_connector, self._skill_connector]
+        if self._sandbox_connector is not None:
+            _builtins.append(self._sandbox_connector)
         self.registry = ConnectorRegistry(
             settings,
             config_path=connectors_config_path,
-            extra_connectors=[self._system_connector, self._skill_connector],
+            extra_connectors=_builtins,
             enforce_postconditions=True,
         )
 
@@ -89,12 +108,19 @@ class DACLI:
         # of success. Wired into the dispatcher so a failed check downgrades the
         # result before it is ever treated as done.
         self.verifier = Verifier(enforce=True)
+
+        # Governance (Phase 5, 𝒢): classify blast radius → policy → permissions
+        # → rollback → human approval, all before an action runs; record every
+        # decision in an append-only audit ledger. Built from config/policy.yaml
+        # so a team tunes velocity vs. caution without code changes.
+        self.governor = self._build_governor(settings, on_approval)
         self.dispatcher = Dispatcher(
             self.registry,
             memory=self.memory,
             on_tool_start=on_tool_start,
             on_tool_end=on_tool_end,
             verifier=self.verifier,
+            governor=self.governor,
         )
         # Now the dispatcher exists, give skills their runtime collaborators.
         self._skill_connector.bind_context_provider(
@@ -102,6 +128,17 @@ class DACLI:
                 memory=self.memory, registry=self.registry, dispatcher=self.dispatcher
             )
         )
+
+        # ... and give the sandbox its runtime, whose SDK calls back through the
+        # *governed* dispatcher.execute — so code-execution is not a bypass.
+        if self._sandbox_connector is not None:
+            self._sandbox_connector.bind_runtime(
+                SandboxRuntime(
+                    SandboxPolicy.from_settings(settings),
+                    self.dispatcher.execute,
+                    registry=self.registry,
+                )
+            )
 
         # Tier router (Phase 4): classifies each task tool-vs-sandbox with
         # confidence-aware escalation; decisions are logged for audit/calibration.
@@ -154,6 +191,62 @@ class DACLI:
             self.store.save()
         except Exception:
             pass
+
+    def _build_governor(self, settings: Settings, on_approval) -> Optional[Governor]:
+        gov = getattr(settings, "governance", None)
+        if gov is not None and not gov.enabled:
+            return None  # explicitly disabled (trusted offline run)
+
+        policy_path = getattr(gov, "policy_path", "config/policy.yaml") if gov else "config/policy.yaml"
+        config = load_policy_config(policy_path)
+        policy = PolicyEngine(config)
+
+        # Least-privilege: connectors get the configured default scope unless the
+        # policy profile grants more. Write/admin is opt-in per connection.
+        try:
+            default_scope = Scope(getattr(gov, "default_scope", "read_only"))
+        except Exception:
+            default_scope = Scope.READ_ONLY
+        permissions = PermissionRegistry.from_policy_config(config, default_scope=default_scope)
+        # Built-in harness connectors (system/skills/sandbox) are not external
+        # platforms — least-privilege scoping targets platform blast radius, and
+        # their sub-actions (e.g. each governed sdk.run inside the sandbox) are
+        # gated independently. Exempt them so the harness itself isn't crippled.
+        for _builtin in ("system", "skills", "sandbox"):
+            permissions.grant(_builtin, Scope.ADMIN)
+
+        state_dir = str(Path(settings.agent.state_path).parent)
+        audit_path = (getattr(gov, "audit_path", None) or f"{state_dir}/audit.jsonl") if gov else f"{state_dir}/audit.jsonl"
+        ledger = AuditLedger(path=audit_path)
+
+        return Governor(
+            classifier=ActionClassifier(prod_markers=policy.prod_markers or None),
+            policy=policy,
+            permissions=permissions,
+            strategist=RollbackStrategist(),
+            shadow_executor=ShadowExecutor(),
+            ledger=ledger,
+            session_id=getattr(self.memory, "session_id", ""),
+            approval_fn=on_approval,
+            env_resolver=self._resolve_environment,
+            enforce=True,
+            use_shadow=bool(getattr(gov, "shadow_execution", True)) if gov else True,
+        )
+
+    def _resolve_environment(self, connector_id: str, args: Dict, connector) -> Optional[str]:
+        # Best-effort environment label for the policy engine: the connection's
+        # own target (e.g. the Snowflake database / GitHub branch). A prod-looking
+        # target maps to 'prod', otherwise the literal target name is returned so
+        # a policy.yaml override for that environment can match.
+        try:
+            if connector_id == "snowflake":
+                db = getattr(getattr(self.settings, "snowflake", None), "database", "") or ""
+                return db or None
+            if connector_id == "github":
+                return getattr(getattr(self.settings, "github", None), "branch", None)
+        except Exception:
+            return None
+        return None
 
     def _emit_status(self, message: str) -> None:
         if self._on_status_update:

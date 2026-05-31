@@ -41,6 +41,7 @@ class Dispatcher:
         on_tool_start: Optional[Callable[[str, Dict], None]] = None,
         on_tool_end: Optional[Callable[[str, ToolResult], None]] = None,
         verifier: Any = None,
+        governor: Any = None,
     ):
         self._registry = registry
         self._memory = memory
@@ -51,6 +52,13 @@ class Dispatcher:
         # failed post-condition downgrades the result to ERROR so the kernel and
         # the catalog never treat an unverified outcome as done.
         self._verifier = verifier
+        # Phase 5: optional governance gate (𝒢). When present, every action is
+        # classified by blast radius and run through the policy engine *before*
+        # ``invoke`` — denied/blocked actions short-circuit and never execute;
+        # the outcome (and its post-condition verdict) is recorded in the audit
+        # ledger. The sandbox SDK shares this same governor, so code-execution
+        # is governed identically.
+        self._governor = governor
 
     async def execute(self, tool_name: str, arguments: Dict[str, Any]) -> ToolResult:
         start_time = time.time()
@@ -69,6 +77,23 @@ class Dispatcher:
             )
         else:
             connector, op = resolved
+
+            # Governance pre-flight (Phase 5): classify blast radius → policy →
+            # permissions → rollback → human approval, all *before* execution. A
+            # denied/blocked action short-circuits here and never runs.
+            decision = None
+            if self._governor is not None:
+                spec = self._registry.get_operation_spec(tool_name)
+                decision = await self._governor.review(tool_name, spec, arguments, connector)
+                if not decision.allowed:
+                    short = decision.short_circuit or ToolResult(
+                        tool_name=tool_name, status=ToolStatus.DENIED,
+                        error=decision.blocked_reason or "blocked by governance",
+                    )
+                    if self._on_tool_end:
+                        self._on_tool_end(tool_name, short)
+                    return short
+
             try:
                 result = await connector.invoke(op, arguments)
             except Exception as e:
@@ -83,6 +108,11 @@ class Dispatcher:
                 # success. Runs before logging/catalog effects so a failed check
                 # never lets a bad outcome propagate as done.
                 result = await self._verify(tool_name, connector, arguments, result)
+
+            # Record the execution outcome + post-condition verdict in the audit
+            # ledger so the decision is reconstructable end to end (Phase 5.4).
+            if self._governor is not None and decision is not None:
+                self._governor.record_outcome(decision, result)
 
         # Log tool execution
         if self._memory is not None:

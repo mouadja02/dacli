@@ -26,6 +26,7 @@ from connectors.registry import (
 from core.agent import DACLI
 from core.memory import AgentMemory
 from core.store import DacliStore
+from governance.audit import AuditLedger
 from core.setup_wizard import SetupWizard, QuickSetup
 from prompts.system_prompt import load_system_prompt, save_system_prompt, SYSTEM_PROMPT_FILE
 from tui import DacliUI, THEMES
@@ -160,7 +161,7 @@ def _fmt_cost(c) -> str:
     return f"${c:.4f}" if c < 0.01 else f"${c:.2f}"
 
 
-def print_usage(store: DacliStore, session_id: Optional[str] = None, target: Optional[DacliUI] = None):
+def print_usage(store: DacliStore, session_id: Optional[str] = None, target: Optional[DacliUI] = None, pricing=None):
     # Token/cost usage through the themed UI: all-time totals, by model, this session.
     con = (target or ui).console
     summary = store.usage_summary(session_id)
@@ -206,6 +207,13 @@ def print_usage(store: DacliStore, session_id: Optional[str] = None, target: Opt
         s.append(f"{_fmt_int(session.get('input', 0))}/{_fmt_int(session.get('output', 0))} tok   ", style="info")
         s.append("Cost ", style="muted"); s.append(_fmt_cost(session.get('costUSD', 0)), style="success")
         con.print(Panel(s, title=f"[accent]This session ({session_id})[/accent]", border_style="border", padding=(1, 2)))
+
+    if pricing is not None and getattr(pricing, "is_fuzzy", False):
+        con.print(
+            f"[muted]Priced as [info]{pricing.resolved_provider}/{pricing.resolved_model}[/info] "
+            f"— closest models.dev match for [info]{pricing.model}[/info] "
+            f"({pricing.match}, similarity {pricing.similarity}).[/muted]"
+        )
 
     if totals.get("requests") and not totals.get("costUSD"):
         con.print("[muted]Cost shows $0.00 — models.dev pricing unavailable for this model (offline or unlisted).[/muted]")
@@ -451,6 +459,70 @@ def _print_context_explain(ctx, task, explain: bool) -> None:
 
 
 @cli.command()
+@click.option('--config', '-c', type=click.Path(), help='Path to config.yaml file')
+@click.option('--session', '-s', type=str, help='Only show decisions for this session')
+@click.option('--limit', '-n', type=int, default=20, help='Max number of decisions to show')
+@click.option('--full', is_flag=True, help='Show every event in each decision, not just the summary')
+def audit(config, session, limit, full):
+    """Reconstruct governance decisions: why the agent did (or didn't) act."""
+    settings = load_config(config)
+    gov = getattr(settings, "governance", None)
+    state_dir = str(Path(settings.agent.state_path).parent)
+    path = (getattr(gov, "audit_path", None) or f"{state_dir}/audit.jsonl") if gov else f"{state_dir}/audit.jsonl"
+
+    ledger = AuditLedger(path=path)
+    _print_audit(ledger, session, full=full, limit=limit, header=f"ledger: {path}")
+
+
+def _print_audit(ledger, session_id, *, full=False, limit=20, header=None, target=None):
+    # Render governance decisions grouped by action: classifier tier, policy
+    # decision, rollback plan, approval, execution + post-condition verdict.
+    con = (target or ui).console
+    decisions = ledger.decisions(session_id=session_id)
+    if not decisions:
+        con.print("[dim]No governance decisions recorded yet.[/dim]")
+        return
+    decisions = decisions[-limit:]
+
+    sub = header or f"session {session_id}"
+    con.print(Panel(
+        Text(f"{len(decisions)} decision(s)  ·  {sub}", style="info"),
+        title="[accent]Audit[/accent]", border_style="border", padding=(0, 2)))
+
+    tier_style = {"safe": "success", "write": "info", "risky": "warning", "irreversible": "error"}
+    icons = {
+        "classification": "◆", "policy": "▸", "permission": "▸", "rollback": "↩",
+        "shadow": "⧉", "approval": "?", "block": "✗", "execution": "→",
+        "post_condition": "✓", "memory_write": "✎",
+    }
+    for dec in decisions:
+        tier = dec.get("tier") or "?"
+        head = Text()
+        head.append(f"{dec.get('tool_name', '?')}  ", style="accent")
+        head.append(f"[{tier}]", style=tier_style.get(tier, "muted"))
+        head.append(f"   {dec.get('decision_id', '')}", style="muted")
+        con.print(head)
+
+        for ev in dec.get("events", []):
+            kind = ev.get("kind", "")
+            summary = ev.get("summary", "")
+            style = "muted"
+            if kind == "block" or (kind == "approval" and "denied" in summary):
+                style = "error"
+            elif kind == "post_condition":
+                style = "success" if "passed" in summary else "error"
+            elif kind == "approval":
+                style = "success" if "approved" in summary else "warning"
+            line = Text(f"   {icons.get(kind, '·')} ", style=style)
+            line.append(f"{kind:<14}", style="step")
+            line.append(summary, style=style)
+            con.print(line)
+            if full and ev.get("detail"):
+                con.print(Text(f"        {ev['detail']}", style="muted"))
+        con.print()
+
+
+@cli.command()
 @click.option('--output', '-o', type=click.Path(), help='Output file path')
 def prompt(output):
     # View or edit the system prompt.
@@ -569,6 +641,19 @@ async def _run_chat(config_path: Optional[str], session_id: Optional[str], force
         con.print(Panel(question, title="[warning]input needed[/warning]", border_style="warning", padding=(1, 2)))
         return Prompt.ask("[prompt]your response[/prompt]", console=con)
 
+    def on_approval(request) -> bool:
+        # Governance (Phase 5): a risky/irreversible action wants sign-off. Show
+        # the blast radius, the classifier's reasoning, the rollback plan and any
+        # dry-run / shadow diff, then ask. Default is NO (fail-safe).
+        tier = getattr(getattr(request, "tier", None), "value", "?")
+        border = "error" if tier == "irreversible" else "warning"
+        con.print(Panel(
+            Text(request.describe(), style="step"),
+            title=f"[{border}]approval needed · {tier}[/{border}]",
+            border_style=border, padding=(1, 2),
+        ))
+        return Confirm.ask("[prompt]Proceed with this action?[/prompt]", console=con, default=False)
+
     # Initialize agent — UI methods wired directly as kernel callbacks.
     agent = DACLI(
         settings=settings,
@@ -577,6 +662,7 @@ async def _run_chat(config_path: Optional[str], session_id: Optional[str], force
         on_tool_start=chat_ui.tool_start,
         on_tool_end=chat_ui.tool_end,
         on_user_input_needed=on_user_input_needed,
+        on_approval=on_approval,
         on_stream_start=chat_ui.on_stream_start,
         on_text=chat_ui.on_text,
         on_stream_end=chat_ui.on_stream_end,
@@ -659,7 +745,7 @@ async def _run_chat(config_path: Optional[str], session_id: Optional[str], force
                         print_status(memory, chat_ui)
 
                     elif cmd == "/usage":
-                        print_usage(agent.store, memory.session_id, chat_ui)
+                        print_usage(agent.store, memory.session_id, chat_ui, pricing=agent._pricing)
 
                     elif cmd == "/context":
                         working = [{"role": m.role, "content": m.content} for m in memory.get_full_history()]
@@ -669,6 +755,14 @@ async def _run_chat(config_path: Optional[str], session_id: Optional[str], force
                         )
                         ctx = agent._context["build"](task_arg, working, set())
                         _print_context_explain(ctx, task_arg, explain=True)
+
+                    elif cmd == "/audit":
+                        gov = getattr(agent, "governor", None)
+                        ledger = getattr(gov, "ledger", None) if gov else None
+                        if ledger is None:
+                            chat_ui.notice("Governance is disabled — no audit ledger.", style="muted")
+                        else:
+                            _print_audit(ledger, memory.session_id, full=("full" in args))
 
                     elif cmd == "/history":
                         chat_ui.history(memory.get_full_history())
