@@ -8,6 +8,66 @@ from typing import Any, Dict, List, Optional
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from config.settings import Settings
+from core.verify import (
+    PostCondition, VerificationContext, result_succeeded, data_has_keys, data_is_list,
+)
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — GitHub post-conditions (environment-as-oracle)
+# ---------------------------------------------------------------------------
+def _sha256(text: str) -> str:
+    import hashlib
+    return hashlib.sha256((text or "").encode("utf-8")).hexdigest()
+
+
+def push_commit_landed() -> PostCondition:
+    """A push is 'done' only if the commit is reachable AND the stored bytes match.
+
+    ``push_github_file`` used to return success the moment the API call returned;
+    here we re-read the file off the branch and confirm (a) a commit SHA came back
+    and (b) the committed content hashes equal to what we pushed.
+    """
+    async def check(ctx: VerificationContext):
+        data = getattr(ctx.result, "data", None) or {}
+        if not data.get("commit_sha"):
+            return False, "no commit SHA returned — commit did not land"
+        target = ctx.target
+        path = ctx.args.get("path")
+        if target is None or not hasattr(target, "invoke") or not path:
+            return True, "could not read back committed file (unverified)"
+        res = await target.invoke("read_github_file", {"path": path})
+        read = getattr(res, "data", None) or {}
+        stored = read.get("content")
+        if stored is None:
+            return True, "committed file not readable back yet (unverified)"
+        if _sha256(stored) != _sha256(ctx.args.get("content", "")):
+            return False, "committed content hash differs from pushed content"
+        return True, ""
+
+    return PostCondition(
+        "push_commit_landed", check,
+        "commit SHA reachable on branch; committed content hash matches",
+        anchored=True,
+    )
+
+
+def delete_removed_file() -> PostCondition:
+    """After a delete, the file must be gone from the branch."""
+    async def check(ctx: VerificationContext):
+        target = ctx.target
+        path = ctx.args.get("path")
+        if target is None or not hasattr(target, "invoke") or not path:
+            return True, "could not confirm deletion (unverified)"
+        res = await target.invoke("read_github_file", {"path": path})
+        read = getattr(res, "data", None) or {}
+        if read.get("content") is not None:
+            return False, f"file '{path}' still present after delete"
+        return True, ""
+
+    return PostCondition(
+        "delete_removed_file", check, "file no longer reachable on branch", anchored=True,
+    )
 
 
 class GithubConnector(Connector):
@@ -62,6 +122,7 @@ class GithubConnector(Connector):
                 risk=Risk.SAFE,
                 display_name="List Directory",
                 category="read",
+                postconditions=[data_has_keys("entries", name="lists_entries")],
             ),
             OperationSpec(
                 name="read_github_file",
@@ -80,6 +141,7 @@ class GithubConnector(Connector):
                 risk=Risk.SAFE,
                 display_name="Read File",
                 category="read",
+                postconditions=[result_succeeded()],
             ),
             OperationSpec(
                 name="push_github_file",
@@ -106,6 +168,7 @@ class GithubConnector(Connector):
                 risk=Risk.WRITE,
                 display_name="Push File",
                 category="write",
+                postconditions=[result_succeeded(), push_commit_landed()],
             ),
             OperationSpec(
                 name="delete_github_file",
@@ -128,6 +191,7 @@ class GithubConnector(Connector):
                 risk=Risk.IRREVERSIBLE,
                 display_name="Delete File",
                 category="write",
+                postconditions=[result_succeeded(), delete_removed_file()],
             ),
             OperationSpec(
                 name="trigger_github_workflow",
@@ -150,6 +214,7 @@ class GithubConnector(Connector):
                 risk=Risk.RISKY,
                 display_name="Trigger Workflow",
                 category="workflow",
+                postconditions=[result_succeeded()],
             ),
             OperationSpec(
                 name="list_github_workflow_runs",
@@ -168,6 +233,7 @@ class GithubConnector(Connector):
                 risk=Risk.SAFE,
                 display_name="List Workflow Runs",
                 category="workflow",
+                postconditions=[data_has_keys("runs", name="lists_runs")],
             ),
             OperationSpec(
                 name="get_github_workflow_run",
@@ -186,6 +252,7 @@ class GithubConnector(Connector):
                 risk=Risk.SAFE,
                 display_name="Get Workflow Run",
                 category="workflow",
+                postconditions=[data_has_keys("status", name="reports_status")],
             ),
             OperationSpec(
                 name="get_github_workflow_run_jobs",
@@ -204,6 +271,7 @@ class GithubConnector(Connector):
                 risk=Risk.SAFE,
                 display_name="Get Workflow Jobs",
                 category="workflow",
+                postconditions=[data_has_keys("jobs", name="lists_jobs")],
             ),
         ]
 

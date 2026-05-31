@@ -102,6 +102,12 @@ class OperationSpec:
     # ``name`` / ``description`` when absent.
     display_name: Optional[str] = None
     category: Optional[str] = None
+    # Mandatory post-conditions (Phase 4). Each is a ``core.verify.PostCondition``
+    # run after the op executes; the result is rejected if any fail. Typed as
+    # ``Any`` to keep this module dependency-free (no import of core.verify).
+    # The connector registry enforces "at least one" when ``enforce_postconditions``
+    # is on — fluent success is not proof the intended state change is correct.
+    postconditions: List[Any] = field(default_factory=list)
 
     def to_tool_definition(self) -> Dict[str, Any]:
         """Render as an OpenAI-style function tool definition."""

@@ -6,6 +6,8 @@ from core.memory import AgentMemory
 from core.kernel import Kernel, AgentResponse
 from core.pricing import TokenUsage, fetch_pricing
 from core.store import DacliStore
+from core.verify import Verifier
+from core.router import TierRouter, RoutingAuditLog
 from reasoning.llm import LLMClient
 from connectors.base import ToolResult
 from connectors.registry import ConnectorRegistry, CONNECTORS_CONFIG_PATH
@@ -13,6 +15,9 @@ from connectors.dispatcher import Dispatcher
 from connectors.system.connector import SystemConnector
 from context.pipeline import build_context_pipeline
 from prompts.system_prompt import load_system_prompt
+from skills.registry import SkillRegistry
+from skills.spec import SkillContext
+from skills.connector import SkillConnector
 
 
 class DACLI:
@@ -63,17 +68,49 @@ class DACLI:
             on_user_input_needed=on_user_input_needed,
         )
 
+        # Skills (Phase 4): a contracted-procedure registry, surfaced as a
+        # built-in connector so every skill flows through the one dispatch path
+        # and the one post-condition gate. ``context_provider`` is late-bound
+        # because the SkillContext needs the dispatcher we build just below.
+        self.skills = SkillRegistry()
+        self._skill_connector = SkillConnector(self.skills)
+
         # Connector plugin registry (manifest-discovered) + generic dispatcher.
+        # ``enforce_postconditions`` makes "no post-condition, no registration"
+        # structural: a capability that cannot be verified cannot be offered.
         self.registry = ConnectorRegistry(
             settings,
             config_path=connectors_config_path,
-            extra_connectors=[self._system_connector],
+            extra_connectors=[self._system_connector, self._skill_connector],
+            enforce_postconditions=True,
         )
+
+        # Post-condition verifier (Phase 4): a verified success is the only kind
+        # of success. Wired into the dispatcher so a failed check downgrades the
+        # result before it is ever treated as done.
+        self.verifier = Verifier(enforce=True)
         self.dispatcher = Dispatcher(
             self.registry,
             memory=self.memory,
             on_tool_start=on_tool_start,
             on_tool_end=on_tool_end,
+            verifier=self.verifier,
+        )
+        # Now the dispatcher exists, give skills their runtime collaborators.
+        self._skill_connector.bind_context_provider(
+            lambda: SkillContext(
+                memory=self.memory, registry=self.registry, dispatcher=self.dispatcher
+            )
+        )
+
+        # Tier router (Phase 4): classifies each task tool-vs-sandbox with
+        # confidence-aware escalation; decisions are logged for audit/calibration.
+        _state_dir = str(Path(settings.agent.state_path).parent)
+        self.router = TierRouter(
+            llm=self.llm,
+            registry=self.registry,
+            memory=self.memory,
+            audit_log=RoutingAuditLog(path=f"{_state_dir}/routing.jsonl"),
         )
 
         # Context Constructor (Phase 3) wiring — see context.pipeline.

@@ -23,6 +23,9 @@ from typing import Any, Callable, Dict, Optional
 
 from connectors.base import ToolResult, ToolStatus, Risk
 from connectors.registry import ConnectorRegistry
+# NOTE: ``core.verify`` is imported lazily inside ``_verify`` — importing it at
+# module top would pull in ``core/__init__`` (which eagerly imports the agent,
+# which imports this dispatcher) and create a circular import.
 
 # Risk levels at which a successful op may have changed live structure, so its
 # catalog effects (create/invalidate) must be applied. SAFE (read-only) ops are
@@ -37,11 +40,17 @@ class Dispatcher:
         memory: Any = None,
         on_tool_start: Optional[Callable[[str, Dict], None]] = None,
         on_tool_end: Optional[Callable[[str, ToolResult], None]] = None,
+        verifier: Any = None,
     ):
         self._registry = registry
         self._memory = memory
         self._on_tool_start = on_tool_start
         self._on_tool_end = on_tool_end
+        # Phase 4: optional post-condition runner. When present, a successful op
+        # that declares post-conditions is verified before it is accepted; a
+        # failed post-condition downgrades the result to ERROR so the kernel and
+        # the catalog never treat an unverified outcome as done.
+        self._verifier = verifier
 
     async def execute(self, tool_name: str, arguments: Dict[str, Any]) -> ToolResult:
         start_time = time.time()
@@ -69,6 +78,11 @@ class Dispatcher:
                     error=str(e),
                     execution_time_ms=(time.time() - start_time) * 1000,
                 )
+            else:
+                # Post-condition gate (Phase 4): only a *verified* success is a
+                # success. Runs before logging/catalog effects so a failed check
+                # never lets a bad outcome propagate as done.
+                result = await self._verify(tool_name, connector, arguments, result)
 
         # Log tool execution
         if self._memory is not None:
@@ -90,6 +104,40 @@ class Dispatcher:
         if self._on_tool_end:
             self._on_tool_end(tool_name, result)
 
+        return result
+
+    async def _verify(self, tool_name, connector, arguments, result: ToolResult) -> ToolResult:
+        # Run the operation's declared post-conditions, if any, and gate on them.
+        if self._verifier is None or not result.success:
+            return result
+        spec = self._registry.get_operation_spec(tool_name)
+        postconditions = getattr(spec, "postconditions", None) if spec else None
+        if not postconditions:
+            return result
+
+        from core.verify import VerificationContext
+
+        ctx = VerificationContext(
+            args=dict(arguments or {}),
+            result=result,
+            target=connector,
+            memory=self._memory,
+        )
+        report = await self._verifier.verify(postconditions, ctx, label=tool_name)
+        # Record the verdict on the result for audit/UI regardless of outcome.
+        result.metadata = {**(result.metadata or {}), "verification": report.to_dict()}
+
+        if not report.passed and getattr(self._verifier, "enforce", True):
+            # A failed post-condition is not an accepted result. Downgrade so the
+            # kernel surfaces it and catalog effects are skipped.
+            return ToolResult(
+                tool_name=result.tool_name,
+                status=ToolStatus.ERROR,
+                data=result.data,
+                error=report.summary(),
+                execution_time_ms=result.execution_time_ms,
+                metadata=result.metadata,
+            )
         return result
 
     def _apply_catalog_effects(self, tool_name, resolved, result: ToolResult) -> None:

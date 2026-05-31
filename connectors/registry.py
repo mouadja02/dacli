@@ -68,10 +68,16 @@ class ConnectorRegistry:
         connectors_dir: Optional[str] = None,
         config_path: str = CONNECTORS_CONFIG_PATH,
         extra_connectors: Optional[List[Connector]] = None,
+        enforce_postconditions: bool = False,
     ):
         self._settings = settings
         self._connectors_dir = Path(connectors_dir) if connectors_dir else Path(__file__).parent
         self._config_path = config_path
+        # Phase 4: when on, an operation that declares no post-condition cannot
+        # register — "no post-condition, no acceptance" enforced at load time.
+        # Default off so isolated test rigs / throwaway connectors are unaffected;
+        # the live agent turns it on.
+        self._enforce_postconditions = enforce_postconditions
 
         # id -> manifest dict
         self._manifests: Dict[str, Dict[str, Any]] = {}
@@ -87,6 +93,8 @@ class ConnectorRegistry:
         self._discover()
         self._inject(extra_connectors or [])
         self._build_index()
+        if self._enforce_postconditions:
+            self.validate_postconditions()
 
     # ------------------------------------------------------------------
     # Discovery / construction
@@ -227,6 +235,21 @@ class ConnectorRegistry:
             return None
         connector_id, op_name = entry
         return self._connectors[connector_id], op_name
+
+    def validate_postconditions(self) -> None:
+        """Reject any registered operation that declares no post-condition.
+
+        This is the structural enforcement of the Phase 4 rule: a connector
+        operation cannot be offered unless its outcome can be checked. Raises
+        ``MissingPostConditionError`` naming the first offender.
+        """
+        from core.verify import require_postconditions
+
+        for connector_id, connector in self._connectors.items():
+            for spec in connector.operations():
+                require_postconditions(
+                    f"{connector_id}.{spec.name}", getattr(spec, "postconditions", None)
+                )
 
     def get_operation_spec(self, tool_name: str):
         """Return the OperationSpec for a tool name (for risk-aware dispatch)."""

@@ -1,10 +1,11 @@
 import re
 import snowflake.connector
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from config.settings import Settings
+from core.verify import PostCondition, VerificationContext, result_succeeded
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +111,162 @@ def parse_catalog_effects(query: str) -> List[Dict[str, Any]]:
     return []
 
 
+# ---------------------------------------------------------------------------
+# Phase 4 — post-condition support: parse the *intended* column set
+# ---------------------------------------------------------------------------
+_CREATE_TABLE_HEAD = re.compile(
+    r"^CREATE\s+(?:OR\s+REPLACE\s+)?"
+    r"(?:(?:TEMP|TEMPORARY|TRANSIENT|VOLATILE|LOCAL|GLOBAL)\s+)*"
+    r"TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"
+    rf"({_IDENT})\s*\(",
+    re.IGNORECASE,
+)
+# Lines inside the column list that are table constraints, not columns.
+_CONSTRAINT_KEYWORDS = {
+    "CONSTRAINT", "PRIMARY", "FOREIGN", "UNIQUE", "CHECK", "INDEX",
+}
+
+
+def _split_top_level(body: str) -> List[str]:
+    """Split a column-list body on top-level commas (ignores commas in types)."""
+    parts, depth, current = [], 0, []
+    for ch in body:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+    if current:
+        parts.append("".join(current))
+    return parts
+
+
+def parse_create_table(query: str) -> Optional[Dict[str, Any]]:
+    """Extract the declared table + column names from a CREATE TABLE statement.
+
+    Returns ``{"scope": {...}, "columns": [NAME, ...]}`` (column names upper-cased)
+    or ``None`` if the statement is not a column-list CREATE TABLE (e.g. CTAS,
+    or any non-CREATE-TABLE SQL). Used by the post-condition that confirms the
+    *intended* schema against information_schema.
+    """
+    if not query:
+        return None
+    text = re.sub(r"\s+", " ", query.strip().rstrip(";").strip())
+    head = _CREATE_TABLE_HEAD.match(text)
+    if not head:
+        return None
+    # Grab the balanced body after the opening paren of the column list.
+    open_idx = text.index("(", head.end() - 1)
+    depth, body_chars = 0, []
+    for ch in text[open_idx:]:
+        if ch == "(":
+            depth += 1
+            if depth == 1:
+                continue
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        body_chars.append(ch)
+    body = "".join(body_chars)
+    columns: List[str] = []
+    for raw in _split_top_level(body):
+        tokens = raw.strip().split()
+        if not tokens:
+            continue
+        first = tokens[0].strip('"').upper()
+        if first in _CONSTRAINT_KEYWORDS:
+            continue  # a table constraint, not a column
+        columns.append(first)
+    scope = _scope_from_name(head.group(1), "table")
+    return {"scope": scope, "columns": columns}
+
+
+def _canon_col(name: Optional[str]) -> str:
+    return (name or "").strip().strip('"').upper()
+
+
+def create_table_matches_intent() -> PostCondition:
+    """Environment-as-oracle: after CREATE TABLE, ask information_schema.
+
+    The object must now exist *and* its live column set must equal the columns
+    we declared. A deliberately-wrong CREATE TABLE (missing/extra column) is
+    caught here, never accepted because the DDL "ran without error".
+    """
+    def applies(ctx: VerificationContext) -> bool:
+        return parse_create_table(ctx.args.get("query", "")) is not None
+
+    async def check(ctx: VerificationContext):
+        parsed = parse_create_table(ctx.args.get("query", ""))
+        if not parsed:
+            return True, "not a column-list CREATE TABLE"
+        scope = parsed["scope"]
+        target = ctx.target
+        if target is None or not hasattr(target, "invoke"):
+            return True, "no introspector available (unverified)"
+        res = await target.invoke("introspect_snowflake_object", {
+            "object_type": "table",
+            "database": scope.get("database"),
+            "schema": scope.get("schema"),
+            "object": scope.get("object"),
+        })
+        data = getattr(res, "data", None) or {}
+        if not data.get("exists"):
+            return False, f"table {scope} not found in information_schema after CREATE"
+        live_cols = {_canon_col(c.get("name")) for c in (data.get("columns") or [])}
+        want_cols = {_canon_col(c) for c in parsed["columns"]}
+        if want_cols and live_cols and want_cols != live_cols:
+            missing = sorted(want_cols - live_cols)
+            extra = sorted(live_cols - want_cols)
+            return False, (
+                f"column set mismatch — declared {sorted(want_cols)} but live is "
+                f"{sorted(live_cols)} (missing={missing}, unexpected={extra})"
+            )
+        return True, ""
+
+    return PostCondition(
+        "create_table_matches_information_schema", check,
+        "object exists in information_schema; column set matches intent",
+        anchored=True, applies_when=applies,
+    )
+
+
+def copy_into_loaded_rows() -> PostCondition:
+    """A COPY INTO that loaded zero rows is a silent failure — reject it."""
+    def applies(ctx: VerificationContext) -> bool:
+        q = re.sub(r"\s+", " ", (ctx.args.get("query", "") or "").strip())
+        return bool(re.match(r"^COPY\s+INTO\s+(?!@)", q, re.IGNORECASE))
+
+    def check(ctx: VerificationContext):
+        meta = getattr(ctx.result, "metadata", None) or {}
+        rows = meta.get("rows_affected")
+        if rows is not None and rows == 0:
+            return False, "COPY INTO loaded 0 rows (expected > 0)"
+        return True, ""
+
+    return PostCondition(
+        "copy_into_loaded_rows", check,
+        "load moved a non-zero number of rows", anchored=True, applies_when=applies,
+    )
+
+
+def introspect_reports_structure() -> PostCondition:
+    """Introspection must return a definite existence verdict + scope to act on."""
+    def check(ctx: VerificationContext):
+        data = getattr(ctx.result, "data", None)
+        if not isinstance(data, dict) or "exists" not in data or "scope" not in data:
+            return False, "introspection did not return {exists, scope}"
+        return True, ""
+    return PostCondition(
+        "introspect_reports_structure", check,
+        "introspection returns a definite existence verdict", anchored=True,
+    )
+
+
 class SnowflakeConnector(Connector):
     """
     Snowflake connector
@@ -151,6 +308,11 @@ class SnowflakeConnector(Connector):
                 risk=Risk.RISKY,
                 display_name="Execute SQL Query",
                 category="query",
+                postconditions=[
+                    result_succeeded(),
+                    create_table_matches_intent(),
+                    copy_into_loaded_rows(),
+                ],
             ),
             OperationSpec(
                 name="introspect_snowflake_object",
@@ -169,6 +331,7 @@ class SnowflakeConnector(Connector):
                 risk=Risk.SAFE,
                 display_name="Introspect Object",
                 category="introspection",
+                postconditions=[introspect_reports_structure()],
             ),
             OperationSpec(
                 name="validate_snowflake_connection",
@@ -182,6 +345,7 @@ class SnowflakeConnector(Connector):
                 risk=Risk.SAFE,
                 display_name="Validate Connection",
                 category="connection",
+                postconditions=[result_succeeded()],
             ),
         ]
 

@@ -13,6 +13,7 @@ enabled.
 from typing import Any, Callable, Dict, List, Optional
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
+from core.verify import result_succeeded, data_has_keys
 
 
 class SystemConnector(Connector):
@@ -73,6 +74,7 @@ class SystemConnector(Connector):
                 risk=Risk.SAFE,
                 display_name="Request User Input",
                 category="system",
+                postconditions=[result_succeeded()],
             ),
             OperationSpec(
                 name="update_plan",
@@ -112,6 +114,7 @@ class SystemConnector(Connector):
                 risk=Risk.SAFE,
                 display_name="Update Plan",
                 category="system",
+                postconditions=[data_has_keys("todos", "total", name="plan_echoed")],
             ),
             OperationSpec(
                 name="load_connector_tools",
@@ -130,6 +133,7 @@ class SystemConnector(Connector):
                 risk=Risk.SAFE,
                 display_name="Load Connector Tools",
                 category="system",
+                postconditions=[data_has_keys("connector_id", "operations", name="disclosed")],
             ),
             OperationSpec(
                 name="fetch_result",
@@ -156,6 +160,7 @@ class SystemConnector(Connector):
                 risk=Risk.SAFE,
                 display_name="Fetch Result",
                 category="system",
+                postconditions=[result_succeeded()],
             ),
         ]
 

@@ -5,6 +5,7 @@ from typing import Dict, List, Any
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from config.settings import Settings
+from core.verify import data_is_list
 
 
 class PineconeConnector(Connector):
@@ -47,6 +48,7 @@ class PineconeConnector(Connector):
                 risk=Risk.SAFE,
                 display_name="Search Documentation",
                 category="search",
+                postconditions=[data_is_list(name="returns_matches")],
             ),
         ]
 
