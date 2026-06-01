@@ -39,3 +39,9 @@ jobs:
 
       - name: Full test suite
         run: python -m unittest discover -s tests -p "test_*.py"
+
+      # Prove reliability, don't assert it: run the offline pass^k golden suite
+      # against the simulated platforms on every PR. Fails loudly on an unguarded
+      # destructive execution (the DROP-guard must hold across k runs).
+      - name: Reliability eval (sim suite, pass^k)
+        run: python -m eval --quick
