@@ -1,4 +1,4 @@
-"""The blackboard (𝒪) — Phase 6, workstream 6.6.
+"""The blackboard (𝒪) — workstream 6.6.
 
 Multi-agent's documented failures are *collaboration* failures, not
 decomposition ones: inter-agent misalignment, task duplication, and — most
@@ -16,7 +16,7 @@ It is shared state every agent reads and writes:
 * **open_questions** — things nobody has resolved yet.
 * **task claims** — who owns which subtask, so two agents don't both do it.
 
-Writes follow the same **supersession discipline** as Phase 2 memory: nothing is
+Writes follow the same **supersession discipline** as memory: nothing is
 mutated in place; a new write that agrees refreshes provenance, a new write that
 disagrees opens a contradiction rather than silently overwriting. All state is
 append-only and serializable so a run is reconstructable end to end.

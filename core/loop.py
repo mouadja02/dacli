@@ -1,4 +1,4 @@
-"""Plan → Act → Observe → Verify loop + self-correction (𝒪) — Phase 6, 6.1 & 6.4.
+"""Plan → Act → Observe → Verify loop + self-correction (𝒪) — 6.1 & 6.4.
 
 This is the explicit replacement for the opaque ``while iteration < max_iterations``
 counter. Grounded in MARS-SQL's Think-Act-Observe plus a **mandatory Verify**, the
@@ -20,7 +20,7 @@ controller drives a :class:`~core.planner.TaskDAG` one ready node at a time:
   looped.
 
 The **Verify step is not optional and not model-judged when the environment can
-answer** — the executor runs the real op through the Phase 4/5 dispatcher (which
+answer** — the executor runs the real op through the /5 dispatcher (which
 already gates on post-conditions + governance), and the loop additionally checks
 the node's declared success criteria.
 

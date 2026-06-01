@@ -1,4 +1,4 @@
-"""Selection-policy context assembler (Phase 3.1).
+"""Selection-policy context assembler.
 
 Replaces the fixed message window (``memory.get_context_messages``) with a
 *policy*: gather candidate chunks from each layer, rank them, and pack to a token

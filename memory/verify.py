@@ -1,4 +1,4 @@
-"""Trust-as-runtime-decision protocol (Phase 2, workstream 2.4).
+"""Trust-as-runtime-decision protocol (workstream 2.4).
 
 A retrieved fact is a *hypothesis*. ``verify`` re-checks it against the **live
 system** and updates the trust fields accordingly:
@@ -9,7 +9,7 @@ system** and updates the trust fields accordingly:
                supersession (the old entry is preserved, flagged
                ``CONTRADICTED`` / ``superseded_by``) — never a silent rewrite.
 
-The kernel's contract (enforced in Phase 5, *defined* here): **before any
+The kernel's contract (enforced in *defined* here): **before any
 ``risky``/``irreversible`` action, the memory it relies on MUST be
 re-verified.** To keep verification cheap, only (a) facts about to back such an
 action and (b) facts past their TTL are re-checked — not the whole store.

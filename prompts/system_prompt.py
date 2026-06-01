@@ -4,7 +4,7 @@ from typing import Iterable, Optional
 # Default location for the system prompt
 SYSTEM_PROMPT_FILE = Path(__file__).parent / "system_message.md"
 
-# Decomposed prompt fragments (Phase 3.6): an invariant core + per-connector
+# Decomposed prompt fragments: an invariant core + per-connector
 # fragments disclosed only when that connector is in play.
 FRAGMENTS_DIR = Path(__file__).parent / "fragments"
 CORE_FRAGMENT = FRAGMENTS_DIR / "core.md"
@@ -21,7 +21,7 @@ def compose_system_prompt(
     task: str = "",
     disclosed_connectors: Optional[Iterable[str]] = None,
 ) -> str:
-    """Assemble the dynamic system prompt (Phase 3.6).
+    """Assemble the dynamic system prompt.
 
     Returns the invariant core plus the fragments for the disclosed connectors
     (``prompts/fragments/<connector_id>.md``). It deliberately does **not** load
@@ -70,7 +70,7 @@ def load_system_prompt(custom_path: Optional[str] = None) -> str:
     else:
         raise FileNotFoundError(f"Default system prompt not found at {SYSTEM_PROMPT_FILE}")
 
-    # Persistent priors (Phase 2, 2.6): DACLI.md is the top layer of context —
+    # Persistent priors (2.6): DACLI.md is the top layer of context —
     # connection profiles, naming conventions, the medallion rules. It supersedes
     # the legacy prompts/GUIDELINES.md, which is used only as a fallback.
     from memory.priors import load_priors

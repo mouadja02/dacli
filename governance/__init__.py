@@ -1,4 +1,4 @@
-"""Governance (𝒢) — the reliability keystone (Phase 5).
+"""Governance (𝒢) — the reliability keystone.
 
 Every state-changing action is gated through a pipeline:
 

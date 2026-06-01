@@ -1,4 +1,4 @@
-"""Progressive disclosure of connectors (Phase 3.3).
+"""Progressive disclosure of connectors.
 
 The mechanism that makes "no MCP, many platforms" fit in a context window: the
 system prompt lists connectors by id + a one-line description (the *digest*,
@@ -7,7 +7,7 @@ is disclosed** — either because the task is clearly about it, or because the
 model explicitly called the ``load_connector_tools`` meta-tool.
 
 Disclosure is intentionally simple here (lexical task↔connector overlap). In
-Phase 4 the router's classifier drives it; the interface (``disclose``) stays the
+ the router's classifier drives it; the interface (``disclose``) stays the
 same. There is always a "browse all connectors" affordance: the full digest is in
 the prompt and ``load_connector_tools`` can pull any connector on demand, so a
 mis-scored connector is never *unreachable* — it just costs one extra step.

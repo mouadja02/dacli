@@ -1,4 +1,4 @@
-"""Context Constructor (𝒞) — Phase 3.
+"""Context Constructor (𝒞).
 
 Turns every turn's context into the output of a *selection policy* rather than a
 fixed message window: persistent priors + just-in-time memory retrieval +

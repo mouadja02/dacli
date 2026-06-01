@@ -15,3 +15,11 @@ google-generativeai
 # Connectors
 snowflake-connector-python
 pinecone
+
+# Wave 1 connectors are CLI-first — they shell out to the platform's
+# first-class CLI rather than adding Python SDK deps. Install the CLIs you use:
+#   dbt        -> dbt-core + the relevant adapter (e.g. dbt-snowflake)
+#   bigquery   -> google-cloud-sdk (provides `bq` and `gcloud`)
+#   databricks -> databricks CLI
+#   s3         -> awscli (`aws`)
+#   gcs        -> google-cloud-sdk (`gcloud storage`)

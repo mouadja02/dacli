@@ -1,4 +1,4 @@
-"""Permission scoping (𝒢, Phase 5.5) — least privilege by default.
+"""Permission scoping (𝒢) — least privilege by default.
 
 Each connector is granted a **scope** that bounds what it may do. The default is
 ``read-only``: even if the model asks a connector to write, the request is

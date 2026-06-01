@@ -82,14 +82,14 @@ class DACLI:
             on_user_input_needed=on_user_input_needed,
         )
 
-        # Skills (Phase 4): a contracted-procedure registry, surfaced as a
+        # Skills: a contracted-procedure registry, surfaced as a
         # built-in connector so every skill flows through the one dispatch path
         # and the one post-condition gate. ``context_provider`` is late-bound
         # because the SkillContext needs the dispatcher we build just below.
         self.skills = SkillRegistry()
         self._skill_connector = SkillConnector(self.skills)
 
-        # Sandbox (Phase 5.6): the code-execution tier, surfaced as a built-in
+        # Sandbox: the code-execution tier, surfaced as a built-in
         # connector so its single ``run_sandbox_code`` op flows through the one
         # dispatch path. The runtime is late-bound after the dispatcher exists
         # (its SDK needs the governed ``dispatcher.execute``).
@@ -109,12 +109,12 @@ class DACLI:
             enforce_postconditions=True,
         )
 
-        # Post-condition verifier (Phase 4): a verified success is the only kind
+        # Post-condition verifier: a verified success is the only kind
         # of success. Wired into the dispatcher so a failed check downgrades the
         # result before it is ever treated as done.
         self.verifier = Verifier(enforce=True)
 
-        # Governance (Phase 5, 𝒢): classify blast radius → policy → permissions
+        # Governance (𝒢): classify blast radius → policy → permissions
         # → rollback → human approval, all before an action runs; record every
         # decision in an append-only audit ledger. Built from config/policy.yaml
         # so a team tunes velocity vs. caution without code changes.
@@ -145,7 +145,7 @@ class DACLI:
                 )
             )
 
-        # Tier router (Phase 4): classifies each task tool-vs-sandbox with
+        # Tier router: classifies each task tool-vs-sandbox with
         # confidence-aware escalation; decisions are logged for audit/calibration.
         _state_dir = str(Path(settings.agent.state_path).parent)
         self.router = TierRouter(
@@ -155,7 +155,7 @@ class DACLI:
             audit_log=RoutingAuditLog(path=f"{_state_dir}/routing.jsonl"),
         )
 
-        # Context Constructor (Phase 3) wiring — see context.pipeline.
+        # Context Constructor wiring — see context.pipeline.
         self._context = build_context_pipeline(
             settings, self.memory, self.registry, self.llm, self._system_connector
         )
@@ -178,7 +178,7 @@ class DACLI:
             on_usage=self._usage_sink,
         )
 
-        # Orchestration & multi-agent (Phase 6, 𝒪 / ℛ) — additive. The kernel
+        # Orchestration & multi-agent (𝒪 / ℛ) — additive. The kernel
         # stays the default single-step path (``process_message``); the
         # planner→act→observe→verify controller is the opt-in path for complex,
         # multi-step goals (``process_goal``). All components are offline-safe.
@@ -314,7 +314,7 @@ class DACLI:
             await connector.disconnect()
 
     # ==================================================================
-    # Orchestration & multi-agent (Phase 6, 𝒪 / ℛ)
+    # Orchestration & multi-agent (𝒪 / ℛ)
     # ==================================================================
     def _build_orchestration(self, settings: Settings, state_dir: str) -> None:
         orch = getattr(settings, "orchestration", None)
@@ -408,7 +408,7 @@ class DACLI:
 
     async def _verify_node(self, node, result: StepResult):
         """Node-level verify. The heavy, environment-anchored checks already ran
-        inside the dispatcher (Phase 4 post-conditions + Phase 5 governance) for
+        inside the dispatcher (post-conditions + governance) for
         every tool the node used; here we confirm the node didn't error or stall.
         """
         if not result.success:
@@ -468,7 +468,7 @@ class DACLI:
         return await self.kernel.orchestrate(user_message)
 
     async def process_goal(self, goal: str):
-        """Orchestrated entry point for complex, multi-step goals (Phase 6).
+        """Orchestrated entry point for complex, multi-step goals.
 
         The **complexity gate** decides: a goal that does not decompose into
         enough subtasks runs single-step through the kernel (no planner ceremony).

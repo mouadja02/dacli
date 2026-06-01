@@ -5,3 +5,11 @@ icon: "❄️"
 class: connectors.snowflake.connector.SnowflakeConnector
 required_config: [account, user, password, warehouse, database]
 enabled: true
+# Least-privilege default the connector ships with; widen the *grant* per
+# deployment in config/policy.yaml (connectors.snowflake.scope).
+default_scope: read_only
+golden_task:
+  name: Create and verify a Bronze table
+  op: execute_snowflake_query
+  description: Create a table, then confirm via INFORMATION_SCHEMA that its live column set matches intent.
+  expectation: the create_table_matches_information_schema post-condition passes.

@@ -1,4 +1,4 @@
-"""Catalog cache — the data-agent specialization (Phase 2, workstream 2.2).
+"""Catalog cache — the data-agent specialization (workstream 2.2).
 
 Data agents live or die on schema accuracy, so introspected structure
 (databases, schemas, tables, columns, types, row-count estimates) is a
@@ -12,8 +12,8 @@ Two reliability rules:
   before a risky action relies on it).
 * **Write-invalidation** — when a connector performs a ``write`` / ``risky`` /
   ``irreversible`` op touching an object, the kernel/dispatcher invalidates the
-  matching catalog scope. This is where Phase 1's ``risk`` metadata first earns
-  its keep, and it correctly replaces the regex side-effects deleted in Phase 1.
+  matching catalog scope. This is where 's ``risk`` metadata first earns
+  its keep, and it correctly replaces the regex side-effects deleted in.
 
 The catalog is a *cache* (rebuildable by re-introspecting), so it persists as a
 JSON snapshot keyed by canonical scope rather than the append-only log used by

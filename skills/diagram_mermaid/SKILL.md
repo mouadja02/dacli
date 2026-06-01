@@ -9,7 +9,7 @@ category: diagram
 
 # Diagram as Code (Mermaid)
 
-Turn the **live catalog** (Phase 2) into a Mermaid diagram — an ER diagram of
+Turn the **live catalog** into a Mermaid diagram — an ER diagram of
 tables and their columns, or a schema→table flow DAG. Output is pure text, so it
 is trivially reliable and instantly useful to data architects and modelers.
 
@@ -37,5 +37,5 @@ is trivially reliable and instantly useful to data architects and modelers.
 
 ## Notes
 
-This seeds Wave 4 of Phase 7 (drawio / Excalidraw). The catalog is the single
+This seeds Wave 4 of (drawio / Excalidraw). The catalog is the single
 source of truth: introspect first (so the catalog is fresh), then render.

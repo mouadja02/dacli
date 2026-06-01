@@ -1,4 +1,4 @@
-"""SkillSpec contract + Skill base class (Phase 4, per the harness-scaling ref).
+"""SkillSpec contract + Skill base class (per the harness-scaling ref).
 
 Every skill declares, up front, exactly what it is for and how its output is
 checked. The non-negotiable field is ``postconditions``: a skill without at least

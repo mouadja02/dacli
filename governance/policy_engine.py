@@ -1,4 +1,4 @@
-"""Policy engine (𝒢, Phase 5.2) — tier → enforcement decision.
+"""Policy engine (𝒢) — tier → enforcement decision.
 
 Turns a blast-radius :class:`~governance.classifier.Tier` into one of four
 enforcement decisions, honoring per-connector / per-environment overrides loaded
@@ -7,7 +7,7 @@ from ``config/policy.yaml``:
 | Tier | Default decision | Meaning |
 |---|---|---|
 | ``safe``        | ``auto``            | run immediately |
-| ``write``       | ``verify``          | run + mandatory post-condition (Phase 4) |
+| ``write`` | ``verify`` | run + mandatory post-condition |
 | ``risky``       | ``confirm``         | human confirm + attach rollback plan first |
 | ``irreversible``| ``dry_run+approve`` | dry-run, verify rollback path, explicit approval |
 

@@ -1,4 +1,4 @@
-"""Phase 3 (Context Constructor) tests — one per exit criterion.
+""" (Context Constructor) tests — one per exit criterion.
 
 Run with:  python -m unittest tests.test_context_phase3
 """

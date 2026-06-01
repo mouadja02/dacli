@@ -1,4 +1,4 @@
-"""Token budget accounting (Phase 3.2).
+"""Token budget accounting.
 
 Tracks tokens *per source* (priors / memory / live / skills / history) with
 per-source caps, so no single source — typically a chatty tool result — can crowd

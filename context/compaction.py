@@ -1,4 +1,4 @@
-"""Long-horizon compaction (Phase 3.5).
+"""Long-horizon compaction.
 
 When the conversation grows past the budget, older turns are summarized into a
 compact note — preserving **decisions, created objects, unresolved errors, and

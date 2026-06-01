@@ -1,4 +1,4 @@
-"""Model tiering (ℛ) — Phase 6, workstream 6.3.
+"""Model tiering (ℛ) — workstream 6.3.
 
 The reasoning substrate is no longer "one model for everything". Two tiers:
 
@@ -13,7 +13,7 @@ performance variance** — so the lever is *spend tokens where they matter*. A
 **escalates weak→strong** on low confidence or a failed verification (never the
 reverse — once a step is hard, it stays on the strong model). Every choice is
 logged so the "cheap for classification, strong for diagnosis" split is visible
-in the audit trail (a Phase 6 exit criterion).
+in the audit trail (a exit criterion).
 
 Offline-safe: the router is a pure decision function plus a thin ``generate``
 wrapper around the existing :class:`~reasoning.llm.LLMClient`. With no live model
@@ -46,9 +46,9 @@ class Stakes(str, Enum):
 
 # The canonical map from call *kind* to its default tier. Kept explicit (not a
 # learned policy) so a routing decision is auditable and stable run to run. The
-# kinds mirror the Phase 6 plan verbatim.
+# kinds mirror the plan verbatim.
 _CHEAP_KINDS = {
-    "classification",      # task/tier classification (the router from Phase 4)
+    "classification", # task/tier classification (the router from)
     "planning_draft",      # first-pass DAG decomposition
     "summarization",       # condensing a sub-agent result / spilled output
     "postcondition_judgment",  # the rare model-judged post-condition (anchored=False)

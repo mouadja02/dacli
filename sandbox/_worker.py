@@ -1,4 +1,4 @@
-"""Sandbox worker (Phase 5.6) — the isolated child process.
+"""Sandbox worker — the isolated child process.
 
 Runs the agent-written script in a separate process with:
 

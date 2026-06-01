@@ -1,4 +1,4 @@
-"""Sandbox runtime (Phase 5.6) — the isolated executor.
+"""Sandbox runtime — the isolated executor.
 
 Runs agent-written Python in a separate process under a :class:`SandboxPolicy`
 (wall-clock + memory limits, egress guard) and exposes the governed

@@ -1,4 +1,4 @@
-"""Token counting for budget accounting (Phase 3.2).
+"""Token counting for budget accounting.
 
 A real tokenizer, offline and in the hot path: budget packing runs on every turn,
 so it must not make network calls (reliability-first). We use ``tiktoken`` locally
@@ -8,7 +8,7 @@ only as an optional one-shot calibration (:func:`anthropic_count_tokens`), never
 inside the packing loop.
 
 Everything goes through the :class:`TokenCounter` protocol so a different counter
-can be injected later (e.g. a model-exact tokenizer in Phase 8) without touching
+can be injected later (e.g. a model-exact tokenizer in) without touching
 callers. If ``tiktoken`` is somehow unavailable, we degrade to a chars/4 heuristic
 rather than failing — counting is advisory for budgeting, never correctness.
 """

@@ -5,3 +5,9 @@ icon: "🐙"
 class: connectors.github.connector.GithubConnector
 required_config: [token, owner, repo]
 enabled: true
+default_scope: read_only
+golden_task:
+  name: Push a file and confirm it landed
+  op: push_github_file
+  description: Commit a file, then re-read it off the branch and confirm the stored content hash matches what was pushed.
+  expectation: the push_commit_landed post-condition passes.

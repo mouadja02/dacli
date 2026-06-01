@@ -1,6 +1,6 @@
-"""Phase 2 (ℳ Trustworthy Memory) test suite.
+""" (ℳ Trustworthy Memory) test suite.
 
-Each test maps to an exit criterion in the Phase 2 plan. Run with:
+Each test maps to an exit criterion in the plan. Run with:
     python -m unittest tests.test_memory_phase2
 """
 

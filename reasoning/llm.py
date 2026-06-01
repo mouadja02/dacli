@@ -66,7 +66,7 @@ class LLMClient:
                 response is streamed; the return value is unchanged. Providers
                 without streaming call it once with the full text instead, so
                 the UI behaves identically.
-            model: Optional per-call model override (Phase 6 model tiering, ℛ).
+            model: Optional per-call model override (model tiering, ℛ).
                 When None the configured ``settings.llm.model`` is used, so the
                 default single-model path is byte-for-byte unchanged. The
                 ``ModelRouter`` passes the cheap or strong tier id here.
@@ -101,11 +101,11 @@ class LLMClient:
 
     async def classify(self, text: str, labels: List[str], instructions: Optional[str] = None, model: Optional[str] = None) -> str:
         """
-        Thin classification helper used by the router (Phase 4).
+        Thin classification helper used by the router.
 
         Sends a tool-free completion asking the model to pick exactly one label
         from ``labels`` and normalizes the answer back onto that set when possible.
-        ``model`` (Phase 6) lets the caller force the cheap tier — classification
+        ``model`` lets the caller force the cheap tier — classification
         is the canonical cheap-model job.
         """
         system = instructions or (

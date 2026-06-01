@@ -1,4 +1,4 @@
-"""Typed, trust-aware memory store (Phase 2, workstream 2.1).
+"""Typed, trust-aware memory store (workstream 2.1).
 
 The antidote to the *stale-but-confident* failure mode: every fact carries
 confidence, recency, and provenance, and **trust is decided at retrieval time,
@@ -7,7 +7,7 @@ not stored as truth** (see ``memory/retrieval.py`` and ``memory/verify.py``).
 Persistence is an **append-only JSONL event log**: a correction never rewrites a
 line, it appends a new entry that links back via ``supersedes`` (and the
 superseded entry is flagged ``superseded_by`` on replay). The current state is
-the result of replaying the log — full history is preserved for Phase 5's audit
+the result of replaying the log — full history is preserved for 's audit
 ledger for free.
 """
 
@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional
 class MemoryKind(str, Enum):
     SEMANTIC = "semantic"        # durable facts: configs, conventions, constraints
     EPISODIC = "episodic"        # task traces: "how I built the Bronze layer"
-    PROCEDURAL = "procedural"    # distilled runbooks (Phase 8 promotes episodes)
+    PROCEDURAL = "procedural" # distilled runbooks (promotes episodes)
 
 
 class MemoryScope(str, Enum):
@@ -45,7 +45,7 @@ class VerificationStatus(str, Enum):
 
 
 # ---------------------------------------------------------------------------
-# Confidence priors (computed, not vibes — Phase 2 §4)
+# Confidence priors (computed, not vibes — §4)
 # ---------------------------------------------------------------------------
 # ``source`` drives a prior. Introspection of a live system is the most
 # trustworthy; a user assertion slightly less; pure inference least. Verification

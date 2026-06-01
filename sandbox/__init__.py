@@ -1,4 +1,4 @@
-"""Code-execution sandbox (Phase 5.6) — the "complex op" half of the hybrid model.
+"""Code-execution sandbox — the "complex op" half of the hybrid model.
 
 The agent writes Python against a capability-gated, secret-free SDK; it runs in
 an isolated subprocess under resource + egress limits; large results stay on disk

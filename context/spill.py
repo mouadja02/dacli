@@ -1,4 +1,4 @@
-"""Off-context spill of large tool results (Phase 3.4).
+"""Off-context spill of large tool results.
 
 A 10k-row query must not enter the model's context verbatim — it would blow the
 budget and bury the task. Instead the **full** result is written to the session

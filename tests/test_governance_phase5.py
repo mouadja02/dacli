@@ -1,6 +1,6 @@
-"""Phase 5 (𝒢 Governance & the code-execution sandbox) test suite.
+""" (𝒢 Governance & the code-execution sandbox) test suite.
 
-Each test class maps to an exit criterion in roadmap/PHASE5.md. Run with:
+Each test class maps to an exit criterion in the roadmap. Run with:
     python -m unittest tests.test_governance_phase5
 """
 
@@ -79,13 +79,13 @@ class _Conn(Connector):
     async def health(self):
         return ToolResult(tool_name=self.name, status=ToolStatus.SUCCESS)
 
-    # rollback verification hook (Phase 5.3)
+    # rollback verification hook
     async def verify_rollback(self, plan, args):
         if self._rollback_ok is None:
             raise AttributeError("no hook")  # not reached; absence tested separately
         return self._rollback_ok, ("retention ok" if self._rollback_ok else "retention 0")
 
-    # shadow protocol (Phase 5.3)
+    # shadow protocol
     async def create_clone(self, args):
         self.clone_calls.append("create")
         return "CLONE_REF"

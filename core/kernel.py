@@ -48,7 +48,7 @@ class Kernel:
         self._system_prompt = system_prompt
         self._max_iterations = max_iterations
         self._on_status_update = on_status_update
-        # Phase 3 (Context Constructor) collaborators — all optional. When
+        # (Context Constructor) collaborators — all optional. When
         # ``context_builder`` is None the kernel runs the legacy fixed-window
         # path verbatim (this is what keeps the golden transcript green):
         # - ``context_builder(task, working, disclosed) -> Context`` re-assembles
@@ -98,7 +98,7 @@ class Kernel:
     def _seed_working(self) -> List[Dict[str, Any]]:
         """Seed the working conversation list.
 
-        New path (Phase 3): the fixed window is gone — seed from the *full*
+        New path: the fixed window is gone — seed from the *full*
         history and let the assembler/compaction manage tokens. Legacy path:
         keep the existing windowed slice so behavior is unchanged.
         """
@@ -131,7 +131,7 @@ class Kernel:
 
     async def orchestrate(self, user_message: str, *, model: Optional[str] = None) -> AgentResponse:
         # Process a user message and generate a response.
-        # ``model`` (Phase 6 model tiering, ℛ) overrides the LLM model for *this*
+        # ``model`` (model tiering, ℛ) overrides the LLM model for *this*
         # run only; None preserves the configured default, so the single-model
         # path — and the golden transcript — is byte-for-byte unchanged.
         # Add user message to memory
@@ -146,7 +146,7 @@ class Kernel:
         # empty and grown when the model calls load_connector_tools.
         disclosed: Set[str] = set()
 
-        # Trace of tool calls -> outcomes for episodic capture (Phase 2, 2.5).
+        # Trace of tool calls -> outcomes for episodic capture (2.5).
         trace: List[Dict[str, Any]] = []
 
         # Iteration loop

@@ -1,5 +1,5 @@
 """Throwaway 'echo' connector used to prove that adding a connector requires
-**zero** edits to ``core/`` or ``reasoning/`` (Phase 1 exit criterion).
+**zero** edits to ``core/`` or ``reasoning/`` (exit criterion).
 
 It is also reused by the golden transcript test as a deterministic, side-effect
 free platform connector. It deliberately lives under ``tests/`` rather than

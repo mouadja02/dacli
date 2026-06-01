@@ -5,3 +5,9 @@ icon: "🌲"
 class: connectors.pinecone.connector.PineconeConnector
 required_config: [api_key, index_name]
 enabled: true
+default_scope: read_only
+golden_task:
+  name: Search documentation
+  op: search_snowflake_docs
+  description: Run a semantic search and confirm a list of matches is returned.
+  expectation: the returns_matches post-condition passes.

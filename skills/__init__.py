@@ -1,4 +1,4 @@
-"""Skills (𝒮) — named, contracted procedures (Phase 4).
+"""Skills (𝒮) — named, contracted procedures.
 
 A *skill* is a named procedure with a contract: a :class:`~skills.spec.SkillSpec`
 declaring scope (``can_do`` / ``cannot_do``), input/output schemas, and — most

@@ -1,4 +1,4 @@
-"""Golden transcript test (Phase 1, workstream 1.7).
+"""Golden transcript test (workstream 1.7).
 
 A recorded multi-tool session (mock LLM + mock connectors) is replayed through
 the real Kernel + Dispatcher + ConnectorRegistry + system connector. This is the

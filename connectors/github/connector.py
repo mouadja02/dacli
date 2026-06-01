@@ -14,7 +14,7 @@ from core.verify import (
 
 
 # ---------------------------------------------------------------------------
-# Phase 4 — GitHub post-conditions (environment-as-oracle)
+# — GitHub post-conditions (environment-as-oracle)
 # ---------------------------------------------------------------------------
 def _sha256(text: str) -> str:
     import hashlib
@@ -49,6 +49,31 @@ def push_commit_landed() -> PostCondition:
         "push_commit_landed", check,
         "commit SHA reachable on branch; committed content hash matches",
         anchored=True,
+    )
+
+
+def workflow_run_concluded() -> PostCondition:
+    """A triggered workflow is 'done' only if its run reached a *successful*
+    conclusion — not merely that the dispatch API returned. ``trigger`` polls to
+    completion, so the conclusion is on the result; a failed/cancelled run is
+    rejected (the model still receives the error_details payload to debug)."""
+    def applies(ctx: VerificationContext) -> bool:
+        data = getattr(ctx.result, "data", None) or {}
+        return "conclusion" in data or "success" in data
+
+    def check(ctx: VerificationContext):
+        data = getattr(ctx.result, "data", None) or {}
+        concl = data.get("conclusion")
+        if concl is not None and concl != "success":
+            return False, f"workflow concluded '{concl}', not success"
+        if data.get("success") is False:
+            return False, "workflow run did not succeed"
+        return True, ""
+
+    return PostCondition(
+        "workflow_run_concluded", check,
+        "triggered run reached a successful conclusion", anchored=True,
+        applies_when=applies,
     )
 
 
@@ -214,7 +239,7 @@ class GithubConnector(Connector):
                 risk=Risk.RISKY,
                 display_name="Trigger Workflow",
                 category="workflow",
-                postconditions=[result_succeeded()],
+                postconditions=[result_succeeded(), workflow_run_concluded()],
             ),
             OperationSpec(
                 name="list_github_workflow_runs",
@@ -274,6 +299,31 @@ class GithubConnector(Connector):
                 postconditions=[data_has_keys("jobs", name="lists_jobs")],
             ),
         ]
+
+    # ------------------------------------------------------------------
+    # Governance: rollback-path verification (DoD)
+    # ------------------------------------------------------------------
+    async def verify_rollback(self, plan, args: Dict[str, Any]):
+        """Prove a native git undo path exists before an irreversible action.
+
+        ``delete_github_file`` is irreversible; it is only recoverable if the
+        file currently has a blob SHA we can restore from. We read it live and
+        refuse the delete if no restorable blob can be confirmed (fail-safe).
+        """
+        primitive = getattr(plan, "primitive", "")
+        if primitive == "git_revert":
+            return True, "prior commit/blob recoverable by SHA (revert)"
+        if primitive == "git_restore_blob":
+            path = args.get("path")
+            if not path:
+                return False, "no path given — cannot confirm a restorable blob"
+            res = await self.invoke("read_github_file", {"path": path})
+            data = getattr(res, "data", None) or {}
+            sha = data.get("sha")
+            if sha:
+                return True, f"file '{path}' has blob SHA {sha[:7]} — restorable after delete"
+            return False, f"no blob SHA for '{path}' — deletion not provably reversible"
+        return False, f"no verifiable rollback path for primitive '{primitive}'"
 
     async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
         # Translate the LLM-facing operation + args onto the internal handlers.

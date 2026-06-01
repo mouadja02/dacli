@@ -1,4 +1,4 @@
-"""Context Constructor wiring (Phase 3).
+"""Context Constructor wiring.
 
 Builds the per-turn collaborators the kernel uses instead of a fixed window: a
 token counter + budget, a selection-policy assembler (with progressive
@@ -19,7 +19,7 @@ from prompts.system_prompt import compose_system_prompt
 
 
 def build_context_pipeline(settings, memory, registry, llm, system_connector) -> Dict:
-    """Construct the Phase 3 context collaborators and return them as hooks.
+    """Construct the context collaborators and return them as hooks.
 
     Returns ``{"build", "spill", "maybe_compact", "counter", "budget"}``.
     ``build`` is also used by ``dacli context --explain`` to inspect an

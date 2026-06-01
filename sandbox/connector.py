@@ -1,8 +1,8 @@
-"""Built-in 'sandbox' connector (Phase 5.6).
+"""Built-in 'sandbox' connector.
 
 Surfaces the code-execution sandbox as a single operation so it flows through
 the *one* dispatch path (and the Governor) like every other tool. The agent
-routes a complex/multi-step/cross-platform task here (per the Phase 4 tier
+routes a complex/multi-step/cross-platform task here (per the tier
 router) and writes Python against the SDK; the runtime executes it in isolation
 and returns only a bounded summary.
 

@@ -1,10 +1,10 @@
-"""Persistent priors — ``DACLI.md`` (Phase 2, workstream 2.6).
+"""Persistent priors — ``DACLI.md`` (workstream 2.6).
 
 The CLAUDE.md analogue: a project-root markdown file holding durable,
 user-authored priors — connection profiles, naming conventions, the medallion
 rules that used to be hardcoded in the system prompt. Loaded once at session
-start as the **top layer of context** (Phase 3 owns full context assembly;
-Phase 2 just makes the priors *data*, not prompt hardcoding).
+start as the **top layer of context** (owns full context assembly;
+ just makes the priors *data*, not prompt hardcoding).
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Lead + isolated-context sub-agents (𝒪) — Phase 6, workstream 6.5.
+"""Lead + isolated-context sub-agents (𝒪) — workstream 6.5.
 
 The highest-risk capability, deliberately built last (on top of a proven
 single-agent loop). Per Anthropic's sub-agent pattern: the **lead decomposes**,

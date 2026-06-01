@@ -1,6 +1,6 @@
-"""Audit ledger (𝒢, Phase 5.4) — *decisions, not just calls*.
+"""Audit ledger (𝒢) — *decisions, not just calls*.
 
-The Phase 4 tool log records *what ran*. This ledger records *why* — the chain
+The tool log records *what ran*. This ledger records *why* — the chain
 of reliability decisions that let (or stopped) an action:
 
 * the classifier's tier and its reasoning,

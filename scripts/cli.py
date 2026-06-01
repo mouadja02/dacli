@@ -390,7 +390,7 @@ def load(session_id, config):
 @click.option('--task', '-t', type=str, help='Task to assemble context for (defaults to the last user message)')
 @click.option('--explain', is_flag=True, help='Print each context chunk with its source, timestamp and token cost')
 def context(config, session, task, explain):
-    """Inspect the assembled context (Context Constructor, Phase 3)."""
+    """Inspect the assembled context (Context Constructor)."""
     settings = load_config(config)
     memory = AgentMemory(
         state_path=settings.agent.state_path,
@@ -642,7 +642,7 @@ async def _run_chat(config_path: Optional[str], session_id: Optional[str], force
         return Prompt.ask("[prompt]your response[/prompt]", console=con)
 
     def on_approval(request) -> bool:
-        # Governance (Phase 5): a risky/irreversible action wants sign-off. Show
+        # Governance: a risky/irreversible action wants sign-off. Show
         # the blast radius, the classifier's reasoning, the rollback plan and any
         # dry-run / shadow diff, then ask. Default is NO (fail-safe).
         tier = getattr(getattr(request, "tier", None), "value", "?")

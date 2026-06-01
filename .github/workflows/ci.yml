@@ -1,0 +1,41 @@
+name: CI
+
+# The DoD gate is mechanical, not a vibe (the roadmap §"Definition of Done"): every
+# connector must ship its post-conditions, rollback strategy, permission scope,
+# introspection op, SKILL.md, and a golden task, or the build fails. This is the
+# structural cure for governance debt — capability (𝒮) and governance (𝒢) scale
+# together or not at all.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Run the DoD gate first and on its own so a governance-debt regression is
+      # an unmistakable, named failure rather than buried in the suite.
+      - name: Connector Definition-of-Done gate
+        run: python -m unittest tests.test_connector_dod -v
+
+      - name: Full test suite
+        run: python -m unittest discover -s tests -p "test_*.py"
