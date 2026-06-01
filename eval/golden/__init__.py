@@ -1,4 +1,4 @@
-"""Golden task suites (workstream 8.1).
+"""Golden task suites.
 
 A versioned set of tasks, each with a **machine-verifiable outcome** anchored to
 the environment-as-oracle. Two families:
@@ -8,11 +8,11 @@ the environment-as-oracle. Two families:
   anchored post-conditions); every connector additionally gets a structural
   golden task that verifies its Definition-of-Done wiring (anchored post-condition
   + rollback parity + introspection) — a machine-checkable outcome, not a vibe.
-* :mod:`eval.golden.spine` — the spine behaviors from Phases 1–6 (the destructive-
+* :mod:`eval.golden.spine` — the core spine behaviors (the destructive-
   action gate, post-condition catch, routing accuracy, self-correction).
 
 The suite itself is treated as versioned code, reviewed each wave and expanded
-with adversarial/destructive-edge tasks (PHASE8 §6 risk: golden suites go stale).
+with adversarial/destructive-edge tasks (golden suites going stale is a known risk).
 """
 
 from typing import List

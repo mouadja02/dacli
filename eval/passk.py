@@ -1,4 +1,4 @@
-"""pass^k — the headline reliability metric (workstream 8.3).
+"""pass^k — the headline reliability metric.
 
 ``pass@1`` answers "did it work once?". ``pass^k`` answers "does it work *every*
 time across k independent rollouts?" — the τ-bench-style consistency metric that

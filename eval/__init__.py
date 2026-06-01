@@ -1,11 +1,11 @@
-"""Evaluation, reliability hardening & self-improvement (Phase 8).
+"""Evaluation, reliability hardening & self-improvement.
 
 This package *proves* reliability instead of asserting it. It measures the whole
 harness ``𝒫_H = Φ(ℛ, ℳ, 𝒞, 𝒮, 𝒪, 𝒢)`` against versioned golden task suites and
 reports **pass^k** (consistency across repeated rollouts) — not single-shot luck —
 plus regression, cost/latency, escalation and self-correction rates.
 
-Layout (mirrors roadmap/PHASE8.md §2)::
+Layout::
 
     eval/
       types.py        # Task / TaskResult contracts

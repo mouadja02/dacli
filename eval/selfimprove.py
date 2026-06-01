@@ -1,6 +1,6 @@
-"""Self-improvement loop: episodic → procedural, gated by pass^k (workstream 8.6).
+"""Self-improvement loop: episodic → procedural, gated by pass^k.
 
-Successful task traces (episodic memory, Phase 2) are distilled into parameterized
+Successful task traces (episodic memory) are distilled into parameterized
 **procedural runbooks** the router can reuse — raising reliability and cutting
 tokens on recurring work (AgentSM: past traces as reusable programs).
 

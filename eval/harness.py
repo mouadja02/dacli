@@ -1,6 +1,6 @@
 """The eval harness: run a task suite, aggregate pass^k, persist run history.
 
-This is workstream 8.1's runner. It takes a list of :class:`~eval.types.GoldenTask`,
+It takes a list of :class:`~eval.types.GoldenTask`,
 runs each k times (k tiered by stakes, optionally scaled for fast CI), and produces
 a :class:`SuiteReport`. Reports are appended to a JSONL :class:`RunHistory` so
 :mod:`eval.regression` can answer "is the harness getting better or worse?" over

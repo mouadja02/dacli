@@ -1,4 +1,4 @@
-"""Deterministic, offline simulated platforms (workstream 8.2).
+"""Deterministic, offline simulated platforms.
 
 The eval inner loop runs against these fakes so the golden suite is cheap, safe,
 and repeatable in CI — no live credentials, no cost, no network flakiness. They
@@ -12,8 +12,8 @@ the whole point of pass^k is to catch the agent that aces one run and flakes the
 next. ``inject_error`` supports the regression exit criterion (deliberately
 introduce a degradation and prove the net catches it).
 
-Live-sandbox runs (Phase 5) reconcile sim vs. reality at milestones; a divergence
-is treated as a sim bug to fix (PHASE8 §6 risk: simulators diverging from prod).
+Live-sandbox runs reconcile sim vs. reality at milestones; a divergence
+is treated as a sim bug to fix (simulators diverging from production is a known risk).
 """
 
 from eval.sim.cli import SimCli, Call

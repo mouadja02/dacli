@@ -1,8 +1,8 @@
-"""Calibration feedback (workstream 8.7).
+"""Calibration feedback.
 
 Eval output feeds back into the tunable thresholds so calibration is *data-driven,
-not guessed*: the router's ``min_confidence`` (Phase 4), memory staleness horizon
-/ TTLs (Phase 2), and governance tier overrides (Phase 5). This module reads a
+not guessed*: the router's ``min_confidence``, the memory staleness horizon
+/ TTLs, and governance tier overrides. This module reads a
 :class:`~eval.harness.SuiteReport` and emits concrete, documented recommendations
 — it never silently mutates config; a human (or a gated job) applies them.
 """

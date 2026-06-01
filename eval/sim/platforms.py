@@ -3,7 +3,7 @@
 Each factory returns a pure ``responder(argv) -> CliResult`` that mimics exactly
 the shape the real platform CLI emits for the relevant operations, so the
 connector's *real* environment-anchored post-conditions run unchanged against the
-fake. These mirror the canned outputs already proven in ``tests/test_phase7_*``.
+fake. These mirror the canned outputs already proven in the connector golden tests.
 """
 
 from __future__ import annotations

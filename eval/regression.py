@@ -1,4 +1,4 @@
-"""Regression & reward-hacking guards (workstream 8.4).
+"""Regression & reward-hacking guards.
 
 Compares a new :class:`~eval.harness.SuiteReport` against a prior one and flags:
 

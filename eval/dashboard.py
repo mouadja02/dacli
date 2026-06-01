@@ -1,4 +1,4 @@
-"""Reliability dashboard (workstream 8.5).
+"""Reliability dashboard.
 
 Surfaces, per connector and overall: success rate, **pass^k**, escalation rate,
 self-correction rate, governance-interrupt rate, and cost/latency per task. This

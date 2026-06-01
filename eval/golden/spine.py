@@ -1,4 +1,4 @@
-"""Spine behavior golden tasks — the Phase 1–6 reliability mechanisms.
+"""Spine behavior golden tasks — the core reliability mechanisms.
 
 These exercise the harness itself, not a platform: the destructive-action gate
 (𝒢), the post-condition catch of confident-but-unchecked output (𝒮), routing
