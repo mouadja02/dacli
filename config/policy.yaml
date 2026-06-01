@@ -1,4 +1,4 @@
-# DACLI governance policy (Phase 5).
+# DACLI governance policy.
 #
 # Maps blast-radius tiers to enforcement decisions. This file lets a team tune
 # velocity vs. caution per connector / environment WITHOUT code changes. Absent
@@ -50,5 +50,59 @@ connectors:
 
   github:
     scope: admin          # allows push + delete; set to write to forbid deletes
+    tiers: {}
+    environments: {}
+
+  # --- Wave 1 platforms ---------------------------------------------
+  # All ship read-only (the code default). Widen the grant per deployment:
+  #   write -> +create/insert/put | risky -> +update/delete | admin -> +drop.
+  # A platform left at read_only is strictly observe-only even if the model asks
+  # to write — the capability simply isn't there to misuse.
+  dbt:
+    scope: read_only      # widen to `risky` to allow `dbt run` / `dbt build`
+    tiers: {}
+    environments: {}
+  bigquery:
+    scope: read_only      # native dry_run gives an exact cost/effect preview first
+    tiers: {}
+    environments: {}
+  databricks:
+    scope: read_only      # Delta time travel backs RESTORE-based rollback
+    tiers: {}
+    environments: {}
+  s3:
+    scope: read_only      # enable bucket versioning before granting delete (admin)
+    tiers: {}
+    environments: {}
+  gcs:
+    scope: read_only      # enable object versioning before granting delete (admin)
+    tiers: {}
+    environments: {}
+
+  # --- Wave 2 operational databases ---------------------------------
+  postgres:
+    scope: read_only      # fully transactional — BEGIN/ROLLBACK is a true undo
+    tiers: {}
+    environments: {}
+  mysql:
+    scope: read_only      # DML transactional (InnoDB); DDL needs mysqldump snapshots
+    tiers: {}
+    environments: {}
+  mongodb:
+    scope: read_only      # no native undo — deletes rely on mongodump copy-aside
+    tiers: {}
+    environments: {}
+  dynamodb:
+    scope: read_only      # enable PITR before granting destructive ops (admin)
+    tiers: {}
+    environments: {}
+
+  # --- Wave 3 orchestration ---------------------------------------------------
+  airflow:
+    scope: read_only      # grant `risky` to trigger/pause; delete is gated hard
+    tiers: {}
+    environments: {}
+  dagster:
+    scope: read_only      # grant `risky` to launch runs
     tiers: {}
     environments: {}

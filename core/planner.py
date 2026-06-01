@@ -1,4 +1,4 @@
-"""Task DAG & planner (𝒪) — Phase 6, workstream 6.2.
+"""Task DAG & planner (𝒪) — workstream 6.2.
 
 The opaque ``while iteration < max_iterations`` counter is replaced by an
 explicit **dependency DAG of subtasks**. Decomposing a goal ("stand up a
@@ -11,12 +11,12 @@ first-class that a flat loop hides:
   completed nodes completed; the branch resumes without redoing work.
 
 Each subtask carries **explicit success criteria**, which become the node's
-post-conditions (Phase 4): a node is "done" only when its criteria verify, never
+post-conditions: a node is "done" only when its criteria verify, never
 just because its step returned.
 
 A **complexity gate** keeps this from becoming ceremony: a goal that decomposes
 to fewer than ``complexity_gate`` subtasks is *not* worth a DAG — the orchestrator
-runs it single-step (the Phase 4 router still picks tool vs. sandbox). The
+runs it single-step (the router still picks tool vs. sandbox). The
 planner is heuristic and offline-safe; a cheap model may *refine* a draft but is
 never required.
 """
@@ -38,7 +38,7 @@ class NodeStatus(str, Enum):
 
 
 # Verbs that imply an irreversible / high-blast-radius step → the node is marked
-# so the loop pauses it for approval (resumable). Kept aligned with the Phase 5
+# so the loop pauses it for approval (resumable). Kept aligned with the
 # governance intuition, but here it's only a *hint* that gates the branch.
 _IRREVERSIBLE_MARKERS = [
     "drop", "delete", "truncate", "overwrite", "replace into", "purge",

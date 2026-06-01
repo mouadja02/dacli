@@ -29,7 +29,7 @@ class LLMSettings(BaseModel):
     provider: str
     model: str
     fallback_model: Optional[str] = None
-    # Model tiering (Phase 6, ℛ). ``cheap_model`` runs classification, planning
+    # Model tiering (ℛ). ``cheap_model`` runs classification, planning
     # drafts, summaries and post-condition judgments; ``strong_model`` runs
     # ambiguous reasoning, error diagnosis and irreversible-action plans. Both
     # default to ``model`` so a single-model config behaves exactly as before.
@@ -103,6 +103,122 @@ class EmbeddingsSettings(BaseModel):
     model: str
 
 
+class BigQuerySettings(BaseModel):
+    # BigQuery configuration (Wave 1). CLI-first: the `bq` / `gcloud`
+    # CLIs are preferred. All fields optional so the connector can be discovered
+    # (and the agent can boot) before BigQuery is configured.
+    project: str = ""
+    dataset: str = ""
+    location: str = "US"
+    credentials_path: str = ""  # GOOGLE_APPLICATION_CREDENTIALS service-account JSON
+    bq_binary: str = "bq"
+    timeout: int = Field(default=300, ge=1)
+
+
+class DatabricksSettings(BaseModel):
+    # Databricks configuration (Wave 1). CLI-first via the `databricks`
+    # CLI; SQL runs against a SQL warehouse.
+    host: str = ""              # https://<workspace>.cloud.databricks.com
+    token: str = ""
+    warehouse_id: str = ""
+    catalog: str = ""
+    db_schema: str = Field(default="default", alias="schema")
+    databricks_binary: str = "databricks"
+    timeout: int = Field(default=300, ge=1)
+
+    class Config:
+        populate_by_name = True
+
+
+class S3Settings(BaseModel):
+    # S3 / object-store configuration (Wave 1). CLI-first via `aws s3`.
+    bucket: str = ""
+    prefix: str = ""
+    region: str = ""
+    profile: str = ""          # named AWS profile, optional
+    aws_binary: str = "aws"
+    timeout: int = Field(default=300, ge=1)
+
+
+class GCSSettings(BaseModel):
+    # Google Cloud Storage configuration (Wave 1). CLI-first via
+    # `gcloud storage` (falls back to `gsutil` shape).
+    bucket: str = ""
+    prefix: str = ""
+    project: str = ""
+    credentials_path: str = ""
+    gcloud_binary: str = "gcloud"
+    timeout: int = Field(default=300, ge=1)
+
+
+class PostgresSettings(BaseModel):
+    # PostgreSQL configuration (Wave 2). CLI-first via `psql`.
+    host: str = "localhost"
+    port: int = 5432
+    database: str = ""
+    user: str = ""
+    password: str = ""
+    sslmode: str = ""          # e.g. require / verify-full
+    psql_binary: str = "psql"
+    timeout: int = Field(default=300, ge=1)
+
+
+class MySQLSettings(BaseModel):
+    # MySQL configuration (Wave 2). CLI-first via `mysql`.
+    host: str = "localhost"
+    port: int = 3306
+    database: str = ""
+    user: str = ""
+    password: str = ""
+    mysql_binary: str = "mysql"
+    mysqldump_binary: str = "mysqldump"
+    timeout: int = Field(default=300, ge=1)
+
+
+class MongoDBSettings(BaseModel):
+    # MongoDB configuration (Wave 2). CLI-first via `mongosh`.
+    uri: str = ""              # mongodb://… connection string
+    database: str = ""
+    sample_size: int = Field(default=100, ge=1)  # docs sampled for schema inference
+    mongosh_binary: str = "mongosh"
+    timeout: int = Field(default=300, ge=1)
+
+
+class DynamoDBSettings(BaseModel):
+    # DynamoDB configuration (Wave 2). CLI-first via `aws dynamodb`.
+    region: str = ""
+    profile: str = ""
+    aws_binary: str = "aws"
+    timeout: int = Field(default=300, ge=1)
+
+
+class AirflowSettings(BaseModel):
+    # Airflow configuration (Wave 3). REST API (stable v1).
+    base_url: str = ""         # e.g. https://airflow.example.com
+    username: str = ""
+    password: str = ""
+    token: str = ""            # bearer token (alternative to basic auth)
+    poll_interval: int = Field(default=5, ge=1)
+    timeout: int = Field(default=600, ge=1)
+
+
+class DagsterSettings(BaseModel):
+    # Dagster configuration (Wave 3). GraphQL API.
+    base_url: str = ""         # e.g. https://dagster.example.com
+    token: str = ""
+    poll_interval: int = Field(default=5, ge=1)
+    timeout: int = Field(default=600, ge=1)
+
+
+class DbtSettings(BaseModel):
+    # dbt configuration (Wave 1). CLI-first via the `dbt` CLI.
+    project_dir: str = ""      # path to the dbt project (dbt_project.yml lives here)
+    profiles_dir: str = ""     # path to profiles.yml (defaults to ~/.dbt)
+    target: str = ""           # dbt target/profile output, optional
+    dbt_binary: str = "dbt"
+    timeout: int = Field(default=900, ge=1)
+
+
 class AgentSettings(BaseModel):
     # Agent configuration
     max_iterations: int = Field(default=100, ge=1)
@@ -125,7 +241,7 @@ class AgentSettings(BaseModel):
         return v.upper()
 
 class ContextSettings(BaseModel):
-    # Context Constructor (Phase 3) configuration.
+    # Context Constructor configuration.
     budget_tokens: int = Field(default=12000, ge=512, description="Total token budget for one assembled turn of context")
     spill_threshold_tokens: int = Field(default=1000, ge=0, description="Tool results estimated above this many tokens are spilled to the session workspace and replaced with a structured summary + fetch handle")
     # Per-source fractional ceilings of the total budget (priors/memory/live/
@@ -136,7 +252,7 @@ class ContextSettings(BaseModel):
 
 
 class GovernanceSettings(BaseModel):
-    # Governance (𝒢, Phase 5) configuration.
+    # Governance (𝒢) configuration.
     enabled: bool = Field(default=True, description="Gate every state-changing action through the classifier + policy engine. Disable only for trusted offline runs.")
     policy_path: str = Field(default="config/policy.yaml", description="Path to the tier->decision policy overrides (per connector/environment).")
     audit_path: Optional[str] = Field(default=None, description="Append-only audit ledger path. Defaults to <state_dir>/audit.jsonl.")
@@ -145,7 +261,7 @@ class GovernanceSettings(BaseModel):
 
 
 class SandboxSettings(BaseModel):
-    # Code-execution sandbox (Phase 5.6) configuration.
+    # Code-execution sandbox configuration.
     enabled: bool = Field(default=True, description="Allow the agent to run code in the governed sandbox for complex/multi-step jobs.")
     workdir: str = Field(default=".dacli/sandbox/", description="Working directory where sandbox scripts and their (off-context) data outputs live.")
     wall_clock_seconds: int = Field(default=300, ge=1, description="Hard wall-clock limit per sandbox run.")
@@ -156,14 +272,14 @@ class SandboxSettings(BaseModel):
 
 
 class OrchestrationSettings(BaseModel):
-    # Orchestration & multi-agent (𝒪 / ℛ, Phase 6) configuration.
+    # Orchestration & multi-agent (𝒪 / ℛ) configuration.
     enabled: bool = Field(default=True, description="Allow the planner→act→observe→verify orchestrator for multi-step goals. When off, every message runs the single-step kernel loop.")
     complexity_gate: int = Field(default=2, ge=1, description="A goal that decomposes into this many or more subtasks goes through the DAG planner; simpler goals run single-step (avoids planner ceremony on trivial work).")
     correction_budget: int = Field(default=2, ge=0, description="Bounded, feedback-driven self-correction attempts on a failed post-condition before escalating to a human with the full trail.")
     subagents_enabled: bool = Field(default=True, description="Allow the lead to fan breadth-first work out to isolated-context sub-agents. Opt-in per task via the planner's breadth-first detection.")
     max_subagents: int = Field(default=6, ge=1, description="Maximum parallel sub-agents the lead spawns for one breadth-first node (caps token blow-up).")
     subagent_summary_tokens: int = Field(default=2000, ge=128, description="Token ceiling for the condensed summary a sub-agent returns to the lead (keeps total context bounded).")
-    require_plan_approval: bool = Field(default=True, description="Present the DAG for human approval before executing (the plan-approve-execute posture from Phase 5).")
+    require_plan_approval: bool = Field(default=True, description="Present the DAG for human approval before executing (the plan-approve-execute posture from).")
 
 
 class UISettings(BaseModel):
@@ -193,6 +309,20 @@ class Settings(BaseModel):
     snowflake: SnowflakeSettings = Field(default_factory=SnowflakeSettings)
     github: GithubSettings = Field(default_factory=GithubSettings)
     pinecone: PineconeSettings = Field(default_factory=PineconeSettings)
+    # Wave 1 platforms (all optional; CLI-first).
+    bigquery: BigQuerySettings = Field(default_factory=BigQuerySettings)
+    databricks: DatabricksSettings = Field(default_factory=DatabricksSettings)
+    s3: S3Settings = Field(default_factory=S3Settings)
+    gcs: GCSSettings = Field(default_factory=GCSSettings)
+    dbt: DbtSettings = Field(default_factory=DbtSettings)
+    # Wave 2 operational databases (all optional; CLI-first).
+    postgres: PostgresSettings = Field(default_factory=PostgresSettings)
+    mysql: MySQLSettings = Field(default_factory=MySQLSettings)
+    mongodb: MongoDBSettings = Field(default_factory=MongoDBSettings)
+    dynamodb: DynamoDBSettings = Field(default_factory=DynamoDBSettings)
+    # Wave 3 — orchestration.
+    airflow: AirflowSettings = Field(default_factory=AirflowSettings)
+    dagster: DagsterSettings = Field(default_factory=DagsterSettings)
     embeddings: EmbeddingsSettings = Field(default_factory=EmbeddingsSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)

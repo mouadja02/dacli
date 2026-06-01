@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 
 class ToolStatus(Enum):
     # Status of the tool execution. DENIED/BLOCKED are governance verdicts
-    # (Phase 5): DENIED = a human declined; BLOCKED = policy refused before any
+    #: DENIED = a human declined; BLOCKED = policy refused before any
     # human was asked (e.g. an irreversible op with no verified rollback path).
     SUCCESS, ERROR, TIMEOUT, CANCELLED, PENDING_APPROVAL = "sucess", "error", "timeout", "cancelled", "pending_approval"
     DENIED, BLOCKED = "denied", "blocked"
@@ -80,7 +80,7 @@ class Risk(str, Enum):
     """Risk hint for an operation.
 
     Captured at the contract level from day 1. Enforcement (approval gating)
-    lands in Phase 5; capturing it now avoids re-walking every operation later.
+    lands in; capturing it now avoids re-walking every operation later.
     """
     SAFE = "safe"               # read-only / no side effects
     WRITE = "write"             # creates or mutates state, recoverable
@@ -105,7 +105,7 @@ class OperationSpec:
     # ``name`` / ``description`` when absent.
     display_name: Optional[str] = None
     category: Optional[str] = None
-    # Mandatory post-conditions (Phase 4). Each is a ``core.verify.PostCondition``
+    # Mandatory post-conditions. Each is a ``core.verify.PostCondition``
     # run after the op executes; the result is rejected if any fail. Typed as
     # ``Any`` to keep this module dependency-free (no import of core.verify).
     # The connector registry enforces "at least one" when ``enforce_postconditions``

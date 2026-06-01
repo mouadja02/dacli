@@ -9,7 +9,7 @@ from core.verify import PostCondition, VerificationContext, result_succeeded
 
 
 # ---------------------------------------------------------------------------
-# Structured catalog-effect parsing (Phase 2, deferred from Phase 1)
+# Structured catalog-effect parsing (deferred from)
 # ---------------------------------------------------------------------------
 # Replaces the brittle regex side-effects deleted from the dispatch path. This
 # lives in the connector (SQL is its domain) and is driven by the *executed*
@@ -112,7 +112,7 @@ def parse_catalog_effects(query: str) -> List[Dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Phase 4 — post-condition support: parse the *intended* column set
+# — post-condition support: parse the *intended* column set
 # ---------------------------------------------------------------------------
 _CREATE_TABLE_HEAD = re.compile(
     r"^CREATE\s+(?:OR\s+REPLACE\s+)?"
@@ -390,7 +390,7 @@ class SnowflakeConnector(Connector):
         return False
 
     # ------------------------------------------------------------------
-    # Governance: rollback-path verification (Phase 5.3)
+    # Governance: rollback-path verification
     # ------------------------------------------------------------------
     async def verify_rollback(self, plan, args: Dict[str, Any]):
         """Confirm a native rollback path actually exists before an irreversible op.

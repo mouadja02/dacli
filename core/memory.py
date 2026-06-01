@@ -1,6 +1,6 @@
 """Session manager + trust-aware memory wiring for dacli.
 
-Phase 2 split this object's responsibilities in two:
+ split this object's responsibilities in two:
 
 * **Session metadata** (conversation history, tool-execution log, phase/progress
   tracking, errors) stays here — it is *about this run*, not durable knowledge.
@@ -228,7 +228,7 @@ class AgentMemory:
         self._save_state()
 
     # ========================
-    # Durable memory: catalog + facts (Phase 2)
+    # Durable memory: catalog + facts
     # ========================
 
     def record_catalog_object(
@@ -302,7 +302,7 @@ class AgentMemory:
         """Store a task trace on completion (episodic capture, 2.5)."""
         return self.episodic.capture(goal, steps, outcome=outcome, **kwargs)
 
-    # -- Backward-compatible post-condition wrappers (deferred from Phase 1) --
+    # -- Backward-compatible post-condition wrappers (deferred from) --
     # These take already-extracted object names (the connector does the SQL
     # parsing) and write catalog entries instead of mutating list fields.
     def add_created_schema(self, schema_name: str, connector: str = "snowflake", database: Optional[str] = None) -> None:

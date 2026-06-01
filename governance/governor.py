@@ -1,4 +1,4 @@
-"""The Governor (𝒢, Phase 5) — the gate every state-changing action passes.
+"""The Governor (𝒢) — the gate every state-changing action passes.
 
 The Governor wires the governance pipeline into one call the dispatcher (and the
 sandbox SDK) makes *before* an action runs::

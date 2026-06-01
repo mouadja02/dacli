@@ -73,7 +73,7 @@ class ConnectorRegistry:
         self._settings = settings
         self._connectors_dir = Path(connectors_dir) if connectors_dir else Path(__file__).parent
         self._config_path = config_path
-        # Phase 4: when on, an operation that declares no post-condition cannot
+        #: when on, an operation that declares no post-condition cannot
         # register — "no post-condition, no acceptance" enforced at load time.
         # Default off so isolated test rigs / throwaway connectors are unaffected;
         # the live agent turns it on.
@@ -168,7 +168,7 @@ class ConnectorRegistry:
     ) -> List[Dict[str, Any]]:
         """Build OpenAI-style tool definitions for enabled operations.
 
-        ``connector_ids`` is the progressive-disclosure selector (Phase 3.3):
+        ``connector_ids`` is the progressive-disclosure selector:
 
         - ``None`` (default) → full schemas for *all* enabled connectors. This
           preserves every existing caller's behavior.
@@ -201,7 +201,7 @@ class ConnectorRegistry:
     def get_tool_digest(self) -> List[Dict[str, Any]]:
         """Cheap name + one-line description for every enabled connector.
 
-        This is the progressive-disclosure surface (Phase 3.3): the system
+        This is the progressive-disclosure surface: the system
         prompt lists connectors by ``id``, ``name`` and a short blurb so the
         model knows a capability *exists* without paying for its full operation
         schemas. Full schemas are fetched via :meth:`get_tool_definitions` only
@@ -239,7 +239,7 @@ class ConnectorRegistry:
     def validate_postconditions(self) -> None:
         """Reject any registered operation that declares no post-condition.
 
-        This is the structural enforcement of the Phase 4 rule: a connector
+        This is the structural enforcement of the rule: a connector
         operation cannot be offered unless its outcome can be checked. Raises
         ``MissingPostConditionError`` naming the first offender.
         """

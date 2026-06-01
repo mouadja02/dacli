@@ -1,4 +1,4 @@
-"""The sandbox connector SDK (Phase 5.6) — capability-gated, secret-free.
+"""The sandbox connector SDK — capability-gated, secret-free.
 
 This is the API the agent's sandbox code calls. Three properties make it the
 "complex op" half of the hybrid model safe:

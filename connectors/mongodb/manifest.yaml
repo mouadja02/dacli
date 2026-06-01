@@ -1,0 +1,13 @@
+id: mongodb
+name: MongoDB
+description: Query and mutate MongoDB collections with sample-inferred schemas
+icon: "🍃"
+class: connectors.mongodb.connector.MongoDBConnector
+required_config: [uri, database]
+enabled: false
+default_scope: read_only
+golden_task:
+  name: Infer a collection schema
+  op: introspect_mongodb_collection
+  description: Sample a collection and return an inferred field/type schema plus a document count.
+  expectation: the introspect_reports_structure post-condition passes.

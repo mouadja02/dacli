@@ -1,0 +1,13 @@
+id: mysql
+name: MySQL
+description: Run SQL on MySQL with transactional DML rollback and mysqldump snapshots
+icon: "🐬"
+class: connectors.mysql.connector.MySQLConnector
+required_config: [database]
+enabled: false
+default_scope: read_only
+golden_task:
+  name: Create a table and verify it exists
+  op: execute_mysql_query
+  description: Run CREATE TABLE, then confirm via information_schema that the table exists.
+  expectation: the mysql_ddl_object_exists post-condition passes.

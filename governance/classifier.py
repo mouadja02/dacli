@@ -1,4 +1,4 @@
-"""Action classifier (𝒢, Phase 5.1) — *blast-radius first*.
+"""Action classifier (𝒢) — *blast-radius first*.
 
 Every state-changing action is mapped to a **tier** before it runs. The tier,
 not the model's confidence, is what the policy engine gates on.
@@ -12,14 +12,14 @@ not the model's confidence, is what the policy engine gates on.
 
 The tier is derived from three grounded signals (never the model's say-so):
 
-1. **The op's declared ``risk`` hint** (Phase 1 metadata) — the floor for any
+1. **The op's declared ``risk`` hint** (metadata) — the floor for any
    op we cannot inspect more closely.
 2. **A SQL verb parse** for SQL ops — the *actual* statement tells the truth
    (a SELECT through a ``RISKY``-declared ``execute_query`` op is really safe;
    a ``DROP`` is really irreversible). Parsing scans the **whole statement**,
    not just the leading verb, so a destructive keyword hidden in a CTE or a
    multi-statement string still promotes the tier. Unparseable / ambiguous SQL
-   **defaults to ``risky``** (default-deny), per the Phase 5 self-critique.
+   **defaults to ``risky``** (default-deny), per the self-critique.
 3. **Production detection** — most catastrophic agent actions are the *right*
    operation against the *wrong* (prod) environment. A prod target **promotes**
    the tier one step (``write`` → ``risky``, ``risky`` → ``irreversible``).

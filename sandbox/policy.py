@@ -1,4 +1,4 @@
-"""Sandbox policy (Phase 5.6) — what a code-execution run may touch.
+"""Sandbox policy — what a code-execution run may touch.
 
 A :class:`SandboxPolicy` bounds a sandbox run: where it works, how long it may
 run, how much memory it may use, how much output may flow back to model context,

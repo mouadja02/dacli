@@ -34,18 +34,18 @@ class SystemConnector(Connector):
         # injected, so we cannot take it at __init__). Used by
         # ``load_connector_tools`` to validate an id and echo its operations.
         self._registry: Any = None
-        # On-disk store for spilled tool results (Phase 3.4), late-bound by the
+        # On-disk store for spilled tool results, late-bound by the
         # agent so ``fetch_result`` can read what the kernel's spill hook wrote.
         self._result_store: Any = None
         # Always ready; no external connection.
         self._is_connected = True
 
     def bind_registry(self, registry: Any) -> None:
-        """Late-bind the registry (progressive disclosure, Phase 3.3)."""
+        """Late-bind the registry (progressive disclosure)."""
         self._registry = registry
 
     def bind_result_store(self, store: Any) -> None:
-        """Late-bind the spilled-result store (off-context spill, Phase 3.4)."""
+        """Late-bind the spilled-result store (off-context spill)."""
         self._result_store = store
 
     # ------------------------------------------------------------------
@@ -206,7 +206,7 @@ class SystemConnector(Connector):
             )
 
     def _load_connector_tools(self, args: Dict[str, Any]) -> ToolResult:
-        # Progressive disclosure (Phase 3.3). The kernel reads
+        # Progressive disclosure. The kernel reads
         # ``metadata['disclose']`` and adds the id to the turn's disclosed set,
         # so the connector's full schemas are packed on the next iteration.
         connector_id = (args.get("connector_id") or "").strip()
@@ -247,7 +247,7 @@ class SystemConnector(Connector):
         )
 
     def _fetch_result(self, args: Dict[str, Any]) -> ToolResult:
-        # Off-context spill read path (Phase 3.4). Returns rows from the on-disk
+        # Off-context spill read path. Returns rows from the on-disk
         # store written by the kernel's spill hook.
         if self._result_store is None:
             return ToolResult(

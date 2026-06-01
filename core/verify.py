@@ -1,4 +1,4 @@
-"""Post-condition verification framework (𝒮, with the guarding half of 𝒢) — Phase 4.
+"""Post-condition verification framework (𝒮, with the guarding half of 𝒢).
 
 The cure for the *confident-but-unchecked* failure mode: **fluent output ≠
 correct output**. Today an op is "done" the moment its API call returns; this
@@ -6,7 +6,7 @@ module makes that impossible. Every skill and every connector operation declares
 ``postconditions``; :func:`run_postconditions` runs them after execution and
 **fails the result if any fail**.
 
-Two rules from the Phase 4 plan are enforced here:
+Two rules from the plan are enforced here:
 
 * **Post-conditions are mandatory, not optional** — :func:`require_postconditions`
   rejects an op/skill that declares none. The registry calls it at load time, so

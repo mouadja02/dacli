@@ -1,8 +1,8 @@
-"""Episodic memory (Phase 2, workstream 2.5): task traces.
+"""Episodic memory (workstream 2.5): task traces.
 
 On task completion the agent stores the trace (goal -> tool calls -> outcomes)
 as an episodic entry. Past traces are reusable later as programs (AgentSM-style:
-replaying successful trajectories raises accuracy). Phase 8 distills the good
+replaying successful trajectories raises accuracy). distills the good
 ones into procedural runbooks.
 
 Episodic capture is allowed to trail the reliability core (catalog + staleness
@@ -60,7 +60,7 @@ class EpisodicMemory:
             tags=(tags or []) + ["episode", outcome],
             memory_scope=MemoryScope.PROJECT.value,
         )
-        # Stash the structured trace for later distillation (Phase 8).
+        # Stash the structured trace for later distillation.
         entry.scope.setdefault("_trace", json.dumps(steps, default=str))
         return entry
 

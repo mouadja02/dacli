@@ -1,0 +1,13 @@
+id: postgres
+name: PostgreSQL
+description: Run SQL on PostgreSQL with transactional rollback and EXPLAIN previews
+icon: "🐘"
+class: connectors.postgres.connector.PostgresConnector
+required_config: [database]
+enabled: false
+default_scope: read_only
+golden_task:
+  name: Create a relation and verify it exists
+  op: execute_postgres_query
+  description: Run CREATE TABLE, then confirm via information_schema that the relation exists.
+  expectation: the postgres_ddl_object_exists post-condition passes.

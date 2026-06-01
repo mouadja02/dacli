@@ -1,6 +1,6 @@
-"""Phase 4 (𝒮 Skill Routing & Verification) test suite.
+""" (𝒮 Skill Routing & Verification) test suite.
 
-Each test maps to an exit criterion in the Phase 4 plan. Run with:
+Each test maps to an exit criterion in the plan. Run with:
     python -m unittest tests.test_skills_phase4
 """
 

@@ -1,0 +1,13 @@
+id: databricks
+name: Databricks
+description: Run SQL on a Databricks SQL warehouse with Delta time-travel rollback
+icon: "🧱"
+class: connectors.databricks.connector.DatabricksConnector
+required_config: [host, token, warehouse_id]
+enabled: false
+default_scope: read_only
+golden_task:
+  name: Run a query and confirm SUCCEEDED
+  op: execute_databricks_sql
+  description: Execute a statement and confirm the SQL warehouse reported state SUCCEEDED.
+  expectation: the databricks_statement_succeeded post-condition passes.

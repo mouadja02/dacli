@@ -1,4 +1,4 @@
-"""Semantic memory (Phase 2): durable facts.
+"""Semantic memory: durable facts.
 
 Platform configs, naming conventions, and learned constraints — facts that hold
 across tasks and sessions. A thin typed facade over :class:`MemoryStore` that

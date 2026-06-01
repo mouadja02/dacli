@@ -15,7 +15,7 @@ mutation that ran on Snowflake results, e.g.::
 
 These silently corrupted state on any non-standard SQL. They are enumerated in
 ``docs/phase2-deferred-postconditions.md`` to be reimplemented as proper
-post-conditions / catalog updates in Phase 2.
+post-conditions / catalog updates in.
 """
 
 import time
@@ -29,7 +29,7 @@ from connectors.registry import ConnectorRegistry
 
 # Risk levels at which a successful op may have changed live structure, so its
 # catalog effects (create/invalidate) must be applied. SAFE (read-only) ops are
-# skipped — this is where Phase 1's risk metadata earns its keep.
+# skipped — this is where 's risk metadata earns its keep.
 _MUTATING_RISKS = {Risk.WRITE, Risk.RISKY, Risk.IRREVERSIBLE}
 
 
@@ -47,12 +47,12 @@ class Dispatcher:
         self._memory = memory
         self._on_tool_start = on_tool_start
         self._on_tool_end = on_tool_end
-        # Phase 4: optional post-condition runner. When present, a successful op
+        #: optional post-condition runner. When present, a successful op
         # that declares post-conditions is verified before it is accepted; a
         # failed post-condition downgrades the result to ERROR so the kernel and
         # the catalog never treat an unverified outcome as done.
         self._verifier = verifier
-        # Phase 5: optional governance gate (𝒢). When present, every action is
+        #: optional governance gate (𝒢). When present, every action is
         # classified by blast radius and run through the policy engine *before*
         # ``invoke`` — denied/blocked actions short-circuit and never execute;
         # the outcome (and its post-condition verdict) is recorded in the audit
@@ -78,7 +78,7 @@ class Dispatcher:
         else:
             connector, op = resolved
 
-            # Governance pre-flight (Phase 5): classify blast radius → policy →
+            # Governance pre-flight: classify blast radius → policy →
             # permissions → rollback → human approval, all *before* execution. A
             # denied/blocked action short-circuits here and never runs.
             decision = None
@@ -104,13 +104,13 @@ class Dispatcher:
                     execution_time_ms=(time.time() - start_time) * 1000,
                 )
             else:
-                # Post-condition gate (Phase 4): only a *verified* success is a
+                # Post-condition gate: only a *verified* success is a
                 # success. Runs before logging/catalog effects so a failed check
                 # never lets a bad outcome propagate as done.
                 result = await self._verify(tool_name, connector, arguments, result)
 
             # Record the execution outcome + post-condition verdict in the audit
-            # ledger so the decision is reconstructable end to end (Phase 5.4).
+            # ledger so the decision is reconstructable end to end.
             if self._governor is not None and decision is not None:
                 self._governor.record_outcome(decision, result)
 
@@ -126,7 +126,7 @@ class Dispatcher:
 
             # Post-condition: apply structured catalog effects (create /
             # write-invalidation). Reimplements the regex side-effects deleted in
-            # Phase 1 — now driven by the connector's structured result, gated on
+            # — now driven by the connector's structured result, gated on
             # the operation's declared risk, and only on success.
             self._apply_catalog_effects(tool_name, resolved, result)
 
@@ -180,7 +180,7 @@ class Dispatcher:
             return
 
         # Invariant: a write-INVALIDATION may only come from an op whose declared
-        # risk is mutating (write/risky/irreversible) — this is where Phase 1's
+        # risk is mutating (write/risky/irreversible) — this is where 's
         # risk metadata earns its keep. A SAFE op (e.g. introspection) may still
         # CREATE/refresh catalog entries from what it observed live.
         spec = self._registry.get_operation_spec(tool_name)

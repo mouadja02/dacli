@@ -1,4 +1,4 @@
-"""Trustworthy memory (ℳ) — Phase 2.
+"""Trustworthy memory (ℳ).
 
 A general, typed, trust-aware memory where every fact carries confidence,
 recency, and provenance, and where **trust is decided at runtime, not stored as

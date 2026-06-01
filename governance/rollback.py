@@ -1,4 +1,4 @@
-"""Rollback strategies (𝒢, Phase 5.3) — *the environment is the oracle, again*.
+"""Rollback strategies (𝒢) — *the environment is the oracle, again*.
 
 For every gated action we attach a **rollback plan** built from the platform's
 **native** undo primitive rather than a generic compensating action — more
@@ -57,7 +57,7 @@ class RollbackPlan:
 
 
 # Native primitive selection per (platform, situation). Kept declarative so it
-# is obvious what undo each action gets and easy to extend per Phase 7 platform.
+# is obvious what undo each action gets and easy to extend per platform.
 def _snowflake_plan(cls: Classification) -> RollbackPlan:
     verb = (cls.sql_verb or "").upper()
     if verb in ("DROP", "TRUNCATE"):
@@ -103,6 +103,132 @@ def _object_store_plan(_cls: Classification) -> RollbackPlan:
         available=True, primitive="versioned_copy_aside",
         strategy=("Copy-aside the object (or rely on bucket versioning) before "
                   "overwrite; restore the prior version to undo."),
+        details={"requires": "bucket/object versioning enabled"},
+    )
+
+
+def _bigquery_plan(cls: Classification) -> RollbackPlan:
+    verb = (cls.sql_verb or "").upper()
+    if verb in ("DROP", "TRUNCATE"):
+        return RollbackPlan(
+            available=True, primitive="bq_time_travel_snapshot",
+            strategy=("BigQuery time travel (FOR SYSTEM_TIME AS OF) recovers the "
+                      "table within its 7-day window; take a table snapshot first "
+                      "for a durable restore point."),
+            details={"requires": "within time-travel window / snapshot taken"},
+        )
+    if verb in ("DELETE", "UPDATE", "MERGE", "INSERT"):
+        return RollbackPlan(
+            available=True, primitive="transaction",
+            strategy=("Wrap DML in a multi-statement transaction (BEGIN "
+                      "TRANSACTION … ROLLBACK TRANSACTION on failure)."),
+        )
+    return RollbackPlan(
+        available=True, primitive="bq_snapshot",
+        strategy=("Create a table snapshot before the change; restore from the "
+                  "snapshot to undo. dry_run previews exact bytes/effect first."),
+    )
+
+
+def _databricks_plan(cls: Classification) -> RollbackPlan:
+    verb = (cls.sql_verb or "").upper()
+    if verb in ("DROP", "TRUNCATE", "DELETE", "UPDATE", "MERGE", "INSERT"):
+        return RollbackPlan(
+            available=True, primitive="delta_time_travel",
+            strategy=("Delta Lake time travel: RESTORE TABLE … TO VERSION AS OF / "
+                      "TIMESTAMP AS OF to undo within the retention window."),
+            details={"requires": "Delta history retained (delta.deletedFileRetentionDuration)"},
+        )
+    return RollbackPlan(
+        available=True, primitive="delta_shallow_clone",
+        strategy=("Shadow on a shallow CLONE, diff, promote on approval; original "
+                  "Delta table untouched until then."),
+    )
+
+
+def _postgres_plan(cls: Classification) -> RollbackPlan:
+    verb = (cls.sql_verb or "").upper()
+    if verb in ("DROP", "TRUNCATE"):
+        return RollbackPlan(
+            available=True, primitive="pg_dump_snapshot",
+            strategy=("pg_dump the object before DROP/TRUNCATE; restore from the "
+                      "dump to undo. PostgreSQL DDL is transactional, so an "
+                      "in-transaction DROP can also be ROLLBACKed."),
+            details={"requires": "snapshot taken or run inside an explicit transaction"},
+        )
+    return RollbackPlan(
+        available=True, primitive="transaction",
+        strategy=("Wrap in BEGIN … ROLLBACK on failure. PostgreSQL is fully "
+                  "transactional (DDL included), so this is a true undo."),
+    )
+
+
+def _mysql_plan(cls: Classification) -> RollbackPlan:
+    verb = (cls.sql_verb or "").upper()
+    if verb in ("DROP", "TRUNCATE"):
+        return RollbackPlan(
+            available=True, primitive="mysqldump_snapshot",
+            strategy=("mysqldump the object before DROP/TRUNCATE; restore from the "
+                      "dump to undo. MySQL DDL auto-commits — it is NOT "
+                      "transactional — so a dump is the only undo."),
+            details={"requires": "mysqldump snapshot taken (DDL is not transactional)"},
+        )
+    return RollbackPlan(
+        available=True, primitive="transaction",
+        strategy=("Wrap DML in BEGIN … ROLLBACK (InnoDB is transactional; DDL is "
+                  "not, so DDL relies on mysqldump)."),
+    )
+
+
+def _mongodb_plan(_cls: Classification) -> RollbackPlan:
+    return RollbackPlan(
+        available=True, primitive="mongodump_snapshot",
+        strategy=("mongodump the collection (copy-aside) before a delete/drop; "
+                  "mongorestore to undo. MongoDB has no general native undo."),
+        details={"requires": "collection dumpable before the mutation"},
+    )
+
+
+def _dynamodb_plan(_cls: Classification) -> RollbackPlan:
+    return RollbackPlan(
+        available=True, primitive="dynamodb_pitr",
+        strategy=("Point-in-time recovery (PITR) restores the table to a moment "
+                  "before the change; an on-demand backup is a durable fallback."),
+        details={"requires": "PITR enabled (continuous backups) on the table"},
+    )
+
+
+def _airflow_plan(cls: Classification) -> RollbackPlan:
+    name = cls.tool_name
+    if "delete" in name:
+        return RollbackPlan.none(
+            "Deleting a DAG removes its run history with no native undo; "
+            "re-deploying the DAG file from version control restores only the "
+            "definition. Gated hard.")
+    if "pause" in name:
+        return RollbackPlan(
+            available=True, primitive="airflow_unpause",
+            strategy="Unpause the DAG to restore scheduling.")
+    if "trigger" in name:
+        return RollbackPlan.none(
+            "Triggering a DAG run has external side effects with no native undo; "
+            "clear/mark-failed the run to stop further tasks.")
+    return RollbackPlan.none("No native Airflow undo for this operation.")
+
+
+def _dagster_plan(_cls: Classification) -> RollbackPlan:
+    return RollbackPlan.none(
+        "Launching a run has external side effects with no native undo; "
+        "terminate the run to stop further steps.")
+
+
+def _dbt_plan(_cls: Classification) -> RollbackPlan:
+    return RollbackPlan(
+        available=True, primitive="git_versioned_transform",
+        strategy=("Transforms are git-versioned (revert the model commit) and the "
+                  "target table is snapshot/cloned before a run; restore the "
+                  "snapshot + revert to undo."),
+        details={"requires": "model under version control; target snapshot taken"},
     )
 
 
@@ -111,6 +237,15 @@ _PLATFORM_PLANNERS = {
     "github": _github_plan,
     "s3": _object_store_plan,
     "gcs": _object_store_plan,
+    "bigquery": _bigquery_plan,
+    "databricks": _databricks_plan,
+    "dbt": _dbt_plan,
+    "postgres": _postgres_plan,
+    "mysql": _mysql_plan,
+    "mongodb": _mongodb_plan,
+    "dynamodb": _dynamodb_plan,
+    "airflow": _airflow_plan,
+    "dagster": _dagster_plan,
 }
 
 

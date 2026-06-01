@@ -1,7 +1,7 @@
-"""Procedural memory (Phase 2): distilled runbooks.
+"""Procedural memory: distilled runbooks.
 
-Reusable, generalized procedures promoted from successful episodes. **Phase 8
-writes these** (the distillation step); Phase 2 defines the type and the
+Reusable, generalized procedures promoted from successful episodes. **
+writes these** (the distillation step); defines the type and the
 retrieval path so the rest of the harness can already consume runbooks.
 """
 

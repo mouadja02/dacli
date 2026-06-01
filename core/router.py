@@ -1,4 +1,4 @@
-"""Task classifier & tier router (𝒮 + the routing half of 𝒪) — Phase 4.
+"""Task classifier & tier router (𝒮 + the routing half of 𝒪).
 
 Every task is routed, per the locked hybrid-execution decision, to one of two
 tiers:
@@ -7,7 +7,7 @@ tiers:
   Low latency, a direct typed connector call.
 * **Sandbox tier** — multi-step, large-data, or cross-platform work ("diff
   yesterday's S3 dump against the BRONZE table and load the delta"). The agent
-  writes a script against the connector SDK; it runs in Phase 5's sandbox and
+  writes a script against the connector SDK; it runs in 's sandbox and
   only a summary returns to context.
 
 Classification is cheap and fast (a heuristic over the registry's known
@@ -15,7 +15,7 @@ platforms, optionally confirmed by the cheap model) so routing never burns the
 strong model's budget. When confidence is below threshold the router **escalates
 rather than guesses** (tool→sandbox→human), with a bounded budget; exhausting it
 surfaces to the user with the trail. Every decision is logged for audit (feeds
-Phase 5 audit + Phase 8 calibration).
+ audit + calibration).
 """
 
 from __future__ import annotations

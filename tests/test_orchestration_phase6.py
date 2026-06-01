@@ -1,6 +1,6 @@
-"""Phase 6 (𝒪 Orchestration / ℛ Model Routing) test suite.
+""" (𝒪 Orchestration / ℛ Model Routing) test suite.
 
-Each test class maps to an exit criterion in roadmap/PHASE6.md, section 7. Run:
+Each test class maps to an exit criterion in the roadmap, section 7. Run:
     python -m unittest tests.test_orchestration_phase6
 """
 

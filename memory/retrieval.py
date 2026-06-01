@@ -1,4 +1,4 @@
-"""Retrieval with a staleness penalty (Phase 2, workstream 2.3).
+"""Retrieval with a staleness penalty (workstream 2.3).
 
 Implements the framework's ranking discipline (CheetahClaws):
 
@@ -8,7 +8,7 @@ The point is the *discipline*, not the embedding model: an old fact must sink
 below a fresh, lower-relevance one instead of masquerading as current
 (semantic similarity does not decay with age — staleness must be applied
 independently). Relevance starts lexical; an embedding function can be injected
-later (Phase 8) without touching the ranking.
+later without touching the ranking.
 
 Retrieved entries are returned as **hypotheses** — they must be re-verified
 (``memory/verify.py``) before backing a risky/irreversible action.

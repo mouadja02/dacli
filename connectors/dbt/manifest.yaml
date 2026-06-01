@@ -1,0 +1,13 @@
+id: dbt
+name: dbt
+description: Compile, run, test, and build dbt models; parse the manifest for lineage
+icon: "🔧"
+class: connectors.dbt.connector.DbtConnector
+required_config: [project_dir]
+enabled: false
+default_scope: read_only
+golden_task:
+  name: Build models and verify tests pass
+  op: dbt_build
+  description: Run dbt build, then confirm via run_results.json that every node materialized and every test passed.
+  expectation: the dbt_nodes_succeeded and dbt_tests_passed post-conditions pass.

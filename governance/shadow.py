@@ -1,4 +1,4 @@
-"""Shadow / clone-first execution (𝒢, Phase 5.3) — validate on real-shaped data.
+"""Shadow / clone-first execution (𝒢) — validate on real-shaped data.
 
 A flagship reliability feature: a ``risky``/``irreversible`` *transform* is run
 first against a **zero-copy clone** of its target (cheap on Snowflake /
