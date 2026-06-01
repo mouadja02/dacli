@@ -522,6 +522,33 @@ def _print_audit(ledger, session_id, *, full=False, limit=20, header=None, targe
         con.print()
 
 
+@cli.command(name="eval")
+@click.option('--quick', is_flag=True, help='Fast run: scale pass^k k down (destructive stays ≥2)')
+@click.option('--regression', is_flag=True, help='Diff against the previous run in history')
+@click.option('--calibrate', is_flag=True, help='Print data-driven threshold recommendations')
+@click.option('--json', 'as_json', is_flag=True, help='Machine-readable output')
+def eval_cmd(quick, regression, calibrate, as_json):
+    """Run the reliability eval (pass^k) against the simulated platforms.
+
+    Offline: deterministic simulated warehouses/object-stores, no credentials,
+    no network, no cost. Reports pass^k per connector/skill, the destructive-
+    action gate, and the reliability dashboard. Exits non-zero on an unguarded
+    destructive execution or (with --regression) a detected regression.
+    """
+    from eval.__main__ import main as eval_main
+
+    argv = []
+    if quick:
+        argv.append('--quick')
+    if regression:
+        argv.append('--regression')
+    if calibrate:
+        argv.append('--calibrate')
+    if as_json:
+        argv.append('--json')
+    raise SystemExit(eval_main(argv))
+
+
 @cli.command()
 @click.option('--output', '-o', type=click.Path(), help='Output file path')
 def prompt(output):
