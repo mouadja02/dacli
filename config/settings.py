@@ -263,12 +263,39 @@ class GovernanceSettings(BaseModel):
 class SandboxSettings(BaseModel):
     # Code-execution sandbox configuration.
     enabled: bool = Field(default=True, description="Allow the agent to run code in the governed sandbox for complex/multi-step jobs.")
-    workdir: str = Field(default=".dacli/sandbox/", description="Working directory where sandbox scripts and their (off-context) data outputs live.")
+    workdir: str = Field(default=".dacli/sandbox/", description="Working directory where sandbox scripts and their (off-context) data outputs live. With the docker runtime this is bind-mounted into the container at /workspace.")
     wall_clock_seconds: int = Field(default=300, ge=1, description="Hard wall-clock limit per sandbox run.")
-    max_memory_mb: int = Field(default=1024, ge=64, description="Soft memory ceiling per sandbox run (POSIX rlimit; advisory on Windows).")
+    max_memory_mb: int = Field(default=1024, ge=64, description="Memory ceiling per sandbox run (POSIX rlimit for the subprocess runtime; a hard --memory cap for the docker runtime).")
     max_output_chars: int = Field(default=20000, ge=256, description="Max characters of stdout/stderr returned to model context; the rest stays on disk.")
-    network: str = Field(default="allowlist", description="Egress policy: 'off' (no network), 'allowlist' (only configured platform endpoints), or 'open'.")
+    network: str = Field(default="allowlist", description="Egress policy: 'off' (no network), 'allowlist' (only configured platform endpoints), or 'open'. Note: installing packages (pip) inside the docker runtime requires 'open' or an allowlist that covers your package index.")
     egress_allowlist: list = Field(default_factory=list, description="Extra host suffixes the sandbox may reach when network='allowlist'.")
+    # --- runtime backend ---
+    runtime: str = Field(default="auto", description="Sandbox backend: 'auto' (docker if an engine is reachable, else subprocess), 'docker' (hardened per-session container), or 'subprocess' (local in-process; weaker OS isolation).")
+    docker_image: str = Field(default="dacli-sandbox:latest", description="Image for the docker runtime; auto-built from sandbox/docker/Dockerfile if absent.")
+    docker_bin: str = Field(default="docker", description="Docker CLI binary (e.g. 'docker' or a full path / 'podman').")
+    docker_cpus: float = Field(default=2.0, gt=0, description="CPU limit (--cpus) for the per-session container.")
+    docker_pids_limit: int = Field(default=256, ge=16, description="Max process count (--pids-limit) inside the container (fork-bomb guard).")
+    docker_auto_build: bool = Field(default=True, description="Build the sandbox image on first use if it is not already present.")
+
+
+class TerminalSettings(BaseModel):
+    # Governed terminal / shell tier (Era 2, Phase 1).
+    #
+    # A persistent PTY-wrapped shell session per data-role session, surfaced as a
+    # third execution tier that flows through the *same* governance spine as the
+    # tool and sandbox tiers (classify -> policy -> rollback -> audit). It is NOT
+    # a parallel approval system: every command is blast-radius-classified by the
+    # command classifier before it runs.
+    enabled: bool = Field(default=True, description="Expose the governed shell tier (run_shell_command). Disable to forbid all terminal execution.")
+    shell: str = Field(default="auto", description="Backend shell: auto | cmd | powershell | wsl | zsh. 'auto' picks the platform default (PowerShell on Windows, the login shell on POSIX).")
+    workspace_root: str = Field(default=".dacli/sessions", description="Root under which each session gets a jailed workspace/ directory the agent owns.")
+    scope: str = Field(default="write", description="Least-privilege ceiling for the shell tier: read_only | write | risky | admin. Default 'write' auto-runs reads + new-file writes; widen to allow overwrite (confirm+rollback) and bring the rm -rf rollback gate into play.")
+    wall_clock_seconds: int = Field(default=120, ge=1, description="Hard per-command wall-clock limit (a hung command is interrupted).")
+    idle_timeout_ms: int = Field(default=400, ge=10, description="How long the reader waits for further output, after the command-completion sentinel, before considering a command idle/finished.")
+    max_output_chars: int = Field(default=20000, ge=256, description="Chars of a single command's output returned to model context; the full scrollback is spilled to the workspace and fetchable by command_id.")
+    network: str = Field(default="allowlist", description="Egress policy for shell commands: 'off' (no network egress), 'allowlist' (only listed hosts), or 'open'. Non-allowlisted egress is classified risky+ and confirmed.")
+    egress_allowlist: list = Field(default_factory=list, description="Host suffixes a shell command may reach when network='allowlist'.")
+    journal: bool = Field(default=True, description="Journal each command + outcome to the session workspace so a terminal session can be resumed (P6).")
 
 
 class OrchestrationSettings(BaseModel):
@@ -328,6 +355,7 @@ class Settings(BaseModel):
     context: ContextSettings = Field(default_factory=ContextSettings)
     governance: GovernanceSettings = Field(default_factory=GovernanceSettings)
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
+    terminal: TerminalSettings = Field(default_factory=TerminalSettings)
     orchestration: OrchestrationSettings = Field(default_factory=OrchestrationSettings)
     ui: UISettings = Field(default_factory=UISettings)
     retry: RetrySettings = Field(default_factory=RetrySettings)

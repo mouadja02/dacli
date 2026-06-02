@@ -109,6 +109,10 @@ def _routing_accuracy():
         ("count rows in the BRONZE table", "tool"),
         ("diff yesterday's S3 dump against the BRONZE table then load the delta", "sandbox"),
         ("migrate the pipeline across all schemas", "sandbox"),
+        # Era 2 — the shell tier: explicit terminal cue and a leading local-glue
+        # command with no typed connector op both route to shell.
+        ("run `git status` in the terminal", "shell"),
+        ("ls the workspace directory", "shell"),
     ]
 
     async def run() -> TaskResult:

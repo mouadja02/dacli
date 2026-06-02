@@ -260,6 +260,79 @@ def content_hash_matches(
     return PostCondition(name, check, "committed content hash matches", anchored=True)
 
 
+# ---------------------------------------------------------------------------
+# Shell-tier post-conditions (Era 2) — anchored to the exit code + filesystem.
+# ---------------------------------------------------------------------------
+def _shell_data(ctx: VerificationContext) -> Dict[str, Any]:
+    data = getattr(ctx.result, "data", None)
+    return data if isinstance(data, dict) else {}
+
+
+def _resolve_under_cwd(path: str, cwd: str) -> str:
+    import os
+    return path if os.path.isabs(path) else os.path.join(cwd or ".", path)
+
+
+def shell_exit_zero(name: str = "shell_exit_zero") -> PostCondition:
+    """A command is "done" only if the shell's own exit code is 0.
+
+    Anchored to the environment (the shell's ``$?`` captured via the sentinel),
+    not the model's read of stdout — fluent output ≠ a successful command.
+    """
+    def check(ctx: VerificationContext) -> CheckReturn:
+        data = _shell_data(ctx)
+        rc = data.get("exit_code")
+        if data.get("timed_out"):
+            return False, "command hit the wall-clock limit"
+        if rc is None:
+            return True, "no exit code recorded"
+        if int(rc) != 0:
+            return False, f"non-zero exit code {rc}"
+        return True, ""
+    return PostCondition(name, check, "command exited 0 (environment-anchored)", anchored=True)
+
+
+def shell_writes_observed(name: str = "shell_writes_observed") -> PostCondition:
+    """The file(s) the command intended to write/overwrite are present on disk.
+
+    Mirrors the connector DoD rule for the shell tier: a write is verified by
+    re-observing the live filesystem, not by trusting that ``echo > f`` "worked".
+    """
+    def applies(ctx: VerificationContext) -> bool:
+        data = _shell_data(ctx)
+        return bool((data.get("writes") or []) + (data.get("overwrites") or []))
+
+    def check(ctx: VerificationContext) -> CheckReturn:
+        import os
+        data = _shell_data(ctx)
+        cwd = data.get("cwd") or "."
+        targets = list(data.get("writes") or []) + list(data.get("overwrites") or [])
+        missing = [t for t in targets if not os.path.exists(_resolve_under_cwd(t, cwd))]
+        if missing:
+            return False, f"intended file(s) absent after write: {missing}"
+        return True, ""
+    return PostCondition(name, check, "intended file(s) present after a write", anchored=True,
+                         applies_when=applies)
+
+
+def shell_deletes_observed(name: str = "shell_deletes_observed") -> PostCondition:
+    """The file(s) the command intended to delete are actually gone."""
+    def applies(ctx: VerificationContext) -> bool:
+        return bool(_shell_data(ctx).get("deletes"))
+
+    def check(ctx: VerificationContext) -> CheckReturn:
+        import os
+        data = _shell_data(ctx)
+        cwd = data.get("cwd") or "."
+        targets = list(data.get("deletes") or [])
+        still = [t for t in targets if os.path.exists(_resolve_under_cwd(t, cwd))]
+        if still:
+            return False, f"file(s) still present after delete: {still}"
+        return True, ""
+    return PostCondition(name, check, "intended file(s) absent after a delete", anchored=True,
+                         applies_when=applies)
+
+
 def scope_not_violated(
     forbidden: Callable[[VerificationContext], Optional[str]],
     name: str = "scope_not_violated",

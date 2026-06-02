@@ -37,6 +37,10 @@ class SystemConnector(Connector):
         # On-disk store for spilled tool results, late-bound by the
         # agent so ``fetch_result`` can read what the kernel's spill hook wrote.
         self._result_store: Any = None
+        # Scrollback source for the governed terminal, late-bound by the agent so
+        # ``fetch_scrollback`` can answer "what did step N output?" by command_id
+        # without ever inlining a 10k-line dump into context.
+        self._scrollback: Any = None
         # Always ready; no external connection.
         self._is_connected = True
 
@@ -47,6 +51,10 @@ class SystemConnector(Connector):
     def bind_result_store(self, store: Any) -> None:
         """Late-bind the spilled-result store (off-context spill)."""
         self._result_store = store
+
+    def bind_scrollback(self, source: Any) -> None:
+        """Late-bind the terminal scrollback source (Era 2 JIT fetch)."""
+        self._scrollback = source
 
     # ------------------------------------------------------------------
     # Connector contract
@@ -162,6 +170,33 @@ class SystemConnector(Connector):
                 category="system",
                 postconditions=[result_succeeded()],
             ),
+            OperationSpec(
+                name="fetch_scrollback",
+                description="Fetch the full (or a line-window of a) terminal command's output by its command_id. When run_shell_command returns a 'scrollback_handle' (its command_id) and the output was spilled, use this to read what the command actually printed — including answering 'what did step N output?'.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "command_id": {
+                            "type": "string",
+                            "description": "The command_id / scrollback_handle from a run_shell_command result.",
+                        },
+                        "start": {
+                            "type": "integer",
+                            "description": "0-based line index to start from (default 0).",
+                        },
+                        "count": {
+                            "type": "integer",
+                            "description": "How many lines to return (omit for all from start).",
+                        },
+                    },
+                    "required": ["command_id"],
+                },
+                capability="system.fetch_scrollback",
+                risk=Risk.SAFE,
+                display_name="Fetch Scrollback",
+                category="system",
+                postconditions=[result_succeeded()],
+            ),
         ]
 
     async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
@@ -173,6 +208,8 @@ class SystemConnector(Connector):
             return self._load_connector_tools(args)
         elif op == "fetch_result":
             return self._fetch_result(args)
+        elif op == "fetch_scrollback":
+            return self._fetch_scrollback(args)
         return ToolResult(
             tool_name=op,
             status=ToolStatus.ERROR,
@@ -274,6 +311,36 @@ class SystemConnector(Connector):
             status=ToolStatus.SUCCESS,
             data=payload.get("data"),
             metadata={k: v for k, v in payload.items() if k != "data"},
+        )
+
+    def _fetch_scrollback(self, args: Dict[str, Any]) -> ToolResult:
+        # JIT read of a spilled terminal output by command_id. The full text
+        # lives in the session workspace (and the human's TUI); only the model's
+        # context copy was bounded.
+        if self._scrollback is None:
+            return ToolResult(
+                tool_name="fetch_scrollback",
+                status=ToolStatus.ERROR,
+                error="No terminal scrollback is available in this session.",
+            )
+        command_id = (args.get("command_id") or args.get("handle") or "").strip()
+        if not command_id:
+            return ToolResult(
+                tool_name="fetch_scrollback",
+                status=ToolStatus.ERROR,
+                error="command_id is required.",
+            )
+        start = int(args.get("start") or 0)
+        count = args.get("count")
+        count = int(count) if count is not None else None
+        payload = self._scrollback.get(command_id, start=start, count=count)
+        if "error" in payload:
+            return ToolResult(tool_name="fetch_scrollback", status=ToolStatus.ERROR, error=payload["error"])
+        return ToolResult(
+            tool_name="fetch_scrollback",
+            status=ToolStatus.SUCCESS,
+            data=payload.get("output"),
+            metadata={k: v for k, v in payload.items() if k != "output"},
         )
 
     def _update_plan(self, args: Dict[str, Any]) -> ToolResult:

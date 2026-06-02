@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from sandbox.bridge import start_bridge
 from sandbox.policy import SandboxPolicy
 from sandbox.sdk import ConnectorSDK
 
@@ -56,10 +57,20 @@ class SandboxRunResult:
 
 
 class SandboxRuntime:
-    def __init__(self, policy: SandboxPolicy, execute_fn, *, registry: Any = None):
+    def __init__(self, policy: SandboxPolicy, execute_fn, *, registry: Any = None,
+                 result_store: Any = None):
         self.policy = policy
         self._execute = execute_fn       # governed dispatcher.execute
         self._registry = registry
+        self._result_store = result_store
+
+    def bind_result_store(self, store: Any) -> None:
+        """Late-bind the session's spilled-result store (for ``sdk.fetch_result``)."""
+        self._result_store = store
+
+    def close(self) -> None:
+        """No-op for the subprocess runtime (each run is its own short-lived process)."""
+        return None
 
     def _truncate(self, text: str) -> str:
         cap = self.policy.max_output_chars
@@ -76,40 +87,16 @@ class SandboxRuntime:
         script_path = run_dir / "script.py"
         script_path.write_text(code, encoding="utf-8")
 
-        sdk = ConnectorSDK(self._execute, registry=self._registry, workdir=str(run_dir))
+        sdk = ConnectorSDK(self._execute, registry=self._registry,
+                           result_store=self._result_store, workdir=str(run_dir))
         call_count = {"n": 0}
 
-        async def handle_conn(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-            try:
-                while True:
-                    line = await reader.readline()
-                    if not line:
-                        break
-                    try:
-                        req = json.loads(line.decode("utf-8"))
-                    except Exception:
-                        continue
-                    op = req.get("op")
-                    if op == "run":
-                        call_count["n"] += 1
-                        summary = await sdk.run(req.get("tool", ""), req.get("args") or {})
-                        resp = summary
-                    elif op == "tools":
-                        resp = {"tools": sdk.available_tools()}
-                    else:
-                        resp = {"error": f"unknown bridge op '{op}'"}
-                    writer.write((json.dumps(resp, default=str) + "\n").encode("utf-8"))
-                    await writer.drain()
-            except Exception:
-                pass
-            finally:
-                try:
-                    writer.close()
-                except Exception:
-                    pass
-
-        server = await asyncio.start_server(handle_conn, "127.0.0.1", 0)
-        port = server.sockets[0].getsockname()[1]
+        # The governed boundary (loopback, no token — never host-exposed). Every
+        # `run` is classified + policy-checked by the parent; reads/fetches too.
+        server, port = await start_bridge(
+            sdk, host="127.0.0.1", token=None,
+            on_run=lambda: call_count.__setitem__("n", call_count["n"] + 1),
+        )
         self.policy.bridge_port = port
 
         env = dict(os.environ)

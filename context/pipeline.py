@@ -74,4 +74,5 @@ def build_context_pipeline(settings, memory, registry, llm, system_connector) ->
         "maybe_compact": _maybe_compact,
         "counter": counter,
         "budget": budget,
+        "store": store,
     }

@@ -48,6 +48,20 @@ class SandboxConnector(Connector):
         """Late-bind the runtime (needs the dispatcher's governed execute)."""
         self._runtime = runtime
 
+    def bind_result_store(self, store: Any) -> None:
+        """Forward the session's spilled-result store to the runtime so sandbox
+        code can ``sdk.fetch_result(handle)`` a large result back for processing."""
+        if self._runtime is not None and hasattr(self._runtime, "bind_result_store"):
+            self._runtime.bind_result_store(store)
+
+    def close(self) -> None:
+        """Release runtime resources (e.g. tear down a per-session container)."""
+        if self._runtime is not None and hasattr(self._runtime, "close"):
+            try:
+                self._runtime.close()
+            except Exception:
+                pass
+
     def operations(self) -> List[OperationSpec]:
         return [
             OperationSpec(

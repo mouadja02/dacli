@@ -19,6 +19,11 @@ from governance.classifier import (
     classify_sql,
     detect_prod,
 )
+from governance.command_classifier import (
+    CommandClassifier,
+    CommandVerdict,
+    classify_command,
+)
 from governance.policy_engine import (
     PolicyDecision,
     PolicyEngine,
@@ -37,6 +42,7 @@ from governance.governor import Governor, GovernanceDecision, ApprovalRequest
 
 __all__ = [
     "ActionClassifier", "Classification", "Tier", "classify_sql", "detect_prod",
+    "CommandClassifier", "CommandVerdict", "classify_command",
     "PolicyDecision", "PolicyEngine", "PolicyResult", "load_policy_config",
     "PermissionRegistry", "Scope", "ScopeViolation",
     "AuditLedger", "AuditEvent",

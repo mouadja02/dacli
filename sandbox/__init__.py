@@ -9,5 +9,11 @@ through the Governor** — the sandbox is not a governance bypass.
 from sandbox.policy import SandboxPolicy
 from sandbox.sdk import ConnectorSDK
 from sandbox.runtime import SandboxRuntime, SandboxRunResult
+from sandbox.workspace import SessionWorkspace, WorkspaceJailError
+from sandbox.terminal import TerminalSession, CommandResult, ScrollbackLine
 
-__all__ = ["SandboxPolicy", "ConnectorSDK", "SandboxRuntime", "SandboxRunResult"]
+__all__ = [
+    "SandboxPolicy", "ConnectorSDK", "SandboxRuntime", "SandboxRunResult",
+    "SessionWorkspace", "WorkspaceJailError",
+    "TerminalSession", "CommandResult", "ScrollbackLine",
+]

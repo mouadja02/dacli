@@ -6,6 +6,7 @@ pyyaml
 pydantic
 python-dotenv
 httpx
+pandas
 
 # LLM providers
 openai
@@ -23,3 +24,9 @@ pinecone
 #   databricks -> databricks CLI
 #   s3         -> awscli (`aws`)
 #   gcs        -> google-cloud-sdk (`gcloud storage`)
+
+# Era 2 — governed terminal (OPTIONAL). The shell tier runs everywhere over
+# stdlib pipes with a reliable exit code (sentinel-based). Install a PTY backend
+# only if you want a faithful TTY (ANSI colors, interactive prompts):
+#   pywinpty ; sys_platform == "win32"
+#   ptyprocess ; sys_platform != "win32"

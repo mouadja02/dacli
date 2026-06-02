@@ -53,6 +53,18 @@ connectors:
     tiers: {}
     environments: {}
 
+  # --- Era 2: the governed shell tier --------------------------------------
+  # The shell tier (run_shell_command) flows through this SAME policy table: the
+  # *command* is blast-radius-classified (an `ls` is safe; `rm -rf` / `git push
+  # --force` are irreversible and refused for want of a verifiable undo). Its
+  # least-privilege ceiling is set by `terminal.scope` in settings (default
+  # 'write'), which is authoritative over any `scope:` here. The tiers/
+  # environments overrides below still apply — e.g. require approval for every
+  # shell write, or auto-run writes on a throwaway box.
+  shell:
+    tiers: {}             # e.g. {write: confirm} to gate even mkdir/touch
+    environments: {}
+
   # --- Wave 1 platforms ---------------------------------------------
   # All ship read-only (the code default). Widen the grant per deployment:
   #   write -> +create/insert/put | risky -> +update/delete | admin -> +drop.

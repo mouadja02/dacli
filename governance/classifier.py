@@ -222,6 +222,11 @@ class Classification:
     sql_verb: Optional[str] = None
     sql_ambiguous: bool = False
     reasons: List[str] = field(default_factory=list)
+    # Shell tier (Era 2): the parsed command verb + its blast-radius signals
+    # (writes/overwrites/deletes/egress/jail-escape), so the shell post-conditions
+    # and the shell rollback planner can read what the command intended.
+    command_verb: Optional[str] = None
+    command_signals: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -233,14 +238,29 @@ class Classification:
             "sql_verb": self.sql_verb,
             "sql_ambiguous": self.sql_ambiguous,
             "reasons": list(self.reasons),
+            "command_verb": self.command_verb,
+            "command_signals": self.command_signals or {},
         }
 
 
 class ActionClassifier:
-    """Maps ``(op, args, environment)`` → :class:`Classification`."""
+    """Maps ``(op, args, environment)`` → :class:`Classification`.
 
-    def __init__(self, *, prod_markers: Optional[List[str]] = None):
+    ``network`` / ``egress_allowlist`` configure the embedded shell command
+    classifier so the same egress posture applies whether a fetch happens via a
+    connector or a free-text shell command.
+    """
+
+    def __init__(
+        self,
+        *,
+        prod_markers: Optional[List[str]] = None,
+        network: str = "allowlist",
+        egress_allowlist: Optional[List[str]] = None,
+    ):
         self._prod_markers = prod_markers or list(DEFAULT_PROD_MARKERS)
+        self._network = network
+        self._egress_allowlist = list(egress_allowlist or [])
 
     def classify(
         self,
@@ -249,6 +269,7 @@ class ActionClassifier:
         *,
         declared_risk: Risk = Risk.SAFE,
         env_hint: Optional[str] = None,
+        command: Optional[str] = None,
     ) -> Classification:
         args = args or {}
         reasons: List[str] = []
@@ -274,6 +295,23 @@ class ActionClassifier:
                 tier = verdict.tier
             reasons.append(verdict.reason)
 
+        # 2b. Shell command parse (the actual command is the truth for the shell
+        # tier). Like a confidently-parsed SQL verb, the command verdict *is* the
+        # blast radius — `ls` is safe even though the run_shell_command op is
+        # write-capable; `rm -rf` is irreversible. Unknown commands default-deny
+        # to risky inside the command classifier.
+        command_verb: Optional[str] = None
+        command_signals: Dict[str, Any] = {}
+        if command is not None:
+            from governance.command_classifier import CommandClassifier
+            cv = CommandClassifier(
+                network=self._network, egress_allowlist=self._egress_allowlist,
+            ).classify(command)
+            command_verb = cv.leading
+            command_signals = cv.to_dict()
+            tier = cv.tier
+            reasons.extend(cv.reasons)
+
         # 3. Production promotion (right op, wrong environment).
         marker = detect_prod(args, env_hint=env_hint, markers=self._prod_markers)
         is_prod = marker is not None
@@ -295,4 +333,6 @@ class ActionClassifier:
             sql_verb=sql_verb,
             sql_ambiguous=sql_ambiguous,
             reasons=reasons,
+            command_verb=command_verb,
+            command_signals=command_signals,
         )

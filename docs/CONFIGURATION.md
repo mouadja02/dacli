@@ -107,13 +107,36 @@ See [GOVERNANCE.md](GOVERNANCE.md).
 ```yaml
 sandbox:
   enabled: true
-  workdir: ".dacli/sandbox/"
+  workdir: ".dacli/sandbox/"      # with the docker runtime, bind-mounted to /workspace
   wall_clock_seconds: 300
-  max_memory_mb: 1024
+  max_memory_mb: 1024             # hard --memory cap under docker
   max_output_chars: 20000
   network: "allowlist"            # off | allowlist | open
   egress_allowlist: []
+  # --- runtime backend ---
+  runtime: "auto"                 # auto | docker | subprocess
+  docker_image: "dacli-sandbox:latest"
+  docker_bin: "docker"            # e.g. a full path, or "podman"
+  docker_cpus: 2.0                # --cpus
+  docker_pids_limit: 256          # --pids-limit (fork-bomb guard)
+  docker_auto_build: true         # build the image on first use if missing
 ```
+
+**Runtime backends.** `subprocess` runs each script in a local child process
+(no Docker dependency; weaker OS isolation — fine for trusted/offline/CI use).
+`docker` gives **each session its own hardened container** the agent can
+`pip install` into and run Python in, reused across runs in the session. `auto`
+(default) uses Docker when an engine is reachable, else falls back to subprocess.
+
+The Docker runtime isolates from the host: code runs **non-root** with
+`--cap-drop ALL`, `--security-opt no-new-privileges`, and `--memory` / `--cpus` /
+`--pids-limit` caps; the **only** host mount is `workdir` → `/workspace`. The
+mandatory comms link is the **governed bridge**: the container reaches the parent
+on `host.docker.internal`, authenticates with a per-session token, and every
+`sdk.run(...)` is classified → policy-checked → audited exactly like a tool call
+(credentials never enter the container). Installing packages needs egress, so set
+`network: open` (or an allowlist covering your package index) for `pip install`.
+The image (`sandbox/docker/Dockerfile`) bakes `pandas`, `numpy`, and `pyarrow`.
 
 ### `orchestration` — Orchestration & multi-agent (𝒪)
 

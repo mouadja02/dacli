@@ -1,13 +1,18 @@
 """Task classifier & tier router (𝒮 + the routing half of 𝒪).
 
-Every task is routed, per the locked hybrid-execution decision, to one of two
+Every task is routed, per the locked hybrid-execution decision, to one of three
 tiers:
 
 * **Tool tier** — a single, well-scoped op on one platform ("show me row counts").
   Low latency, a direct typed connector call.
+* **Shell tier** (Era 2) — local glue / file work, or running a platform CLI with
+  no typed op ("ls the workspace", "run `git status` in the terminal"). Executes
+  in the governed terminal session; every command is blast-radius-classified by
+  the command classifier before it runs. *Destructive platform mutations never go
+  here when a connector can do them* (connector-preference).
 * **Sandbox tier** — multi-step, large-data, or cross-platform work ("diff
   yesterday's S3 dump against the BRONZE table and load the delta"). The agent
-  writes a script against the connector SDK; it runs in 's sandbox and
+  writes a script against the connector SDK; it runs in the sandbox and
   only a summary returns to context.
 
 Classification is cheap and fast (a heuristic over the registry's known
@@ -30,6 +35,7 @@ from typing import Any, List, Optional, Tuple
 
 class Tier(str, Enum):
     TOOL = "tool"
+    SHELL = "shell"
     SANDBOX = "sandbox"
 
 
@@ -48,6 +54,23 @@ _SINGLE_OP_VERBS = [
     "show", "list", "count", "describe", "get", "read", "display", "how many",
     "what is", "fetch", "check",
 ]
+# Explicit "do this in the terminal" cues — a user override that sends work to
+# the governed shell tier even when a connector platform is named.
+_SHELL_CUES = [
+    "in the terminal", "in a terminal", "in the shell", "shell command",
+    "command line", "command-line", "run the command", "bash", "powershell",
+    "pwsh", "zsh", " cli ", "terminal session", "scrollback", "on disk",
+    "local file", "working directory", "workspace directory",
+]
+# Local filesystem / glue commands that, as the *leading* word of a task and
+# with no named platform connector, belong on the shell tier (tools-as-code for
+# local glue). Curated to imperative command tokens that rarely open an English
+# sentence, so "find the rows" / "make a table" don't misroute.
+_LEADING_GLUE = {
+    "ls", "cat", "mkdir", "touch", "chmod", "chown", "grep", "pwd", "rm",
+    "cp", "mv", "tail", "head", "tar", "unzip", "zip", "rsync", "wc", "tree",
+    "curl", "wget", "cd", "cls", "clear", "rg", "stat",
+}
 
 
 @dataclass
@@ -174,8 +197,11 @@ class TierRouter:
         multistep = [s for s in _MULTISTEP_SIGNALS if s in low]
         large = [s for s in _LARGE_DATA_SIGNALS if s in low]
         single_verb = next((v for v in _SINGLE_OP_VERBS if low.startswith(v) or f" {v}" in low), None)
+        first_word = low.split()[0] if low.split() else ""
 
-        # Strongest sandbox signal: genuinely cross-platform.
+        # Strongest sandbox signal: genuinely cross-platform. (Destructive
+        # platform mutations stay on the verified connector/sandbox path, never
+        # the free-text shell — connector-preference.)
         if len(set(platforms)) >= 2:
             return (Tier.SANDBOX, "sandbox", 0.9,
                     f"cross-platform ({', '.join(sorted(set(platforms)))}) → sandbox")
@@ -185,6 +211,16 @@ class TierRouter:
             why = multistep[0] if multistep else large[0]
             return (Tier.SANDBOX, "sandbox", 0.85,
                     f"multi-step/large-data signal '{why.strip()}' → sandbox")
+
+        # Shell tier (Era 2): an explicit "do it in the terminal" cue is a user
+        # override honored even when a platform is named; otherwise a leading
+        # local-glue command with NO typed connector to prefer routes to shell.
+        if any(cue in low for cue in _SHELL_CUES):
+            return (Tier.SHELL, "shell", 0.85,
+                    "explicit terminal/shell cue → shell tier")
+        if first_word in _LEADING_GLUE and not platforms:
+            return (Tier.SHELL, "shell", 0.8,
+                    f"local glue command '{first_word}' with no typed connector op → shell tier")
 
         # Single, scoped op on one named platform → tool tier.
         if len(platforms) == 1 and single_verb:
@@ -256,6 +292,9 @@ class TierRouter:
         if decision.tier == Tier.TOOL.value:
             return (Tier.SANDBOX.value, "sandbox", min(1.0, decision.confidence + 0.15),
                     "tool→sandbox: single-op route was low-confidence; using general tier")
+        if decision.tier == Tier.SHELL.value:
+            return (Tier.SANDBOX.value, "sandbox", min(1.0, decision.confidence + 0.15),
+                    "shell→sandbox: low-confidence local route; using the general code tier")
         # Already at sandbox: the only thing more capable is a human.
         return (decision.tier, decision.target, min(1.0, decision.confidence + 0.15),
                 "sandbox confidence still low; one step closer to human review")

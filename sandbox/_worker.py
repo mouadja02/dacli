@@ -54,6 +54,21 @@ class _BridgeSDK:
     def available_tools(self) -> list:
         return self._rpc({"op": "tools"}).get("tools", [])
 
+    def fetch_result(self, handle: str, start: int = 0, count=None) -> list:
+        """Load rows from a spilled tool result (a ``res_*`` handle) into code.
+
+        Returns the full requested window of rows. Raises ``RuntimeError`` on an
+        unknown handle / error so a failed load is never a silent empty list.
+        """
+        resp = self._rpc({"op": "fetch_result", "handle": handle, "start": start, "count": count})
+        if isinstance(resp, dict) and resp.get("error"):
+            raise RuntimeError(f"fetch_result({handle!r}) failed: {resp['error']}")
+        rows = resp.get("rows") if isinstance(resp, dict) else None
+        return rows if rows is not None else []
+
+    def fetch_rows(self, handle: str, start: int = 0, count=None) -> list:
+        return self.fetch_result(handle, start=start, count=count)
+
     def save_rows(self, name: str, rows, fmt: str = "jsonl") -> str:
         path = self.workdir / name
         path.parent.mkdir(parents=True, exist_ok=True)

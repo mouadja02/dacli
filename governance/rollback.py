@@ -232,7 +232,57 @@ def _dbt_plan(_cls: Classification) -> RollbackPlan:
     )
 
 
+def _shell_plan(cls: Classification) -> RollbackPlan:
+    """Native undo for a shell-tier command (Era 2).
+
+    The "environment is the oracle" rule again: the undo is the shell's / file
+    system's own primitive — copy-aside before an overwrite or delete, ``git``
+    revert/stash for git mutations — and a recursive/forced delete (``rm -rf``)
+    or a history rewrite (``git push --force``) honestly has **no** native undo,
+    so it yields an unavailable plan and is refused (the S3-delete bar, applied
+    to the shell).
+    """
+    signals = cls.command_signals or {}
+    verb = (cls.command_verb or "").lower()
+    overwrites = signals.get("overwrites") or []
+    deletes = signals.get("deletes") or []
+
+    # Honestly irreversible: recursive/forced delete, force-push, fork bomb,
+    # device overwrite, embedded DROP/TRUNCATE — no native undo we can name.
+    if signals.get("irreversible"):
+        return RollbackPlan.none(
+            "Command is irreversible (recursive/forced delete, history rewrite, "
+            "or destructive SQL) — no native undo primitive exists. Refused.")
+
+    if verb == "git":
+        return RollbackPlan(
+            available=True, primitive="git_revert_or_stash",
+            strategy=("Git is the oracle: `git revert <sha>` undoes a commit, "
+                      "`git stash`/`git checkout -- <path>` restores working tree "
+                      "changes, `git reset --soft HEAD~1` unwinds the last commit."),
+            details={"requires": "the repository is under version control"},
+        )
+
+    if overwrites or deletes:
+        targets = overwrites + deletes
+        return RollbackPlan(
+            available=True, primitive="versioned_copy_aside",
+            strategy=("Copy-aside the affected file(s) into the session "
+                      "workspace backups/ before the change; restore the copy to "
+                      "undo."),
+            details={"targets": targets, "requires": "target exists & is inside the jail"},
+        )
+
+    # New-file / mkdir writes are recoverable by deletion.
+    return RollbackPlan(
+        available=True, primitive="delete_created_artifact",
+        strategy=("Newly-created files/dirs are recoverable by deleting them; "
+                  "the session workspace is the only writable surface."),
+    )
+
+
 _PLATFORM_PLANNERS = {
+    "shell": _shell_plan,
     "snowflake": _snowflake_plan,
     "github": _github_plan,
     "s3": _object_store_plan,

@@ -37,12 +37,17 @@ class ConnectorSDK:
         execute_fn: ExecuteFn,
         *,
         registry: Any = None,
+        result_store: Any = None,
         workdir: str = ".dacli/sandbox/run",
         preview_rows: int = 20,
         spill_threshold_rows: int = 50,
     ):
         self._execute = execute_fn
         self._registry = registry
+        # The session's spilled-result store (the `res_*` handles a large tool
+        # result is summarised behind). Lets sandbox code pull those rows back to
+        # *process them in code* — off model context — via ``fetch_result``.
+        self._result_store = result_store
         self.workdir = Path(workdir)
         self.workdir.mkdir(parents=True, exist_ok=True)
         self.preview_rows = preview_rows
@@ -95,6 +100,39 @@ class ConnectorSDK:
         elif data is not None:
             summary["data"] = data
         return summary
+
+    # ------------------------------------------------------------------
+    # spilled-result access (load a `res_*` handle's rows into code)
+    # ------------------------------------------------------------------
+    def fetch_result(self, handle: str, *, start: int = 0, count: Optional[int] = None) -> List[Any]:
+        """Load rows from a previously spilled tool result by its ``res_*`` handle.
+
+        This is the in-code counterpart of the ``fetch_result`` tool: when a
+        large query was summarised off-context, sandbox code can pull the **full**
+        rows here to process them (the data goes to the sandbox process, never to
+        model context). Reads the materialised result directly — it is **not**
+        re-bounded the way ``run`` bounds fresh results, so you get every row in
+        the requested window.
+
+        Raises ``RuntimeError`` for an unknown handle or a missing store — a failed
+        load is loud, never a silent empty list (the bug that lets code "succeed"
+        on zero rows).
+        """
+        if self._result_store is None:
+            raise RuntimeError("no spilled-result store is available in this sandbox run")
+        handle = (handle or "").strip()
+        if not handle:
+            raise RuntimeError("fetch_result(handle=...) requires a non-empty handle")
+        payload = self._result_store.read(
+            handle, start=int(start or 0), count=(int(count) if count is not None else None))
+        if isinstance(payload, dict) and payload.get("error"):
+            raise RuntimeError(payload["error"])
+        data = payload.get("data") if isinstance(payload, dict) else payload
+        return data if data is not None else []
+
+    def fetch_rows(self, handle: str, *, start: int = 0, count: Optional[int] = None) -> List[Any]:
+        """Alias of :meth:`fetch_result` (reads a spilled result's rows)."""
+        return self.fetch_result(handle, start=start, count=count)
 
     # ------------------------------------------------------------------
     # workspace I/O (off-context by construction)

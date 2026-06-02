@@ -129,6 +129,20 @@ class Governor:
             actor=actor, tier=tier, summary=summary, **detail,
         )
 
+    @staticmethod
+    def _shell_command(spec: Any, connector_id: str, args: Dict[str, Any]) -> Optional[str]:
+        """Return the shell command string when this is a shell-tier op, else None.
+
+        Gated on the op being the shell connector (or declaring a ``shell.``
+        capability) so no other connector's ``command``-named arg is ever treated
+        as a shell command — every existing call passes ``command=None``.
+        """
+        capability = getattr(spec, "capability", "") or ""
+        if connector_id != "shell" and not capability.startswith("shell."):
+            return None
+        cmd = args.get("command") or args.get("cmd")
+        return str(cmd) if cmd else None
+
     def _environment(self, connector_id: str, args: Dict[str, Any], connector: Any,
                      classification: Classification) -> Optional[str]:
         if self._env_resolver is not None:
@@ -172,10 +186,15 @@ class Governor:
         connector_id = getattr(connector, "name", "") or "unknown"
         declared_risk = getattr(spec, "risk", Risk.SAFE) if spec is not None else Risk.SAFE
 
-        # 1. Classify (blast radius).
+        # 1. Classify (blast radius). For the shell tier the *command* — not the
+        # op's declared risk — is the truth, so it is parsed by the command
+        # classifier (an `ls` is safe even though run_shell_command is write-
+        # capable; an `rm -rf` is irreversible).
         env_hint_seed = self._env_resolver(connector_id, args, connector) if self._env_resolver else None
+        command = self._shell_command(spec, connector_id, args)
         classification = self.classifier.classify(
             tool_name, args, declared_risk=declared_risk, env_hint=env_hint_seed,
+            command=command,
         )
         tier = classification.tier
         environment = self._environment(connector_id, args, connector, classification)

@@ -29,8 +29,10 @@ from skills.registry import SkillRegistry
 from skills.spec import SkillContext
 from skills.connector import SkillConnector
 from sandbox.connector import SandboxConnector
-from sandbox.runtime import SandboxRuntime
-from sandbox.policy import SandboxPolicy
+from sandbox.factory import build_sandbox_runtime
+from sandbox.terminal import TerminalSession
+from connectors.shell.connector import ShellConnector
+from context.sources.terminal import ScrollbackStore, ScrollbackSource
 
 
 class DACLI:
@@ -96,18 +98,56 @@ class DACLI:
         _sandbox_on = getattr(getattr(settings, "sandbox", None), "enabled", True)
         self._sandbox_connector = SandboxConnector(settings) if _sandbox_on else None
 
+        # Terminal: the governed shell tier (Era 2). A persistent, jailed,
+        # journaled shell session surfaced as a built-in connector so its single
+        # ``run_shell_command`` op flows through the *same* classify → policy →
+        # rollback → audit spine as every tool — the free-text terminal is not a
+        # governance bypass. Disabled → the tier (and its tool) simply does not
+        # exist this run (deny by absence). Construction only makes the workspace
+        # dirs; the shell subprocess is spawned lazily on the first command.
+        self._terminal_session = None
+        self._scrollback_store = None
+        self._scrollback_source = None
+        self._shell_connector = None
+        _term = getattr(settings, "terminal", None)
+        if _term is None or getattr(_term, "enabled", False):
+            _sid = getattr(self.memory, "session_id", "default") or "default"
+            _ws_root = getattr(_term, "workspace_root", ".dacli/sessions")
+            self._terminal_session = TerminalSession(
+                session_id=_sid,
+                shell=getattr(_term, "shell", "auto"),
+                workspace_root=_ws_root,
+                wall_clock_seconds=getattr(_term, "wall_clock_seconds", 120),
+                idle_timeout_ms=getattr(_term, "idle_timeout_ms", 400),
+                journal=getattr(_term, "journal", True),
+            )
+            self._scrollback_store = ScrollbackStore(root=_ws_root, session_id=_sid)
+            self._scrollback_source = ScrollbackSource(
+                session=self._terminal_session, store=self._scrollback_store,
+            )
+            self._shell_connector = ShellConnector(
+                settings, session=self._terminal_session,
+                scrollback_store=self._scrollback_store,
+            )
+
         # Connector plugin registry (manifest-discovered) + generic dispatcher.
         # ``enforce_postconditions`` makes "no post-condition, no registration"
         # structural: a capability that cannot be verified cannot be offered.
         _builtins = [self._system_connector, self._skill_connector]
         if self._sandbox_connector is not None:
             _builtins.append(self._sandbox_connector)
+        if self._shell_connector is not None:
+            _builtins.append(self._shell_connector)
         self.registry = ConnectorRegistry(
             settings,
             config_path=connectors_config_path,
             extra_connectors=_builtins,
             enforce_postconditions=True,
         )
+        # Give the system connector the scrollback source so ``fetch_scrollback``
+        # can answer "what did step N output?" by command_id (JIT, off-context).
+        if self._scrollback_source is not None:
+            self._system_connector.bind_scrollback(self._scrollback_source)
 
         # Post-condition verifier: a verified success is the only kind
         # of success. Wired into the dispatcher so a failed check downgrades the
@@ -135,15 +175,18 @@ class DACLI:
         )
 
         # ... and give the sandbox its runtime, whose SDK calls back through the
-        # *governed* dispatcher.execute — so code-execution is not a bypass.
+        # *governed* dispatcher.execute — so code-execution is not a bypass. The
+        # factory picks docker (a hardened per-session container) when an engine
+        # is reachable, else the local subprocess runtime; both expose the same
+        # surface and route through the same governance spine.
+        self._sandbox_backend = None
         if self._sandbox_connector is not None:
-            self._sandbox_connector.bind_runtime(
-                SandboxRuntime(
-                    SandboxPolicy.from_settings(settings),
-                    self.dispatcher.execute,
-                    registry=self.registry,
-                )
+            _sid = getattr(self.memory, "session_id", "default") or "default"
+            _runtime, self._sandbox_backend = build_sandbox_runtime(
+                settings, self.dispatcher.execute,
+                registry=self.registry, session_id=_sid,
             )
+            self._sandbox_connector.bind_runtime(_runtime)
 
         # Tier router: classifies each task tool-vs-sandbox with
         # confidence-aware escalation; decisions are logged for audit/calibration.
@@ -159,6 +202,11 @@ class DACLI:
         self._context = build_context_pipeline(
             settings, self.memory, self.registry, self.llm, self._system_connector
         )
+        # Share the session's spilled-result store with the sandbox so model code
+        # can `sdk.fetch_result(handle)` a large result back to process it in code
+        # (off model context) — the same `res_*` handles the tool tier spills to.
+        if self._sandbox_connector is not None:
+            self._sandbox_connector.bind_result_store(self._context["store"])
 
         # The kernel owns the loop and talks only to reasoning/dispatcher/memory.
         self.kernel = Kernel(
@@ -226,13 +274,32 @@ class DACLI:
         # gated independently. Exempt them so the harness itself isn't crippled.
         for _builtin in ("system", "skills", "sandbox"):
             permissions.grant(_builtin, Scope.ADMIN)
+        # The shell tier, by contrast, IS scoped by least privilege — that is the
+        # whole point of a governed terminal. Its ceiling is the configured
+        # ``terminal.scope`` (default 'write'), so an `rm file` (risky) or
+        # `rm -rf` (irreversible) is permission-denied unless the operator widened
+        # the shell scope. The *command's* tier (from the command classifier), not
+        # the op's declared risk, is what the check sees.
+        _term = getattr(settings, "terminal", None)
+        try:
+            _shell_scope = Scope(str(getattr(_term, "scope", "write")).strip().lower())
+        except Exception:
+            _shell_scope = Scope.WRITE
+        permissions.grant("shell", _shell_scope)
 
         state_dir = str(Path(settings.agent.state_path).parent)
         audit_path = (getattr(gov, "audit_path", None) or f"{state_dir}/audit.jsonl") if gov else f"{state_dir}/audit.jsonl"
         ledger = AuditLedger(path=audit_path)
 
+        # The classifier embeds the shell command classifier; give it the
+        # terminal's egress posture so a `curl`/`wget` in a shell command is
+        # judged against the same allowlist a connector fetch would be.
         return Governor(
-            classifier=ActionClassifier(prod_markers=policy.prod_markers or None),
+            classifier=ActionClassifier(
+                prod_markers=policy.prod_markers or None,
+                network=getattr(_term, "network", "allowlist"),
+                egress_allowlist=list(getattr(_term, "egress_allowlist", []) or []),
+            ),
             policy=policy,
             permissions=permissions,
             strategist=RollbackStrategist(),
@@ -312,6 +379,15 @@ class DACLI:
         # Clean up resources for enabled connectors only
         for connector in self.registry.enabled_connectors():
             await connector.disconnect()
+        # Tear down the per-session sandbox container (docker runtime) and close
+        # the persistent shell session, if any.
+        if self._sandbox_connector is not None:
+            self._sandbox_connector.close()
+        if self._terminal_session is not None:
+            try:
+                self._terminal_session.close()
+            except Exception:
+                pass
 
     # ==================================================================
     # Orchestration & multi-agent (𝒪 / ℛ)
