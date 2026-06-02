@@ -174,10 +174,11 @@ class DockerSandboxRuntime:
         script.write_text(code, encoding="utf-8")
         # The container runs as non-root (uid 1000).  The workdir may have been
         # created by tempfile.mkdtemp (mode 0700) or under a restrictive umask,
-        # so ensure the bind-mounted paths are world-traversable and the script
-        # is world-readable — otherwise the sandboxed worker gets EACCES.
+        # so ensure the bind-mounted paths are world-traversable and the run dir
+        # is world-writable — the worker writes result.json and user scripts may
+        # create files there too (e.g. marker.txt in the volume round-trip test).
         os.chmod(self.policy.workdir, 0o755)
-        os.chmod(run_dir, 0o755)
+        os.chmod(run_dir, 0o777)
         os.chmod(script, 0o644)
         cpath = f"/workspace/run_{run_id}"   # same dir, container-side
 
