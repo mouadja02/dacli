@@ -38,6 +38,16 @@ class ThemeSpec:
     # prompt-toolkit bottom-bar colors: (foreground, background).
     toolbar_fg: str
     toolbar_bg: str
+    # Multiple palettes the UI can rotate through per session.
+    banner_palettes: tuple = ()
+
+    @property
+    def banner_gradients(self) -> List[str]:
+        """Pick a palette for this session (rotates on each run)."""
+        if not self.banner_palettes:
+            return self.banner_gradient
+        import random
+        return list(random.choice(self.banner_palettes))
 
     def rich_theme(self) -> Theme:
         return Theme(self.styles)
@@ -65,6 +75,25 @@ _DARK = ThemeSpec(
         "bad": "bold #ff5555",
     },
     banner_gradient=["#bd93f9", "#a06ff2", "#8be9fd", "#6fb8f0", "#50fa7b"],
+    # Professional palettes from coolors.co — curated for dark backgrounds.
+    banner_palettes=(
+        # Electric violet → cyan (original)
+        ["#bd93f9", "#a06ff2", "#8be9fd", "#6fb8f0", "#50fa7b", "#bd93f9"],
+        # Deep sea blues — coolors.co/palette/03045e-0077b6-00b4d8-90e0ef-caf0f8
+        ["#03045e", "#0077b6", "#00b4d8", "#90e0ef", "#caf0f8", "#00b4d8"],
+        # Neon spectrum — coolors.co/palette/f72585-7209b7-3a0ca3-4361ee-4cc9f0
+        ["#f72585", "#b5179e", "#7209b7", "#4361ee", "#4cc9f0", "#f72585"],
+        # Sunset fire — coolors.co/palette/03071e-9d0208-e85d04-f48c06-ffba08
+        ["#ffba08", "#f48c06", "#e85d04", "#dc2f02", "#d00000", "#9d0208"],
+        # Violet haze — coolors.co/palette/10002b-5a189a-7b2cbf-c77dff-e0aaff
+        ["#10002b", "#3c096c", "#7b2cbf", "#9d4edd", "#c77dff", "#e0aaff"],
+        # Teal cascade — coolors.co/palette/05668d-028090-00a896-02c39a-f0f3bd
+        ["#05668d", "#028090", "#00a896", "#02c39a", "#80ffdb", "#56cfe1"],
+        # Warm amber — coolors.co/palette/000814-001d3d-003566-ffc300-ffd60a
+        ["#ffd60a", "#ffc300", "#003566", "#001d3d", "#003566", "#ffc300"],
+        # Rose to steel — coolors.co/palette/355070-6d597a-b56576-e56b6f-eaac8b
+        ["#355070", "#6d597a", "#b56576", "#e56b6f", "#eaac8b", "#355070"],
+    ),
     toolbar_fg="#bd93f9",
     toolbar_bg="#1e1f29",
 )
@@ -91,6 +120,25 @@ _LIGHT = ThemeSpec(
         "bad": "bold #cc0000",
     },
     banner_gradient=["#6f42c1", "#7d4fd0", "#0066cc", "#0088bb", "#2e7d32"],
+    # Professional palettes from coolors.co — curated for light backgrounds.
+    banner_palettes=(
+        # Purple → blue → green (original)
+        ["#6f42c1", "#7d4fd0", "#0066cc", "#0088bb", "#2e7d32", "#6f42c1"],
+        # Navy authority — coolors.co/palette/0d1b2a-1b263b-415a77-778da9-e0e1dd
+        ["#0d1b2a", "#1b263b", "#415a77", "#778da9", "#415a77", "#1b263b"],
+        # Forest earth — coolors.co/palette/606c38-283618-dda15e-bc6c25
+        ["#283618", "#606c38", "#283618", "#a98467", "#6c584c", "#283618"],
+        # French flag — coolors.co/palette/e63946-457b9d-1d3557
+        ["#1d3557", "#457b9d", "#a8dadc", "#e63946", "#1d3557", "#457b9d"],
+        # Slate & coral — coolors.co/palette/2d3142-4f5d75-bfc0c0-ef8354
+        ["#2d3142", "#4f5d75", "#ef8354", "#4f5d75", "#2d3142", "#4f5d75"],
+        # Evergreen — coolors.co/palette/dad7cd-588157-3a5a40-344e41
+        ["#344e41", "#3a5a40", "#588157", "#a3b18a", "#588157", "#344e41"],
+        # Deep indigo — coolors.co/palette/22223b-4a4e69-9a8c98-c9ada7-f2e9e4
+        ["#22223b", "#4a4e69", "#9a8c98", "#c9ada7", "#9a8c98", "#22223b"],
+        # Cobalt gold — coolors.co/palette/00296b-003f88-00509d-fdc500-ffd500
+        ["#00296b", "#003f88", "#00509d", "#fdc500", "#00509d", "#003f88"],
+    ),
     toolbar_fg="#6f42c1",
     toolbar_bg="#eceff4",
 )
@@ -117,6 +165,23 @@ _OCEAN = ThemeSpec(
         "bad": "bold #e06c75",
     },
     banner_gradient=["#61afef", "#56b6c2", "#56b6c2", "#98c379", "#98c379"],
+    # Professional palettes from coolors.co — curated for the ocean theme.
+    banner_palettes=(
+        # One Dark blues (original)
+        ["#61afef", "#56b6c2", "#56b6c2", "#98c379", "#98c379", "#61afef"],
+        # Ocean breeze — coolors.co/palette/8ecae6-219ebc-023047-ffb703-fb8500
+        ["#023047", "#219ebc", "#8ecae6", "#ffb703", "#219ebc", "#023047"],
+        # Coastal green — coolors.co/palette/cad2c5-84a98c-52796f-354f52-2f3e46
+        ["#2f3e46", "#354f52", "#52796f", "#84a98c", "#52796f", "#354f52"],
+        # Deep navy — coolors.co/palette/0d1b2a-1b263b-415a77-778da9-e0e1dd
+        ["#0d1b2a", "#1b263b", "#415a77", "#778da9", "#e0e1dd", "#778da9"],
+        # Coral reef — coolors.co/palette/006d77-83c5be-edf6f9-ffddd2-e29578
+        ["#006d77", "#83c5be", "#edf6f9", "#ffddd2", "#e29578", "#006d77"],
+        # Emerald cascade — coolors.co/palette/22577a-38a3a5-57cc99-80ed99-c7f9cc
+        ["#22577a", "#38a3a5", "#57cc99", "#80ed99", "#57cc99", "#38a3a5"],
+        # Sapphire teal — coolors.co/palette/012a4a-2a6f97-468faf-89c2d9-a9d6e5
+        ["#012a4a", "#2a6f97", "#468faf", "#89c2d9", "#a9d6e5", "#89c2d9"],
+    ),
     toolbar_fg="#61afef",
     toolbar_bg="#21252b",
 )
@@ -143,6 +208,7 @@ _MONO = ThemeSpec(
         "bad": "bold white",
     },
     banner_gradient=["white", "grey85", "grey70", "grey85", "white"],
+    # Mono theme keeps a single greyscale palette — no rotation.
     # prompt-toolkit only accepts hex or ansi* color names — not Rich names
     # like "grey15" — so the toolbar colors are always hex.
     toolbar_fg="#e4e4e4",

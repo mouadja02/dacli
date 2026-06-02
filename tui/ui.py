@@ -172,11 +172,12 @@ class DacliUI:
             "██████╔╝ ██║  ██║ ╚██████╗ ███████╗ ██║",
             "╚═════╝  ╚═╝  ╚═╝  ╚═════╝ ╚══════╝ ╚═╝",
         ]
-        gradient = self.theme.banner_gradient
+        # Pick a different color (solid or gradient) for each run from a predefined set
+        gradient = self.theme.banner_gradients
         lines = Text()
         for i, row in enumerate(art):
             lines.append(row + "\n", style=gradient[i % len(gradient)])
-        tagline = Text("Your autonomous data-engineering CLI agent", style="muted")
+        tagline = Text("Your specialized data-engineering CLI agent", style="muted")
         meta = Text()
         if self.version:
             meta.append(f"v{self.version}", style="accent")
