@@ -203,9 +203,13 @@ class RealBackendConformanceTest(unittest.TestCase):
     # name -> (output-token command, deliberately-failing command)
     # The fail command runs a *subshell* so it sets the exit code without
     # killing the long-lived session shell.
+    # name -> (output-token command, deliberately-failing command | None)
+    # A None fail command is resolved dynamically in _conform using the
+    # backend's resolved binary so it works cross-platform (pwsh on Linux,
+    # powershell.exe on Windows).
     _MATRIX = {
         "cmd": ("echo CONF_OK_TOKEN", "cmd /c exit 7"),
-        "powershell": ("Write-Output CONF_OK_TOKEN", "cmd /c exit 7"),
+        "powershell": ("Write-Output CONF_OK_TOKEN", None),
         "wsl": ("echo CONF_OK_TOKEN", "bash -c 'exit 7'"),
         "zsh": ("echo CONF_OK_TOKEN", "sh -c 'exit 7'"),
     }
@@ -217,6 +221,10 @@ class RealBackendConformanceTest(unittest.TestCase):
         if be.name != name or not be.available():
             self.skipTest(f"{name} backend not available on this host")
         ok_cmd, fail_cmd = self._MATRIX[name]
+        if fail_cmd is None:
+            # Use the backend's resolved binary (pwsh / powershell) so the
+            # child-process exit works on both Linux and Windows.
+            fail_cmd = f'{be.binary} -c "exit 7"'
         tmp = _tmp(f"dacli_conf_{name}_")
         sess = TerminalSession(
             f"conf_{name}", backend=be, workspace_root=tmp,

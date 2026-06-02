@@ -170,7 +170,15 @@ class DockerSandboxRuntime:
         run_id = uuid.uuid4().hex[:10]
         run_dir = Path(self.policy.workdir).resolve() / f"run_{run_id}"
         run_dir.mkdir(parents=True, exist_ok=True)
-        (run_dir / "script.py").write_text(code, encoding="utf-8")
+        script = run_dir / "script.py"
+        script.write_text(code, encoding="utf-8")
+        # The container runs as non-root (uid 1000).  The workdir may have been
+        # created by tempfile.mkdtemp (mode 0700) or under a restrictive umask,
+        # so ensure the bind-mounted paths are world-traversable and the script
+        # is world-readable — otherwise the sandboxed worker gets EACCES.
+        os.chmod(self.policy.workdir, 0o755)
+        os.chmod(run_dir, 0o755)
+        os.chmod(script, 0o644)
         cpath = f"/workspace/run_{run_id}"   # same dir, container-side
 
         sdk = ConnectorSDK(self._execute, registry=self._registry,

@@ -32,7 +32,11 @@ class PowerShellBackend(ShellBackend):
         # $LASTEXITCODE is set by native programs; for pure cmdlets it is null,
         # so fall back to $? (success boolean). This yields a faithful rc for
         # both native commands and cmdlets.
+        # IMPORTANT: capture $? FIRST — any subsequent assignment (even
+        # $__c=$LASTEXITCODE) resets $? to $true, losing the user command's
+        # success/failure status.
         return (
-            "$__c=$LASTEXITCODE; if($null -eq $__c){$__c=if($?){0}else{1}}; "
+            "$__ok=$?; $__c=$LASTEXITCODE; "
+            "if($null -eq $__c){$__c=if($__ok){0}else{1}}; "
             f"Write-Output \"{SENTINEL}:{nonce}:$__c\""
         )
