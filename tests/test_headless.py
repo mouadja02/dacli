@@ -213,3 +213,56 @@ class RunHeadlessTest(unittest.TestCase):
         ))
         self.assertEqual(result.exit_code, 3)
         self.assertIsNotNone(result.scenario_error)
+
+
+import json as _json
+import tempfile as _tempfile
+import os as _os
+
+
+class CliCommandTest(unittest.TestCase):
+    def setUp(self):
+        self._pricing_patch = mock.patch("core.agent.fetch_pricing", return_value=None)
+        self._pricing_patch.start()
+        self.addCleanup(self._pricing_patch.stop)
+
+    def _write(self, suffix, text):
+        fd, path = _tempfile.mkstemp(suffix=suffix)
+        with _os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        self.addCleanup(lambda: _os.path.exists(path) and _os.unlink(path))
+        return path
+
+    def test_run_command_emits_json_exit_0(self):
+        from click.testing import CliRunner
+        from scripts.cli import cli
+        script = self._write("_llm.json", _json.dumps([
+            {"text": "done", "usage": {"input": 5, "output": 1}},
+        ]))
+        runner = CliRunner()
+        res = runner.invoke(cli, ["run", "hello", "--llm-script", script,
+                                  "--no-connectors", "--json"])
+        self.assertEqual(res.exit_code, 0, msg=res.output)
+        payload = _json.loads(res.output)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["turns"][0]["content"], "done")
+
+    def test_replay_command_runs_scenario(self):
+        from click.testing import CliRunner
+        from scripts.cli import cli
+        scenario = self._write("_scenario.json", _json.dumps({
+            "no_connectors": True,
+            "approve": "deny",
+            "llm_script": [
+                {"text": "ok", "tool_calls": [
+                    {"name": "update_plan", "arguments": {"todos": []}}]},
+                {"text": "finished"},
+            ],
+            "turns": ["do the thing"],
+        }))
+        runner = CliRunner()
+        res = runner.invoke(cli, ["replay", scenario, "--json"])
+        self.assertEqual(res.exit_code, 0, msg=res.output)
+        payload = _json.loads(res.output)
+        self.assertEqual(payload["turns"][0]["content"], "finished")
+        self.assertIn("update_plan", [tc["name"] for tc in payload["turns"][0]["tool_calls"]])
