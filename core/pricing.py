@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 MODELS_DEV_URL = "https://models.dev/api.json"
 CACHE_TTL_SECONDS = 24 * 60 * 60  # refresh pricing at most once a day

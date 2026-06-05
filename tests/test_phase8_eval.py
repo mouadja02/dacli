@@ -10,10 +10,9 @@ Run with:
 import asyncio
 import tempfile
 import unittest
-from typing import List
 
 from eval.types import GoldenTask, Stakes, TaskResult
-from eval.passk import PassKResult, run_pass_k, suite_pass_k
+from eval.passk import PassKResult, run_pass_k
 from eval.harness import EvalHarness, SuiteReport
 from eval.sim.cli import SimCli
 from eval.sim.platforms import s3_responder
@@ -113,7 +112,7 @@ class PassKTest(unittest.TestCase):
         # A seeded-flaky platform yields a sub-1.0 pass^k — the whole point of
         # pass^k over pass@1.
         cli = SimCli(s3_responder(head_exists=True), failure_rate=0.5, seed=7)
-        rcs = [_run(cli([f"aws", "s3", "cp", str(i)])).rc for i in range(20)]
+        rcs = [_run(cli(["aws", "s3", "cp", str(i)])).rc for i in range(20)]
         self.assertIn(0, rcs)
         self.assertIn(1, rcs)
 

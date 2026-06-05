@@ -9,7 +9,7 @@ assert *what the harness did* (e.g. "the destructive `rm` was never reached").
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, List, Optional
 
 from connectors.cli_base import CliResult

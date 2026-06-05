@@ -287,7 +287,6 @@ class AssemblerTest(unittest.TestCase):
 class KernelNewPathTest(unittest.TestCase):
     def _spine(self, script, task):
         empty = tempfile.mkdtemp(prefix="dacli_kn_")
-        from tests.golden_echo import EchoConnector
         # Drop an echo manifest so it is *discovered* (not a built-in) and thus
         # gated by disclosure.
         echo_dir = os.path.join(empty, "echo")

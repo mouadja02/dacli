@@ -15,7 +15,7 @@ from memory.store import (
 )
 from memory.catalog import CatalogCache
 from memory.retrieval import rank, retrieve, staleness_penalty
-from memory.verify import verify, build_catalog_verifier, VerificationOutcome
+from memory.verify import verify, build_catalog_verifier
 from connectors.snowflake.connector import parse_catalog_effects
 from connectors.base import ToolResult, ToolStatus, Risk, OperationSpec
 from connectors.dispatcher import Dispatcher

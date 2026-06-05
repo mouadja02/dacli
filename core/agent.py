@@ -83,6 +83,9 @@ class DACLI:
             memory=self.memory,
             on_user_input_needed=on_user_input_needed,
         )
+        # Give the system connector the reasoning LLM so ``generate_connector``
+        # can write a new connector from an in-chat description.
+        self._system_connector.bind_llm(self.llm)
 
         # Skills: a contracted-procedure registry, surfaced as a
         # built-in connector so every skill flows through the one dispatch path
@@ -159,6 +162,7 @@ class DACLI:
         # decision in an append-only audit ledger. Built from config/policy.yaml
         # so a team tunes velocity vs. caution without code changes.
         self.governor = self._build_governor(settings, on_approval)
+        from core.test_mode import test_mode as _test_mode
         self.dispatcher = Dispatcher(
             self.registry,
             memory=self.memory,
@@ -166,6 +170,7 @@ class DACLI:
             on_tool_end=on_tool_end,
             verifier=self.verifier,
             governor=self.governor,
+            test_mode=_test_mode,
         )
         # Now the dispatcher exists, give skills their runtime collaborators.
         self._skill_connector.bind_context_provider(

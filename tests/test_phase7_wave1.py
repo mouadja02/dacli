@@ -16,7 +16,6 @@ import os
 import tempfile
 import types
 import unittest
-from typing import List, Optional
 
 from connectors.base import Risk, ToolStatus
 from connectors.cli_base import CliResult

@@ -41,6 +41,9 @@ class SystemConnector(Connector):
         # ``fetch_scrollback`` can answer "what did step N output?" by command_id
         # without ever inlining a 10k-line dump into context.
         self._scrollback: Any = None
+        # Reasoning LLM, late-bound by the agent so ``generate_connector`` can
+        # write a new connector from a natural-language description in-chat.
+        self._llm: Any = None
         # Always ready; no external connection.
         self._is_connected = True
 
@@ -55,6 +58,10 @@ class SystemConnector(Connector):
     def bind_scrollback(self, source: Any) -> None:
         """Late-bind the terminal scrollback source (Era 2 JIT fetch)."""
         self._scrollback = source
+
+    def bind_llm(self, llm: Any) -> None:
+        """Late-bind the reasoning LLM (used by ``generate_connector``)."""
+        self._llm = llm
 
     # ------------------------------------------------------------------
     # Connector contract
@@ -144,6 +151,37 @@ class SystemConnector(Connector):
                 postconditions=[data_has_keys("connector_id", "operations", name="disclosed")],
             ),
             OperationSpec(
+                name="generate_connector",
+                description=(
+                    "Create a brand-new connector for a platform dacli doesn't support yet, "
+                    "from a natural-language description. Generates the connector code, writes "
+                    "it to connectors/<id>/, validates it, and registers it DISABLED. Tell the "
+                    "user to run /connect <id> to add credentials and /import-connector <id> to "
+                    "enable it (a restart loads it). Use only when no existing connector fits."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "Short connector id, lowercase, no spaces (e.g. 'stripe', 'jira').",
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "What the connector integrates with and which operations it should expose.",
+                        },
+                    },
+                    "required": ["name", "description"],
+                },
+                capability="system.generate_connector",
+                # Writes generated code to disk; validation imports it. WRITE so
+                # governance gates it before it runs.
+                risk=Risk.WRITE,
+                display_name="Generate Connector",
+                category="system",
+                postconditions=[data_has_keys("connector", "validated", name="connector_generated")],
+            ),
+            OperationSpec(
                 name="fetch_result",
                 description="Fetch the full (or a slice of a) large tool result that was spilled off-context. When a previous result is summarized with a 'handle', use that handle here to read the actual rows.",
                 parameters={
@@ -206,6 +244,8 @@ class SystemConnector(Connector):
             return self._update_plan(args)
         elif op == "load_connector_tools":
             return self._load_connector_tools(args)
+        elif op == "generate_connector":
+            return await self._generate_connector(args)
         elif op == "fetch_result":
             return self._fetch_result(args)
         elif op == "fetch_scrollback":
@@ -281,6 +321,60 @@ class SystemConnector(Connector):
             status=ToolStatus.SUCCESS,
             data={"connector_id": connector_id, "operations": op_names},
             metadata={"disclose": connector_id},
+        )
+
+    async def _generate_connector(self, args: Dict[str, Any]) -> ToolResult:
+        # In-chat connector generation. Mirrors /new-connector minus the prompts,
+        # via the shared, non-interactive generate_connector_files().
+        name = (args.get("name") or "").strip()
+        description = (args.get("description") or "").strip()
+        if not name or not description:
+            return ToolResult(
+                tool_name="generate_connector",
+                status=ToolStatus.ERROR,
+                error="Both 'name' and 'description' are required.",
+            )
+        if self._llm is None:
+            return ToolResult(
+                tool_name="generate_connector",
+                status=ToolStatus.ERROR,
+                error="No LLM is available to generate a connector in this session.",
+            )
+
+        from core.connector_generator import generate_connector_files
+
+        try:
+            result = await generate_connector_files(
+                name, description, self.settings, self._llm
+            )
+        except FileExistsError as exc:
+            return ToolResult(
+                tool_name="generate_connector",
+                status=ToolStatus.ERROR,
+                error=str(exc),
+            )
+        except Exception as exc:
+            return ToolResult(
+                tool_name="generate_connector",
+                status=ToolStatus.ERROR,
+                error=f"Generation failed: {exc}",
+            )
+
+        return ToolResult(
+            tool_name="generate_connector",
+            status=ToolStatus.SUCCESS,
+            data={
+                "connector": result.name,
+                "path": str(result.path),
+                "validated": result.validated,
+                "validation_message": result.message,
+                "enabled": False,
+                "next_steps": [
+                    f"/connect {result.name}",
+                    f"/import-connector {result.name}",
+                    f"/testmode {result.name}",
+                ],
+            },
         )
 
     def _fetch_result(self, args: Dict[str, Any]) -> ToolResult:

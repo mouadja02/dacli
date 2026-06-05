@@ -24,7 +24,7 @@ from __future__ import annotations
 import os
 import shlex
 import shutil
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from sandbox.shells.base import RawExec
 

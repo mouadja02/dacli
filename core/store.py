@@ -4,6 +4,8 @@ Writes ``.dacli/dacli.json`` next to the session ``state/`` and ``history/``
 dirs. Holds: startup counters, a **secret-redacted** snapshot of the effective
 config, and accumulated token/cost usage (all-time totals, split by model, plus
 a per-session breakdown). This is what the ``/usage`` command renders.
+
+Credentials in the ``secrets`` block are Fernet-encrypted (see :mod:`core.crypto`).
 """
 
 from __future__ import annotations
@@ -134,26 +136,80 @@ class DacliStore:
             "connectors": {
                 "snowflake": {
                     k: sf.get(k)
-                    for k in ("account", "user", "warehouse", "role", "database", "db_schema")
+                    for k in (
+                        "account",
+                        "user",
+                        "warehouse",
+                        "role",
+                        "database",
+                        "db_schema",
+                    )
                 },
-                "github": {k: gh.get(k) for k in ("owner", "repo", "branch", "repository_url")},
-                "pinecone": {k: pc.get(k) for k in ("index_name", "environment", "top_k")},
+                "github": {
+                    k: gh.get(k) for k in ("owner", "repo", "branch", "repository_url")
+                },
+                "pinecone": {
+                    k: pc.get(k) for k in ("index_name", "environment", "top_k")
+                },
                 "embeddings": {k: emb.get(k) for k in ("provider", "model")},
             },
         }
 
     def set_secret(self, section: str, field: str, value: str) -> None:
-        """Store a real credential (e.g. ``set_secret('snowflake', 'password', ...)``)."""
+        """Store a real credential, Fernet-encrypted.
+
+        E.g. ``set_secret('snowflake', 'password', 'secret123')``.
+        The value is encrypted before being written to the ``secrets`` block
+        so plaintext credentials never touch ``.dacli/dacli.json``.
+        """
+        from core.crypto import encrypt_value, is_encrypted
+
+        if value and not is_encrypted(value):
+            value = encrypt_value(value, base_dir=str(self.base_dir))
         self._data.setdefault("secrets", {}).setdefault(section, {})[field] = value
 
     def get_secrets(self) -> Dict[str, Any]:
-        return self._data.get("secrets", {})
+        """Return decrypted secrets.
 
-    def _accumulate(self, bucket: Dict[str, Any], usage: TokenUsage, cost: float) -> None:
+        Plaintext values (from pre-encryption stores) are transparently
+        re-encrypted in place on first read so migration is invisible.
+        """
+        from core.crypto import decrypt_value, encrypt_value, is_encrypted
+
+        raw = self._data.get("secrets", {})
+        decrypted: Dict[str, Any] = {}
+        migrated = False
+        for section, fields in raw.items():
+            if not isinstance(fields, dict):
+                continue
+            decrypted[section] = {}
+            for field, val in fields.items():
+                if isinstance(val, str) and val and not is_encrypted(val):
+                    self._data.setdefault("secrets", {}).setdefault(section, {})[
+                        field
+                    ] = encrypt_value(val, base_dir=str(self.base_dir))
+                    migrated = True
+                decrypted[section][field] = (
+                    decrypt_value(val, base_dir=str(self.base_dir))
+                    if isinstance(val, str)
+                    else val
+                )
+        if migrated:
+            try:
+                self.save()
+            except Exception:
+                pass
+        return decrypted
+
+    def _accumulate(
+        self, bucket: Dict[str, Any], usage: TokenUsage, cost: float
+    ) -> None:
         bucket["input"] = bucket.get("input", 0) + usage.input
         bucket["output"] = bucket.get("output", 0) + usage.output
         bucket["cache_read"] = bucket.get("cache_read", 0) + usage.cache_read
-        bucket["cache_creation"] = bucket.get("cache_creation", 0) + usage.cache_creation
+        bucket["cache_creation"] = (
+            bucket.get("cache_creation", 0) + usage.cache_creation
+        )
         bucket["requests"] = bucket.get("requests", 0) + 1
         bucket["costUSD"] = round(bucket.get("costUSD", 0.0) + (cost or 0.0), 6)
 

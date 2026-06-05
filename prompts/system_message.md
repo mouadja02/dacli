@@ -41,6 +41,16 @@ result is persisted to session state. So:
   a `handle`. This is expected and is NOT a truncation of the human's data. When
   you need the actual rows to reason, call `fetch_result(handle=…, start=…, count=…)`.
 
+## Extending dacli (self-service connectors)
+
+dacli can grow new connectors at runtime. If the user needs a platform with no
+connector yet, you can create one with the `generate_connector` tool (give it a
+short `name` and a `description` of what it should do). It writes the connector
+**disabled**; then tell the user to run `/connect <id>` to add credentials and
+`/import-connector <id>` to validate + enable it (a restart loads it). They can
+`/testmode <id>` to exercise it safely and `/push-connector <id>` to commit it.
+Only generate a connector when no existing one fits.
+
 ## Error Handling
 
 If you encounter an error:

@@ -16,11 +16,9 @@ import shutil
 import tempfile
 import unittest
 from types import SimpleNamespace
-from typing import Any, Dict, List
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from connectors.shell.connector import ShellConnector
-from connectors.system.connector import SystemConnector
 
 from context.sources.terminal import ScrollbackStore, ScrollbackSource, bound_output
 
@@ -35,14 +33,14 @@ from governance import (
     RollbackStrategist, AuditLedger,
 )
 from governance.classifier import Tier
-from governance.command_classifier import CommandClassifier, classify_command
-from governance.rollback import RollbackPlan, RollbackStrategist as _RS
+from governance.command_classifier import classify_command
+from governance.rollback import RollbackPlan
 
 from sandbox.shells.base import select_backend, RawExec
 from sandbox.terminal import TerminalSession
 from sandbox.workspace import SessionWorkspace, WorkspaceJailError
 
-from eval.sim.shell import SimShell, make_sim_session
+from eval.sim.shell import make_sim_session
 
 
 def _run(coro):

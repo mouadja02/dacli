@@ -28,6 +28,14 @@ config.yaml
 config/connectors.yaml
 .dacli
 
+# Credential encryption key — NEVER commit. Covered by .dacli for the default
+# location; this also catches a custom DACLI_STATE_PATH outside .dacli.
+.key
+**/.key
+
+# /debug-connector backups of edited connector code
+*.py.bak
+
 # Local-only working dirs
 test.py
 roadmap/

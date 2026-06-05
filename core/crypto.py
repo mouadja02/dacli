@@ -1,0 +1,136 @@
+"""Fernet-based credential encryption for dacli.
+
+Key resolution priority:
+1. ``DACLI_ENCRYPTION_KEY`` environment variable (raw Fernet key or password)
+2. ``.dacli/.key`` file (raw Fernet key or password)
+3. Auto-generate a Fernet key and persist it to ``.dacli/.key``
+
+When the key source looks like a password (not a valid 32-byte base64 Fernet
+key), it is derived into one via PBKDF2 with a stable salt so the same password
+always produces the same Fernet key.
+
+Stored values are Fernet tokens (URL-safe base64). :func:`is_encrypted`
+detects the ``gAAAAA`` prefix so plaintext migration is transparent.
+"""
+
+from __future__ import annotations
+
+import base64
+import binascii
+import os
+from pathlib import Path
+from typing import Optional
+
+from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+_KEY_FILE = ".key"
+_STABLE_SALT = b"dacli-credential-encryption-v1"
+#: Fernet token = 0x80 version byte + 8-byte timestamp + 16-byte IV + ciphertext
+# + 32-byte HMAC, so the smallest possible token decodes to 1+8+16+0+32 bytes.
+_FERNET_VERSION = 0x80
+_FERNET_MIN_LEN = 57
+
+
+def resolve_base_dir(state_path: Optional[str] = None) -> Path:
+    """The single source of truth for the credential base directory.
+
+    The encryption key (``.key``) and the secrets store (``dacli.json``) both
+    live here, so encrypt and decrypt always agree on the key location. Priority:
+    an explicit ``state_path`` (e.g. the resolved ``settings.agent.state_path``) >
+    the ``DACLI_STATE_PATH`` env var > the ``.dacli/state/`` default. The base dir
+    is the *parent* of the state path (``.dacli`` for ``.dacli/state/``).
+
+    All callers — :mod:`core.store`, :func:`config.settings._load_dacli_secrets`,
+    and this module — resolve through here so the three never drift apart.
+    """
+    sp = state_path or os.environ.get("DACLI_STATE_PATH") or ".dacli/state/"
+    return Path(sp).parent
+
+
+def _resolve_base_dir() -> Path:
+    return resolve_base_dir()
+
+
+def _try_load_fernet_key(raw: bytes) -> Optional[bytes]:
+    if len(raw) == 44 and raw.endswith(b"="):
+        try:
+            decoded = base64.urlsafe_b64decode(raw)
+            if len(decoded) == 32:
+                return raw
+        except Exception:
+            pass
+    return None
+
+
+def _derive_key(password: bytes) -> bytes:
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        iterations=480_000,
+        salt=_STABLE_SALT,
+        length=32,
+    )
+    return base64.urlsafe_b64encode(kdf.derive(password))
+
+
+def get_encryption_key(base_dir: Optional[str] = None) -> bytes:
+    base = Path(base_dir) if base_dir else _resolve_base_dir()
+    key_file = base / _KEY_FILE
+
+    env_key = os.environ.get("DACLI_ENCRYPTION_KEY")
+    if env_key:
+        raw = env_key.encode("utf-8")
+        return _try_load_fernet_key(raw) or _derive_key(raw)
+
+    if key_file.exists():
+        raw = key_file.read_bytes().strip()
+        if raw:
+            return _try_load_fernet_key(raw) or _derive_key(raw)
+
+    key = Fernet.generate_key()
+    base.mkdir(parents=True, exist_ok=True)
+    key_file.write_bytes(key)
+    try:
+        os.chmod(str(key_file), 0o600)
+    except OSError:
+        pass
+    return key
+
+
+def _fernet(base_dir: Optional[str] = None) -> Fernet:
+    return Fernet(get_encryption_key(base_dir))
+
+
+def encrypt_value(plaintext: str, base_dir: Optional[str] = None) -> str:
+    if not plaintext:
+        return plaintext
+    return _fernet(base_dir).encrypt(plaintext.encode("utf-8")).decode("utf-8")
+
+
+def decrypt_value(token: str, base_dir: Optional[str] = None) -> str:
+    if not token:
+        return token
+    if not is_encrypted(token):
+        return token
+    try:
+        return _fernet(base_dir).decrypt(token.encode("utf-8")).decode("utf-8")
+    except InvalidToken:
+        return token
+
+
+def is_encrypted(value: str) -> bool:
+    """True if ``value`` is structurally a Fernet token.
+
+    Decodes the URL-safe base64 and checks the version byte and minimum length,
+    rather than matching the ``gAAAAA`` prefix. The prefix check produced false
+    positives for any plaintext starting with those characters, which would make
+    a real secret be treated as already-encrypted and stored in the clear.
+    """
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        decoded = base64.urlsafe_b64decode(value.encode("utf-8"))
+    except (binascii.Error, ValueError):
+        return False
+    return len(decoded) >= _FERNET_MIN_LEN and decoded[0] == _FERNET_VERSION

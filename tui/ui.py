@@ -42,7 +42,15 @@ __author__ = ""  # populated by caller if needed
 
 # Braille spinner frames + rotating verbs for the thinking indicator.
 _FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-_VERBS = ("Thinking", "Reasoning", "Working", "Crunching", "Cooking", "Pondering", "Churning")
+_VERBS = (
+    "Thinking",
+    "Reasoning",
+    "Working",
+    "Crunching",
+    "Cooking",
+    "Pondering",
+    "Churning",
+)
 
 # Glyphs (gutter markers borrowed from the Claude Code transcript style).
 G_AGENT = "⏺"
@@ -139,7 +147,9 @@ class DacliUI:
         self.settings = settings
         self.version = version
         self.author = author
-        self.theme: ThemeSpec = get_theme(theme_name or getattr(getattr(settings, "ui", None), "theme", None))
+        self.theme: ThemeSpec = get_theme(
+            theme_name or getattr(getattr(settings, "ui", None), "theme", None)
+        )
         if console is None:
             self.console = Console(theme=self.theme.rich_theme())
         else:
@@ -183,16 +193,24 @@ class DacliUI:
             meta.append(f"v{self.version}", style="accent")
         if self.author:
             meta.append(f"  ·  {self.author}", style="muted")
-        body = Group(lines, tagline, meta) if (self.version or self.author) else Group(lines, tagline)
+        body = (
+            Group(lines, tagline, meta)
+            if (self.version or self.author)
+            else Group(lines, tagline)
+        )
         self.console.print(Padding(body, (1, 2, 0, 2)))
 
-    def welcome(self, *, model: str, provider: str, connectors: List[str], cwd: str) -> None:
+    def welcome(
+        self, *, model: str, provider: str, connectors: List[str], cwd: str
+    ) -> None:
         """A compact 'session ready' card with the essentials + quick tips."""
         info = Text()
         info.append("model      ", style="muted")
         info.append(f"{provider}·{model}\n", style="accent")
         info.append("connectors ", style="muted")
-        info.append((", ".join(connectors) if connectors else "none") + "\n", style="info")
+        info.append(
+            (", ".join(connectors) if connectors else "none") + "\n", style="info"
+        )
         info.append("cwd        ", style="muted")
         info.append(cwd, style="info")
 
@@ -219,7 +237,13 @@ class DacliUI:
     # ------------------------------------------------------------------
     # Transcript primitives
     # ------------------------------------------------------------------
-    def _guttered(self, marker: str, marker_style: str, renderable: RenderableType, indent: int = 0) -> Table:
+    def _guttered(
+        self,
+        marker: str,
+        marker_style: str,
+        renderable: RenderableType,
+        indent: int = 0,
+    ) -> Table:
         grid = Table.grid(padding=(0, 1, 0, 0))
         grid.add_column(width=1 + indent, justify="right")
         grid.add_column(ratio=1)
@@ -277,19 +301,32 @@ class DacliUI:
 
         sql = args.get("query") or args.get("sql")
         if isinstance(sql, str) and sql.strip():
-            syntax = Syntax(sql.strip(), "sql", theme="monokai", word_wrap=True, background_color="default")
+            syntax = Syntax(
+                sql.strip(),
+                "sql",
+                theme="monokai",
+                word_wrap=True,
+                background_color="default",
+            )
             self.console.print(Padding(syntax, (0, 0, 0, 4)))
 
     def tool_end(self, tool_name: str, result: Any) -> None:
         if not isinstance(result, ToolResult):
-            self.console.print(Padding(self._guttered(G_RESULT, "muted", Text(str(result), style="step")), (0, 0, 0, 2)))
+            self.console.print(
+                Padding(
+                    self._guttered(G_RESULT, "muted", Text(str(result), style="step")),
+                    (0, 0, 0, 2),
+                )
+            )
             return
 
         if not result.success:
             summary = Text()
             summary.append("✗ ", style="bad")
             summary.append(str(result.error or "failed"), style="error")
-            self.console.print(Padding(self._guttered(G_RESULT, "bad", summary), (0, 0, 0, 2)))
+            self.console.print(
+                Padding(self._guttered(G_RESULT, "bad", summary), (0, 0, 0, 2))
+            )
             self.console.print()
             return
 
@@ -299,14 +336,23 @@ class DacliUI:
         body: Optional[RenderableType] = None
 
         if isinstance(data, list) and data and isinstance(data[0], dict):
-            summary.append(f"{len(data)} row{'s' if len(data) != 1 else ''}", style="success")
+            summary.append(
+                f"{len(data)} row{'s' if len(data) != 1 else ''}", style="success"
+            )
             body = _rows_table(data)
         elif isinstance(data, list):
-            summary.append(f"{len(data)} item{'s' if len(data) != 1 else ''}", style="success")
+            summary.append(
+                f"{len(data)} item{'s' if len(data) != 1 else ''}", style="success"
+            )
             if data:
-                body = Text("\n".join(f"{i}. {_cell(v)}" for i, v in enumerate(data, 1)), style="step")
+                body = Text(
+                    "\n".join(f"{i}. {_cell(v)}" for i, v in enumerate(data, 1)),
+                    style="step",
+                )
         elif isinstance(data, dict):
-            summary.append(f"{len(data)} field{'s' if len(data) != 1 else ''}", style="success")
+            summary.append(
+                f"{len(data)} field{'s' if len(data) != 1 else ''}", style="success"
+            )
             kv = Text()
             for k, v in data.items():
                 kv.append(f"{k}: ", style="muted")
@@ -319,7 +365,9 @@ class DacliUI:
             body = Text(_cell(data), style="step")
 
         summary.append(f"  ·  {result.execution_time_ms:.0f}ms", style="muted")
-        self.console.print(Padding(self._guttered(G_RESULT, "muted", summary), (0, 0, 0, 2)))
+        self.console.print(
+            Padding(self._guttered(G_RESULT, "muted", summary), (0, 0, 0, 2))
+        )
         if body is not None:
             self.console.print(Padding(body, (0, 0, 0, 4)))
         self.console.print()
@@ -357,10 +405,18 @@ class DacliUI:
         table.add_column("Operations", justify="right", style="step")
         for connector_id, info in registry.get_catalog().items():
             if registry.is_connector_enabled(connector_id):
-                ops = [op for op in info["operations"] if registry.is_operation_enabled(op)]
-                table.add_row(f"{info['icon']} {info['name']}", "[ok]● enabled[/ok]", str(len(ops)))
+                ops = [
+                    op for op in info["operations"] if registry.is_operation_enabled(op)
+                ]
+                table.add_row(
+                    f"{info['icon']} {info['name']}",
+                    "[ok]● enabled[/ok]",
+                    str(len(ops)),
+                )
             else:
-                table.add_row(f"{info['icon']} {info['name']}", "[muted]○ disabled[/muted]", "—")
+                table.add_row(
+                    f"{info['icon']} {info['name']}", "[muted]○ disabled[/muted]", "—"
+                )
         self.console.print(table)
         self.console.print("[muted]Use /setup to reconfigure connectors[/muted]\n")
 
@@ -416,11 +472,17 @@ class DacliUI:
             marker = G_USER if role == "user" else G_AGENT
             style = "user" if role == "user" else "assistant"
             preview = content if len(content) <= 200 else content[:200] + "…"
-            self.console.print(self._guttered(marker, style, Text(preview, style="step")))
+            self.console.print(
+                self._guttered(marker, style, Text(preview, style="step"))
+            )
         self.console.print()
 
-    def panel(self, renderable: RenderableType, title: str, style: str = "border") -> None:
-        self.console.print(Panel(renderable, title=title, border_style=style, padding=(1, 2)))
+    def panel(
+        self, renderable: RenderableType, title: str, style: str = "border"
+    ) -> None:
+        self.console.print(
+            Panel(renderable, title=title, border_style=style, padding=(1, 2))
+        )
 
     def rule(self, label: str = "") -> None:
         self.console.print(Rule(label, style="border"))
@@ -428,29 +490,52 @@ class DacliUI:
     # ------------------------------------------------------------------
     # Persistent bottom status bar (prompt-toolkit)
     # ------------------------------------------------------------------
-    def bottom_toolbar(self, *, provider: str, model: str, connectors: List[str], ctx_pct: int, session: str):
+    def bottom_toolbar(
+        self,
+        *,
+        provider: str,
+        model: str,
+        connectors: List[str],
+        ctx_pct: int,
+        session: str,
+        test_mode: str = "",
+    ):
         """Return prompt-toolkit formatted text for the bottom bar."""
         from prompt_toolkit.formatted_text import HTML
 
         def esc(s: str) -> str:
-            return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            return (
+                (s or "")
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+            )
 
         conns = ",".join(connectors) if connectors else "none"
         if len(conns) > 28:
             conns = conns[:27] + "…"
+        test_seg = (
+            f' │  <b><style fg="ansired">{esc(test_mode)}</style></b>'
+            if test_mode
+            else ""
+        )
         text = (
-            f' <b>{esc(provider)}</b>·{esc(model)} '
-            f' │  ⛁ {esc(conns)} '
-            f' │  ◴ ctx {ctx_pct}% '
-            f' │  ⎇ {esc(session)} '
-            f' │  /help '
+            f" <b>{esc(provider)}</b>·{esc(model)} "
+            f" │  ⛁ {esc(conns)} "
+            f" │  ◴ ctx {ctx_pct}% "
+            f" │  ⎇ {esc(session)} "
+            f"{test_seg}"
+            f" │  /help "
         )
         # prompt-toolkit parses these colors itself and raises (crashing the
         # input loop) on anything that isn't hex/ansi — so only pass colors we
         # know are valid, otherwise fall back to its default bar styling.
         attrs = " ".join(
             f'{attr}="{value}"'
-            for attr, value in (("bg", self.theme.toolbar_bg), ("fg", self.theme.toolbar_fg))
+            for attr, value in (
+                ("bg", self.theme.toolbar_bg),
+                ("fg", self.theme.toolbar_fg),
+            )
             if _valid_pt_color(value)
         )
         if attrs:
@@ -500,7 +585,9 @@ def _rows_table(rows: List[Dict[str, Any]]) -> Table:
             if key not in columns:
                 columns.append(key)
 
-    table = Table(show_header=True, header_style="muted", box=None, padding=(0, 2, 0, 0))
+    table = Table(
+        show_header=True, header_style="muted", box=None, padding=(0, 2, 0, 0)
+    )
     table.add_column("#", style="muted", justify="right")
     for col in columns:
         table.add_column(str(col), style="info", overflow="fold")
