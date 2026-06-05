@@ -25,6 +25,7 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, Iterable, List, Optional
 
+from rich import box
 from rich.console import Console, Group, RenderableType
 from rich.markdown import Markdown
 from rich.live import Live
@@ -42,6 +43,8 @@ __author__ = ""  # populated by caller if needed
 
 # Braille spinner frames + rotating verbs for the thinking indicator.
 _FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+# The spinner glyph shimmers through this short palette for a subtle animation.
+_SHIMMER = ("accent", "tool", "info", "ok", "assistant")
 _VERBS = (
     "Thinking",
     "Reasoning",
@@ -50,6 +53,11 @@ _VERBS = (
     "Cooking",
     "Pondering",
     "Churning",
+    "Wrangling",
+    "Untangling",
+    "Synthesizing",
+    "Plotting",
+    "Distilling",
 )
 
 # Glyphs (gutter markers borrowed from the Claude Code transcript style).
@@ -57,6 +65,16 @@ G_AGENT = "⏺"
 G_TOOL = "⏺"
 G_RESULT = "⎿"
 G_USER = "❯"
+
+# Leading icon per notice style — a small visual cue so success/warning/error
+# read at a glance without reading the text.
+_NOTICE_ICONS = {
+    "success": "✓",
+    "warning": "⚠",
+    "error": "✗",
+    "bad": "✗",
+    "info": "ℹ",
+}
 
 
 class StreamView:
@@ -119,10 +137,14 @@ class StreamView:
         elapsed = time.monotonic() - self._start
         if not self._buffer:
             frame = _FRAMES[int(elapsed * 10) % len(_FRAMES)]
-            verb = _VERBS[int(elapsed / 4) % len(_VERBS)]
+            verb = _VERBS[int(elapsed / 3) % len(_VERBS)]
+            shimmer = _SHIMMER[int(elapsed * 3) % len(_SHIMMER)]
             line = Text()
-            line.append(f"{frame} ", style="accent")
-            line.append(f"{verb}… ", style="assistant")
+            line.append(f"{frame} ", style=f"bold {shimmer}")
+            line.append(f"{verb}", style="assistant")
+            # Animated trailing dots so the line breathes even mid-token-wait.
+            dots = "." * (1 + int(elapsed * 2) % 3)
+            line.append(f"{dots} ", style="muted")
             if self._ui.activity:
                 line.append(f"{self._ui.activity} ", style="muted")
             line.append(f"({elapsed:.0f}s · ctrl-c to interrupt)", style="muted")
@@ -228,11 +250,61 @@ class DacliUI:
         self.console.print(
             Panel(
                 Group(info, tips),
-                title="[success]✓ ready[/success]",
-                border_style="border",
+                title="[success]✓ session ready[/success]",
+                title_align="left",
+                box=box.ROUNDED,
+                border_style="accent",
                 padding=(1, 2),
             )
         )
+
+    # ------------------------------------------------------------------
+    # User input — a distinct, framed 'you' entry vs dacli's ⏺ output
+    # ------------------------------------------------------------------
+    def prompt_html(self):
+        """The prompt-toolkit prompt for the user's input line.
+
+        Renders a colored left bar + ``you`` label so the human's turns are
+        visually distinct from dacli's ``⏺`` agent output. Uses the theme's
+        toolbar color (always a valid prompt-toolkit hex), falling back to a
+        named ansi color so a custom theme can never crash the input loop.
+        """
+        from prompt_toolkit.formatted_text import HTML
+
+        c = self.theme.toolbar_fg if _valid_pt_color(self.theme.toolbar_fg) else "ansicyan"
+        return HTML(
+            f'<style fg="{c}"><b>▌</b></style> <b>you</b> '
+            f'<style fg="{c}">❯</style> '
+        )
+
+    def user_message(self, text: str) -> None:
+        """Echo a user message as a distinct, bordered 'you' panel.
+
+        Used by the history view (and available for transcript echo). The live
+        input loop relies on :meth:`prompt_html` instead, so the typed line is
+        not duplicated.
+        """
+        body = Text(text.strip(), style="user")
+        self.console.print(
+            Panel(
+                body,
+                title="[accent]▌ you[/accent]",
+                title_align="left",
+                box=box.ROUNDED,
+                border_style="border",
+                padding=(0, 1),
+            )
+        )
+
+    def clear_screen(self, header: str = "") -> None:
+        """Clear the terminal viewport (like PowerShell ``clear``/``cls``).
+
+        Wipes the visible scrollback but keeps conversation history/state. An
+        optional one-line ``header`` is reprinted so the screen isn't blank.
+        """
+        self.console.clear()
+        if header:
+            self.console.print(f"[muted]{header}[/muted]\n")
 
     # ------------------------------------------------------------------
     # Transcript primitives
@@ -256,7 +328,9 @@ class DacliUI:
         self.console.print()
 
     def notice(self, message: str, style: str = "info") -> None:
-        self.console.print(f"[{style}]{message}[/{style}]")
+        icon = _NOTICE_ICONS.get(style, "")
+        prefix = f"{icon} " if icon else ""
+        self.console.print(f"[{style}]{prefix}{message}[/{style}]")
 
     def error(self, message: str) -> None:
         self.console.print(self._guttered("✗", "bad", Text(message, style="error")))
@@ -469,11 +543,13 @@ class DacliUI:
         for msg in messages[-limit:]:
             role = getattr(msg, "role", "?")
             content = getattr(msg, "content", "")
-            marker = G_USER if role == "user" else G_AGENT
-            style = "user" if role == "user" else "assistant"
+            is_user = role == "user"
+            marker = "▌" if is_user else G_AGENT
+            marker_style = "accent" if is_user else "gutter"
+            text_style = "user" if is_user else "step"
             preview = content if len(content) <= 200 else content[:200] + "…"
             self.console.print(
-                self._guttered(marker, style, Text(preview, style="step"))
+                self._guttered(marker, marker_style, Text(preview, style=text_style))
             )
         self.console.print()
 

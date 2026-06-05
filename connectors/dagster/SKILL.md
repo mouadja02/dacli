@@ -1,6 +1,5 @@
 ---
-id: dagster
-name: Dagster
+name: dagster
 description: Launch and inspect Dagster runs and asset materializations via GraphQL.
 ---
 

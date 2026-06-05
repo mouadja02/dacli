@@ -9,7 +9,6 @@ from rich.table import Table
 from rich.text import Text
 from rich.prompt import Prompt, Confirm
 from prompt_toolkit import PromptSession
-from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import Completer, Completion
@@ -50,7 +49,16 @@ class SlashCommandCompleter(Completer):
 
     def __init__(self, commands):
         # commands: list of (cmd, description); ``cmd`` may include args like "/load <id>".
-        self._commands = [(c.split()[0], desc) for c, desc in commands]
+        # Dedupe by the base command token so two entries that share a word
+        # (e.g. "/connect" and "/connect <tool>") don't show as two menu rows.
+        seen = set()
+        self._commands = []
+        for c, desc in commands:
+            base = c.split()[0]
+            if base in seen:
+                continue
+            seen.add(base)
+            self._commands.append((base, desc))
 
     @staticmethod
     def _subsequence(needle: str, haystack: str) -> bool:
@@ -933,7 +941,7 @@ async def _run_chat(
             try:
                 user_input = await asyncio.to_thread(
                     pt_session.prompt,
-                    HTML("<b>❯</b> "),
+                    chat_ui.prompt_html(),
                 )
 
                 if not user_input.strip():
@@ -1040,6 +1048,14 @@ async def _run_chat(
                     elif cmd == "/clear":
                         memory.clear_messages()
                         chat_ui.notice("Conversation cleared.", style="success")
+
+                    elif cmd == "/cls":
+                        # PowerShell-style screen clear: wipe the viewport but
+                        # keep conversation history/state intact.
+                        chat_ui.clear_screen(
+                            header=f"dacli · {settings.llm.provider}·{settings.llm.model} "
+                            f"· {memory.session_id}  (history kept — /clear to wipe it)"
+                        )
 
                     elif cmd == "/reset":
                         if Confirm.ask(

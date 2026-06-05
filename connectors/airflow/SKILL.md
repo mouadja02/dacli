@@ -1,6 +1,5 @@
 ---
-id: airflow
-name: Apache Airflow
+name: airflow
 description: Operate and debug Airflow DAGs — trigger, monitor, pause, inspect runs.
 ---
 

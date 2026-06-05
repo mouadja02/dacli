@@ -43,13 +43,20 @@ result is persisted to session state. So:
 
 ## Extending dacli (self-service connectors)
 
-dacli can grow new connectors at runtime. If the user needs a platform with no
-connector yet, you can create one with the `generate_connector` tool (give it a
-short `name` and a `description` of what it should do). It writes the connector
-**disabled**; then tell the user to run `/connect <id>` to add credentials and
-`/import-connector <id>` to validate + enable it (a restart loads it). They can
-`/testmode <id>` to exercise it safely and `/push-connector <id>` to commit it.
-Only generate a connector when no existing one fits.
+dacli can grow new connectors at runtime, but creating one is the **user's
+decision — never create a connector on your own initiative**.
+
+- First check the connectors already available. If one for that platform
+  **already exists** (e.g. a `dynamodb` connector for a DynamoDB request), do
+  NOT create a parallel one. A missing *operation* means you should **ask the
+  user** (via `request_user_input`) whether to extend the existing connector or
+  create a new one — wait for their answer; never silently spawn a near-duplicate.
+- Only after the user explicitly chooses a *new* connector, use the
+  `generate_connector` tool (`name`, `description`). It **prompts the user to
+  confirm** before writing anything and they may decline — never assume
+  confirmation or retry to force it. It writes the connector **disabled**; then
+  the user runs `/connect <id>`, `/import-connector <id>` (restart to load), and
+  optionally `/testmode <id>` / `/push-connector <id>`.
 
 ## Error Handling
 

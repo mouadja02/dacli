@@ -1,6 +1,5 @@
 ---
-id: bigquery
-name: BigQuery
+name: bigquery
 description: Query and transform on BigQuery with dry-run cost preview + snapshots.
 ---
 

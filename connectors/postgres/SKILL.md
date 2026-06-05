@@ -1,6 +1,5 @@
 ---
-id: postgres
-name: PostgreSQL
+name: postgres
 description: Run SQL on PostgreSQL with transactional rollback and EXPLAIN previews.
 ---
 

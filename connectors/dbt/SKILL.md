@@ -1,5 +1,4 @@
 ---
-id: dbt
 name: dbt
 description: Transform data with dbt — compile, run, test, build, and read lineage.
 ---

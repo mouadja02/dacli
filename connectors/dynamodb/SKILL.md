@@ -1,6 +1,5 @@
 ---
-id: dynamodb
-name: DynamoDB
+name: dynamodb
 description: Scan/get/put/delete DynamoDB items with point-in-time-recovery rollback.
 ---
 

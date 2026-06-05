@@ -45,8 +45,8 @@ def compose_system_prompt(
     return "\n\n".join(parts)
 
 def get_default_system_prompt() -> str:
-    """Return the default system prompt for the Data Warehouse Agent."""
-    return DEFAULT_SYSTEM_PROMPT
+    """Return the default system prompt (the invariant core fragment)."""
+    return compose_system_prompt()
 
 def load_system_prompt(custom_path: Optional[str] = None) -> str:
     # Load the system prompt from file

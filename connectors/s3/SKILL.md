@@ -1,6 +1,5 @@
 ---
-id: s3
-name: Amazon S3
+name: s3
 description: List, read, upload, and delete S3 objects with versioned rollback.
 ---
 
