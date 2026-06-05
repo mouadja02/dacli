@@ -9,6 +9,8 @@ token/cost usage. Backs ``dacli run`` and ``dacli replay``.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -86,10 +88,6 @@ class HeadlessResult:
 
     def to_json(self, indent: int = 2) -> str:
         return json.dumps(self.to_dict(), indent=indent, default=str)
-
-
-import os
-import tempfile
 
 
 def _write_minimal_connectors_config(settings: Any) -> str:
