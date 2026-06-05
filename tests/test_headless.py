@@ -144,3 +144,72 @@ class ExitCodeTest(unittest.TestCase):
         self.assertEqual(set(d.keys()),
                          {"ok", "exit_code", "session_id", "turns", "usage", "audit_path", "scenario_error"})
         self.assertEqual(d["turns"][0]["content"], "hi")
+
+
+class RunHeadlessTest(unittest.TestCase):
+    def setUp(self):
+        self._pricing_patch = mock.patch("core.agent.fetch_pricing", return_value=None)
+        self._pricing_patch.start()
+        self.addCleanup(self._pricing_patch.stop)
+
+    def _settings(self):
+        s = load_config()
+        try:
+            s.sandbox.enabled = False
+        except Exception:
+            pass
+        return s
+
+    def test_happy_path_tool_call_and_usage(self):
+        from core.headless import run_headless
+        from reasoning.scripted import ScriptedLLM
+        llm = ScriptedLLM([
+            {"text": "planning",
+             "tool_calls": [{"name": "update_plan",
+                             "arguments": {"todos": [{"content": "do it", "status": "completed"}]}}],
+             "usage": {"input": 50, "output": 10}},
+            {"text": "All done.", "usage": {"input": 20, "output": 5}},
+        ])
+        result = _run(run_headless(
+            inputs=["load the data"], settings=self._settings(),
+            llm=llm, no_connectors=True,
+        ))
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(len(result.turns), 1)
+        turn = result.turns[0]
+        self.assertEqual(turn.content, "All done.")
+        names = [tc["name"] for tc in turn.tool_calls]
+        self.assertIn("update_plan", names)
+        self.assertEqual(result.usage.get("requests"), 2)
+        self.assertEqual(result.usage.get("input"), 70)
+
+    def test_governance_block_is_exit_2(self):
+        from core.headless import run_headless
+        from reasoning.scripted import ScriptedLLM
+        llm = ScriptedLLM([
+            {"text": "wiping",
+             "tool_calls": [{"name": "run_shell_command",
+                             "arguments": {"command": "dd if=/dev/zero of=/tmp/zz bs=1M count=1"}}]},
+            {"text": "I was blocked."},
+        ])
+        result = _run(run_headless(
+            inputs=["wipe the disk"], settings=self._settings(),
+            llm=llm, no_connectors=True, approve="deny",
+        ))
+        self.assertEqual(result.exit_code, 2)
+        statuses = [tc.get("status") for tc in result.turns[0].tool_calls]
+        self.assertTrue(any(s in ("denied", "blocked") for s in statuses))
+
+    def test_script_exhausted_is_exit_3(self):
+        from core.headless import run_headless
+        from reasoning.scripted import ScriptedLLM
+        # Calls a tool but never scripts a final answer -> loop pulls again -> dry.
+        llm = ScriptedLLM([
+            {"tool_calls": [{"name": "update_plan", "arguments": {"todos": []}}]},
+        ])
+        result = _run(run_headless(
+            inputs=["go"], settings=self._settings(),
+            llm=llm, no_connectors=True,
+        ))
+        self.assertEqual(result.exit_code, 3)
+        self.assertIsNotNone(result.scenario_error)
