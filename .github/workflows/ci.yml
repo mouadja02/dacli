@@ -45,3 +45,9 @@ jobs:
       # destructive execution (the DROP-guard must hold across k runs).
       - name: Reliability eval (sim suite, pass^k)
         run: python -m eval --quick
+
+      # End-to-end smoke of the headless agent surface: drives the real agent
+      # loop + governance with a scripted (offline, free) LLM and asserts the
+      # JSON contract holds and the process exits 0. No secrets required.
+      - name: Headless e2e smoke (scripted LLM, offline)
+        run: python run.py replay scenarios/smoke_headless.json --json
