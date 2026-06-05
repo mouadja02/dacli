@@ -40,3 +40,4 @@ config/connectors.yaml
 test.py
 roadmap/
 .claude/
+TEST.md

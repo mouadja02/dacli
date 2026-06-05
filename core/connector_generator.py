@@ -333,7 +333,12 @@ class ConnectorGenerator:
         self.llm = llm_client
 
     async def generate(self, name: str, description: str) -> GeneratedConnector:
-        prompt = _GENERATION_PROMPT.format(name=name, description=description)
+        # NOTE: explicit .replace, not str.format — the prompt contains a literal
+        # ``{ClassName}`` instruction for the model that str.format would treat as
+        # a missing field (KeyError).
+        prompt = _GENERATION_PROMPT.replace("{name}", name).replace(
+            "{description}", description
+        )
         reference = _reference_section()
         if reference:
             prompt = f"{prompt}\n\n{reference}"
