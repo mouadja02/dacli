@@ -57,6 +57,7 @@ class DACLI:
         on_stream_end: Optional[Callable[[str], None]] = None,
         connectors_config_path: str = CONNECTORS_CONFIG_PATH,
         store: Optional[DacliStore] = None,
+        llm: Optional[object] = None,
     ):
         self.settings = settings
         self.memory = memory or AgentMemory(
@@ -67,7 +68,9 @@ class DACLI:
 
         self.system_prompt = system_prompt or load_system_prompt()
         self._on_status_update = on_status_update
-        self.llm = LLMClient(settings)  # reasoning client
+        # Reasoning client. Injectable so a headless/test harness can supply a
+        # deterministic ScriptedLLM; defaults to the real provider client.
+        self.llm = llm or LLMClient(settings)
 
         # Usage/cost tracking: persistent .dacli/dacli.json + models.dev pricing
         # for the configured provider+model (None when offline -> tokens still

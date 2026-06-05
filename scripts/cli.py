@@ -706,6 +706,132 @@ def eval_cmd(quick, regression, calibrate, as_json):
     raise SystemExit(eval_main(argv))
 
 
+def _load_settings_for_headless(config, *, offline):
+    # Real runs need a configured LLM provider; an offline scripted run never
+    # uses real credentials (the ScriptedLLM is injected), so when no config is
+    # present fall back to a placeholder LLM config. This keeps hermetic CI and
+    # AI-agent runs secret-free, which is the whole point of the scripted path.
+    from config.settings import Settings
+
+    try:
+        return load_config(config)
+    except Exception:
+        if not offline:
+            raise
+        # Only the sub-settings with required fields need an explicit block; the
+        # rest default. These placeholders are never used to reach a network.
+        return Settings(
+            llm={"provider": "scripted", "model": "scripted",
+                 "api_key": "scripted", "base_url": "https://api.test.local"},
+            github={"token": "x"},
+            snowflake={"account": "a", "user": "u", "password": "p",
+                       "warehouse": "w", "role": "r", "database": "d"},
+            pinecone={"api_key": "k", "index_name": "i", "environment": "e"},
+            embeddings={"provider": "openai", "api_key": "k", "model": "m"},
+        )
+
+
+async def _run_headless_cli(
+    *,
+    inputs,
+    config,
+    session,
+    approve,
+    llm_script,
+    no_connectors,
+    max_iterations,
+):
+    # Shared driver for `run` and `replay`. Builds settings, optionally injects a
+    # ScriptedLLM from a JSON/YAML file, and returns a HeadlessResult.
+    import yaml
+
+    from core.headless import run_headless
+    from reasoning.scripted import ScriptedLLM
+
+    settings = _load_settings_for_headless(config, offline=bool(llm_script))
+    llm = None
+    if llm_script:
+        responses = yaml.safe_load(Path(llm_script).read_text(encoding="utf-8")) or []
+        llm = ScriptedLLM(responses)
+    return await run_headless(
+        inputs=inputs,
+        settings=settings,
+        llm=llm,
+        approve=approve,
+        session_id=session,
+        no_connectors=no_connectors,
+        max_iterations=max_iterations,
+    )
+
+
+def _emit_headless(result, as_json):
+    # Machine path: emit ONLY the JSON via click.echo (plain stdout, no Rich
+    # styling/ANSI) so consumers can json.loads(stdout) safely. Human path: a
+    # short themed summary.
+    if as_json:
+        click.echo(result.to_json())
+    else:
+        for i, turn in enumerate(result.turns, 1):
+            console.print(f"[accent]turn {i}[/accent]: {turn.content or '(no text)'}")
+            if turn.error:
+                console.print(f"[error]error:[/error] {turn.error}")
+        if result.scenario_error:
+            console.print(f"[error]scenario error:[/error] {result.scenario_error}")
+        console.print(f"[muted]exit {result.exit_code} · session {result.session_id}[/muted]")
+
+
+@cli.command(name="run")
+@click.argument("message")
+@click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
+@click.option("--session", "-s", type=str, help="Session ID to resume")
+@click.option("--approve", type=click.Choice(["deny", "approve"]), default="deny",
+              help="Approval policy for governed actions (default: deny = fail-safe)")
+@click.option("--llm-script", type=click.Path(exists=True),
+              help="JSON/YAML file of scripted LLM responses (offline, deterministic)")
+@click.option("--no-connectors", is_flag=True, default=False,
+              help="Disable external connectors (built-ins only) for a hermetic run")
+@click.option("--max-iterations", type=int, default=None, help="Override the agent iteration cap")
+@click.option("--json", "as_json", is_flag=True, help="Emit the machine-readable JSON result")
+def run_cmd(message, config, session, approve, llm_script, no_connectors, max_iterations, as_json):
+    """Run a single message through the agent headlessly and emit a JSON result."""
+    result = asyncio.run(_run_headless_cli(
+        inputs=[message], config=config, session=session, approve=approve,
+        llm_script=llm_script, no_connectors=no_connectors, max_iterations=max_iterations,
+    ))
+    _emit_headless(result, as_json)
+    raise SystemExit(result.exit_code)
+
+
+@cli.command(name="replay")
+@click.argument("scenario_file", type=click.Path(exists=True))
+@click.option("--json", "as_json", is_flag=True, help="Emit the machine-readable JSON result")
+def replay_cmd(scenario_file, as_json):
+    """Replay a scenario file (ordered user turns + optional scripted LLM)."""
+    import yaml
+
+    from core.headless import run_headless
+    from reasoning.scripted import ScriptedLLM
+
+    scenario = yaml.safe_load(Path(scenario_file).read_text(encoding="utf-8")) or {}
+    llm = None
+    if scenario.get("llm_script"):
+        llm = ScriptedLLM(scenario["llm_script"])
+    settings = _load_settings_for_headless(
+        scenario.get("config"), offline=bool(scenario.get("llm_script"))
+    )
+    result = asyncio.run(run_headless(
+        inputs=list(scenario.get("turns") or []),
+        settings=settings,
+        llm=llm,
+        approve=scenario.get("approve", "deny"),
+        canned_inputs=scenario.get("inputs"),
+        no_connectors=bool(scenario.get("no_connectors", True)),
+        max_iterations=scenario.get("max_iterations"),
+    ))
+    _emit_headless(result, as_json)
+    raise SystemExit(result.exit_code)
+
+
 @cli.command()
 @click.option("--output", "-o", type=click.Path(), help="Output file path")
 def prompt(output):

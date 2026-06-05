@@ -1,0 +1,15 @@
+{
+  "no_connectors": true,
+  "approve": "deny",
+  "llm_script": [
+    {
+      "text": "Planning the work.",
+      "tool_calls": [
+        {"name": "update_plan", "arguments": {"todos": [{"content": "smoke step", "status": "completed"}]}}
+      ],
+      "usage": {"input": 40, "output": 8}
+    },
+    {"text": "Smoke scenario complete.", "usage": {"input": 12, "output": 4}}
+  ],
+  "turns": ["run the headless smoke scenario"]
+}
