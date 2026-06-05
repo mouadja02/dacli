@@ -24,6 +24,10 @@ Exit code 0 and a final ``SMOKE PASSED`` line means everything worked.
 
 from __future__ import annotations
 
+# This script bootstraps sys.path before importing the dacli package, so the
+# dacli imports intentionally come after that setup (E402 doesn't apply here).
+# ruff: noqa: E402
+
 import asyncio
 import sys
 import shutil

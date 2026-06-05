@@ -111,8 +111,7 @@ class SnowflakeSettings(BaseModel):
     login_timeout: int = Field(default=60, ge=1)
     network_timeout: int = Field(default=60, ge=1)
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class PineconeSettings(BaseModel):
@@ -154,8 +153,7 @@ class DatabricksSettings(BaseModel):
     databricks_binary: str = "databricks"
     timeout: int = Field(default=300, ge=1)
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class S3Settings(BaseModel):

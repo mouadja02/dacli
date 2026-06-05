@@ -1,6 +1,5 @@
 ---
-id: github
-name: GitHub
+name: github
 description: Manage files and Actions workflows on GitHub under tiered governance.
 ---
 

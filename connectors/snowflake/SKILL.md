@@ -1,6 +1,5 @@
 ---
-id: snowflake
-name: Snowflake
+name: snowflake
 description: Execute SQL and manage a Snowflake warehouse under tiered governance.
 ---
 

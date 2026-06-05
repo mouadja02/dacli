@@ -1,6 +1,5 @@
 ---
-id: gcs
-name: Google Cloud Storage
+name: gcs
 description: List, read, upload, and delete GCS objects with versioned rollback.
 ---
 

@@ -8,8 +8,7 @@ CLI_COMMANDS = [
     ("/context", "Explain the assembled context (sources, tokens, budget)"),
     ("/audit", "Show governance decisions for this session (why the agent acted)"),
     ("/tools", "Show enabled tools and capabilities"),
-    ("/connect", "Configure a connector (interactive credential setup)"),
-    ("/connect <tool>", "Configure a specific connector by name"),
+    ("/connect [tool]", "Configure a connector — interactive, or pass a name"),
     ("/new-connector", "Generate a new connector from natural language description"),
     ("/testmode [tool]", "Toggle staging test mode (health-gated, side-effect-free) for new connectors"),
     ("/import-connector", "Import a tested connector from sandbox to local"),
@@ -24,6 +23,7 @@ CLI_COMMANDS = [
     ("/theme <name>", "Switch UI theme (dark, light, ocean, mono)"),
     ("/prompt", "View/edit the system prompt"),
     ("/clear", "Clear conversation history"),
+    ("/cls", "Clear the screen (keeps conversation history)"),
     ("/reset", "Reset agent state"),
     ("/exit", "Exit the CLI"),
 ]

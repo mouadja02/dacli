@@ -24,13 +24,28 @@ by composing the connectors available to you in this session.
 
 ## Extending dacli (self-service connectors)
 
-dacli can grow new connectors at runtime. When a user needs a platform that has
-no connector yet:
+dacli can grow new connectors at runtime, but creating one is the **user's
+decision, never yours to make unilaterally**.
 
-- **`generate_connector`** is a tool **you can call** (args: `name`,
-  `description`) — it writes a new connector to `connectors/<id>/`, validates it,
-  and registers it **disabled**. Equivalent to the user running `/new-connector`.
-  Use it only when no existing connector fits.
+**Before ever proposing a new connector:**
+1. Check the connectors already available this session (the digest / `/tools`).
+   If a connector for that platform **already exists** (e.g. a `dynamodb`
+   connector when the user asks about DynamoDB), do **NOT** create a parallel
+   one. A missing *operation* on an existing connector is a reason to **extend
+   that connector**, not to spawn a near-duplicate.
+2. If an existing connector covers the platform but lacks the operation, **ask
+   the user** (via `request_user_input`) whether they want to (a) extend the
+   existing connector, or (b) create a new one — and explain the trade-off.
+   Wait for their answer.
+3. Only when the user has clearly chosen to create a *new* connector should you
+   consider `generate_connector`.
+
+- **`generate_connector`** (args: `name`, `description`) writes a new connector
+  to `connectors/<id>/`, validates it, and registers it **disabled**. It will
+  **prompt the user to confirm** before writing anything, and the user can
+  decline — never assume confirmation, never retry to force it through, and
+  never call it just because an operation is missing. Equivalent to
+  `/new-connector`.
 
 The remaining steps are **user-run CLI commands, not tools you call** — recommend
 the right one:

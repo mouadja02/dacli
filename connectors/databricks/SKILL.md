@@ -1,6 +1,5 @@
 ---
-id: databricks
-name: Databricks
+name: databricks
 description: Run SQL on a Databricks SQL warehouse with Delta time-travel rollback.
 ---
 

@@ -5,7 +5,7 @@ icon: "⚡"
 class: connectors.dynamodb.connector.DynamoDBConnector
 required_config: [region]
 enabled: false
-default_scope: read_only
+default_scope: risky
 golden_task:
   name: Put an item and confirm it landed
   op: put_dynamodb_item

@@ -19,7 +19,6 @@ from connectors.base import OperationSpec, Risk, ToolResult
 from connectors.cli_base import CliConnector
 from core.verify import PostCondition, VerificationContext, result_succeeded, data_is_list
 
-
 def dynamo_item_present() -> PostCondition:
     def check(ctx: VerificationContext):
         data = getattr(ctx.result, "data", None) or {}

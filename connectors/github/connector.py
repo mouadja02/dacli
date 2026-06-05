@@ -994,8 +994,6 @@ class GithubConnector(Connector):
         if response.status_code != 200:
             return {"error": f"Failed to fetch run: HTTP {response.status_code}"}
 
-        run_data = response.json()
-
         response = await self._client.get(
             f"/repos/{self._gh.owner}/{self._gh.repo}/actions/runs/{run_id}/jobs"
         )

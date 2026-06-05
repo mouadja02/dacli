@@ -345,7 +345,6 @@ class TerminalSessionTest(unittest.TestCase):
 
     def test_cd_escape_does_not_move_cwd_out_of_jail(self):
         session, _ = make_sim_session("s1", self.root)
-        before = session.cwd
         session.run("cd /etc")
         self.assertTrue(str(session.cwd).startswith(str(session.workspace.root)))
 

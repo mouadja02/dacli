@@ -341,6 +341,53 @@ class SystemConnector(Connector):
                 error="No LLM is available to generate a connector in this session.",
             )
 
+        # Hard human gate: the agent must NEVER create a connector on its own.
+        # We always ask the user to confirm here — independent of the model —
+        # and we surface the existing connectors so they can decline in favor of
+        # extending one instead of spawning a redundant parallel connector.
+        existing = []
+        if self._registry is not None:
+            try:
+                existing = self._registry.get_connector_ids()
+            except Exception:
+                existing = []
+        existing_str = ", ".join(existing) if existing else "(none)"
+
+        if self._on_user_input_needed is None:
+            # No way to ask a human → fail closed (do not create).
+            return ToolResult(
+                tool_name="generate_connector",
+                status=ToolStatus.ERROR,
+                error=(
+                    "Creating a connector needs your confirmation, but no interactive "
+                    "prompt is available here. Run /new-connector yourself instead."
+                ),
+            )
+
+        question = (
+            f"The agent wants to CREATE A NEW connector '{name}'.\n"
+            f"  Description: {description}\n"
+            f"  Existing connectors: {existing_str}\n"
+            f"If one of those already covers this platform, decline and ask the agent "
+            f"to extend it instead.\n"
+            f"Create new connector '{name}'? (yes / no)"
+        )
+        answer = (self._on_user_input_needed(question) or "").strip().lower()
+        if answer not in ("y", "yes", "ok", "okay", "confirm", "create", "go", "do it"):
+            return ToolResult(
+                tool_name="generate_connector",
+                status=ToolStatus.SUCCESS,
+                data={
+                    "connector": None,
+                    "validated": False,
+                    "cancelled": True,
+                    "message": (
+                        f"User declined creating '{name}'. Do NOT create it. Ask whether they "
+                        f"want to extend an existing connector ({existing_str}) instead."
+                    ),
+                },
+            )
+
         from core.connector_generator import generate_connector_files
 
         try:

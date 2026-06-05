@@ -1,6 +1,5 @@
 ---
-id: mysql
-name: MySQL
+name: mysql
 description: Run SQL on MySQL with transactional DML rollback and mysqldump snapshots.
 ---
 

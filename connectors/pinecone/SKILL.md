@@ -1,6 +1,5 @@
 ---
-id: pinecone
-name: Pinecone
+name: pinecone
 description: Semantic search over a Pinecone vector index (read-only).
 ---
 

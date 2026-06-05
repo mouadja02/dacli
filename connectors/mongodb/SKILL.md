@@ -1,6 +1,5 @@
 ---
-id: mongodb
-name: MongoDB
+name: mongodb
 description: Query and mutate MongoDB collections with sample-inferred schemas.
 ---
 

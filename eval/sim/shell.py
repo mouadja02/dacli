@@ -70,7 +70,7 @@ class SimShell:
             rc = seg_rc
             if seg_rc != 0 and joiner == "&&":
                 break
-        return RawExec(output="\n".join(l for l in out_lines if l != ""), exit_code=rc)
+        return RawExec(output="\n".join(ln for ln in out_lines if ln != ""), exit_code=rc)
 
     # ------------------------------------------------------------------
     def called_with(self, needle: str) -> bool:
@@ -229,10 +229,19 @@ def _split_sequence(command: str) -> List[Tuple[str, str]]:
     joiner = ""
     while i < len(command):
         if command[i:i + 2] == "&&":
-            out.append((buf.strip(), joiner)); buf = ""; joiner = "&&"; i += 2; continue
+            out.append((buf.strip(), joiner))
+            buf = ""
+            joiner = "&&"
+            i += 2
+            continue
         if command[i] == ";":
-            out.append((buf.strip(), joiner)); buf = ""; joiner = ";"; i += 1; continue
-        buf += command[i]; i += 1
+            out.append((buf.strip(), joiner))
+            buf = ""
+            joiner = ";"
+            i += 1
+            continue
+        buf += command[i]
+        i += 1
     if buf.strip():
         out.append((buf.strip(), joiner))
     return [(s, j) for s, j in out if s]
@@ -256,9 +265,13 @@ def _extract_redirect(args: List[str]) -> Tuple[Optional[str], Optional[str], Li
             continue
         # glued form: ">file" / ">>file"
         if a.startswith(">>"):
-            mode, target = ">>", a[2:]; i += 1; continue
+            mode, target = ">>", a[2:]
+            i += 1
+            continue
         if a.startswith(">"):
-            mode, target = ">", a[1:]; i += 1; continue
+            mode, target = ">", a[1:]
+            i += 1
+            continue
         rest.append(a)
         i += 1
     return target, mode, rest
