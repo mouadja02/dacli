@@ -26,8 +26,6 @@ CLI_COMMANDS = [
     ("/cls", "Clear the screen (keeps conversation history)"),
     ("/reset", "Reset agent state"),
     ("/exit", "Exit the CLI"),
-    ("/run", "headless one-shot run (mostly for testing)"),
-    ("/replay", "replay a headless scenario file"),
 ]
 
 __all__ = ["Settings", "load_config", "CLI_COMMANDS"]
