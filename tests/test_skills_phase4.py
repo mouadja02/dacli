@@ -7,14 +7,14 @@ Each test maps to an exit criterion in the plan. Run with:
 import asyncio
 import tempfile
 import unittest
-from typing import Any, Dict, List
+from typing import List
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from connectors.registry import ConnectorRegistry
 from connectors.dispatcher import Dispatcher
 
 from core.verify import (
-    PostCondition, VerificationContext, Verifier, PipelineVerifier,
+    VerificationContext, Verifier, PipelineVerifier,
     require_postconditions, MissingPostConditionError, run_postconditions,
     result_succeeded,
 )

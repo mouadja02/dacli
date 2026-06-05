@@ -19,6 +19,7 @@ post-conditions / catalog updates in.
 """
 
 import time
+import traceback
 from typing import Any, Callable, Dict, Optional
 
 from connectors.base import ToolResult, ToolStatus, Risk
@@ -42,11 +43,18 @@ class Dispatcher:
         on_tool_end: Optional[Callable[[str, ToolResult], None]] = None,
         verifier: Any = None,
         governor: Any = None,
+        test_mode: Any = None,
     ):
         self._registry = registry
         self._memory = memory
         self._on_tool_start = on_tool_start
         self._on_tool_end = on_tool_end
+        #: optional :class:`core.test_mode.TestMode`. When active and the resolved
+        # connector is the one under test, the call runs in *staging mode*:
+        # health-gated, exception-captured with full diagnostics, and with
+        # catalog/state side effects suppressed so an untrusted (e.g. freshly
+        # generated) connector can be exercised without mutating session state.
+        self._test_mode = test_mode
         #: optional post-condition runner. When present, a successful op
         # that declares post-conditions is verified before it is accepted; a
         # failed post-condition downgrades the result to ERROR so the kernel and
@@ -67,6 +75,7 @@ class Dispatcher:
         if self._on_tool_start:
             self._on_tool_start(tool_name, arguments)
 
+        staged = False  # set True below when a staged (test-mode) call is wrapped
         resolved = self._registry.resolve(tool_name)
 
         if resolved is None:
@@ -77,6 +86,15 @@ class Dispatcher:
             )
         else:
             connector, op = resolved
+
+            # Staging (test mode): wrap calls to the connector-under-test so an
+            # untrusted connector can be exercised without trusting its outputs
+            # or letting it mutate session state. Built-ins are never staged.
+            staged = (
+                self._test_mode is not None
+                and self._test_mode.applies_to(connector.name)
+                and not self._registry.is_builtin(connector.name)
+            )
 
             # Governance pre-flight: classify blast radius → policy →
             # permissions → rollback → human approval, all *before* execution. A
@@ -94,13 +112,28 @@ class Dispatcher:
                         self._on_tool_end(tool_name, short)
                     return short
 
+            # Staging health gate: the first staged call to a connector runs its
+            # health() and short-circuits with diagnostics if it fails, so we
+            # don't exercise operations against a connector that can't connect.
+            staged_gate = (
+                await self._staged_health_gate(connector, tool_name, start_time)
+                if staged else None
+            )
+            if staged_gate is not None:
+                if self._on_tool_end:
+                    self._on_tool_end(tool_name, staged_gate)
+                return staged_gate
+
             try:
                 result = await connector.invoke(op, arguments)
             except Exception as e:
+                # Full diagnostics under staging — a generated connector's
+                # traceback is exactly what the user needs to /debug-connector.
+                err = traceback.format_exc() if staged else str(e)
                 result = ToolResult(
                     tool_name=tool_name,
                     status=ToolStatus.ERROR,
-                    error=str(e),
+                    error=err,
                     execution_time_ms=(time.time() - start_time) * 1000,
                 )
             else:
@@ -108,6 +141,11 @@ class Dispatcher:
                 # success. Runs before logging/catalog effects so a failed check
                 # never lets a bad outcome propagate as done.
                 result = await self._verify(tool_name, connector, arguments, result)
+
+            if staged:
+                # Tag so the UI can mark the call [TEST]; the connector name lets
+                # downstream surfaces attribute the staged result.
+                result.metadata = {**(result.metadata or {}), "test_mode": connector.name}
 
             # Record the execution outcome + post-condition verdict in the audit
             # ledger so the decision is reconstructable end to end.
@@ -127,14 +165,54 @@ class Dispatcher:
             # Post-condition: apply structured catalog effects (create /
             # write-invalidation). Reimplements the regex side-effects deleted in
             # — now driven by the connector's structured result, gated on
-            # the operation's declared risk, and only on success.
-            self._apply_catalog_effects(tool_name, resolved, result)
+            # the operation's declared risk, and only on success. Suppressed under
+            # staging: a connector-under-test must not mutate the live catalog.
+            if not staged:
+                self._apply_catalog_effects(tool_name, resolved, result)
 
         # Emit tool end
         if self._on_tool_end:
             self._on_tool_end(tool_name, result)
 
         return result
+
+    async def _staged_health_gate(self, connector, tool_name, start_time) -> Optional[ToolResult]:
+        """Health-gate the first staged call to a connector.
+
+        Returns ``None`` to proceed, or an ERROR ``ToolResult`` to short-circuit
+        when the connector-under-test fails (or errors during) its health check.
+        Once a connector's health passes it is marked verified, so subsequent
+        staged calls skip the gate.
+        """
+        if self._test_mode is None or self._test_mode.is_verified(connector.name):
+            return None
+        try:
+            health = await connector.health()
+        except Exception:
+            return ToolResult(
+                tool_name=tool_name,
+                status=ToolStatus.ERROR,
+                error=(
+                    f"[TEST] health check raised for connector '{connector.name}':\n"
+                    f"{traceback.format_exc()}"
+                ),
+                execution_time_ms=(time.time() - start_time) * 1000,
+                metadata={"test_mode": connector.name, "stage": "health"},
+            )
+        if not health.success:
+            return ToolResult(
+                tool_name=tool_name,
+                status=ToolStatus.ERROR,
+                error=(
+                    f"[TEST] connector '{connector.name}' is not healthy: "
+                    f"{health.error or 'health check failed'}. "
+                    "Configure it with /connect or fix it with /debug-connector, then retry."
+                ),
+                execution_time_ms=(time.time() - start_time) * 1000,
+                metadata={"test_mode": connector.name, "stage": "health"},
+            )
+        self._test_mode.mark_verified(connector.name)
+        return None
 
     async def _verify(self, tool_name, connector, arguments, result: ToolResult) -> ToolResult:
         # Run the operation's declared post-conditions, if any, and gate on them.

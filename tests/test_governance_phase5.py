@@ -7,7 +7,7 @@ Each test class maps to an exit criterion in the roadmap. Run with:
 import asyncio
 import tempfile
 import unittest
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from connectors.registry import ConnectorRegistry

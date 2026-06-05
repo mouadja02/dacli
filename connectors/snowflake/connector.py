@@ -458,7 +458,7 @@ class SnowflakeConnector(Connector):
                 metadata={"query": "VALIDATE CONNECTION AND GET CONTEXT"}
             )
 
-        except Exception as e:
+        except Exception:
             execution_time = (time.time() - start_time) * 1000
             return ToolResult(
                 tool_name=self.name,

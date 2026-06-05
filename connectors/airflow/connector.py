@@ -18,9 +18,9 @@ from __future__ import annotations
 import asyncio
 import base64
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from connectors.base import OperationSpec, Risk, ToolResult, ToolStatus
+from connectors.base import OperationSpec, Risk, ToolResult
 from connectors.http_base import HttpConnector
 from core.verify import PostCondition, VerificationContext, result_succeeded, data_has_keys
 

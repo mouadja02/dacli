@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 from connectors.base import Connector, ToolResult, ToolStatus
 

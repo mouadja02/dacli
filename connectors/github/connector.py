@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from config.settings import Settings
 from core.verify import (
-    PostCondition, VerificationContext, result_succeeded, data_has_keys, data_is_list,
+    PostCondition, VerificationContext, result_succeeded, data_has_keys,
 )
 
 

@@ -33,7 +33,7 @@ import secrets
 import subprocess
 import uuid
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List
 
 from sandbox.bridge import start_bridge
 from sandbox.policy import SandboxPolicy

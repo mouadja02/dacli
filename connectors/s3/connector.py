@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from connectors.base import OperationSpec, Risk, ToolResult, ToolStatus
+from connectors.base import OperationSpec, Risk, ToolResult
 from connectors.cli_base import CliConnector
 from core.verify import PostCondition, VerificationContext, result_succeeded
 

@@ -13,7 +13,7 @@ import asyncio
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from connectors.base import OperationSpec, Risk, ToolResult, ToolStatus
+from connectors.base import OperationSpec, Risk, ToolResult
 from connectors.http_base import HttpConnector
 from core.verify import PostCondition, VerificationContext, result_succeeded, data_has_keys
 

@@ -15,6 +15,7 @@ folder with a manifest", not "edit an enum + the agent".
 """
 
 import importlib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -24,6 +25,30 @@ from connectors.base import Connector
 
 # Default location of the user's enable/disable selections.
 CONNECTORS_CONFIG_PATH = "config/connectors.yaml"
+
+_SECRET_FIELD_NAMES = frozenset(
+    {
+        "api_key",
+        "password",
+        "token",
+        "secret",
+        "access_key",
+        "secret_key",
+        "secret_access_key",
+        "private_key",
+        "client_secret",
+    }
+)
+
+
+@dataclass
+class ConfigField:
+    name: str
+    field_type: str = "str"
+    required: bool = False
+    default: Any = None
+    is_secret: bool = False
+    description: str = ""
 
 
 def _load_yaml(path: Path) -> Dict[str, Any]:
@@ -51,12 +76,16 @@ def load_connectors_config(config_path: str = CONNECTORS_CONFIG_PATH) -> Dict[st
     return data
 
 
-def save_connectors_config(config: Dict[str, Any], config_path: str = CONNECTORS_CONFIG_PATH) -> None:
+def save_connectors_config(
+    config: Dict[str, Any], config_path: str = CONNECTORS_CONFIG_PATH
+) -> None:
     """Persist the enable/disable selections to ``config/connectors.yaml``."""
     path = Path(config_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        yaml.safe_dump(
+            config, f, default_flow_style=False, sort_keys=False, allow_unicode=True
+        )
 
 
 class ConnectorRegistry:
@@ -71,7 +100,9 @@ class ConnectorRegistry:
         enforce_postconditions: bool = False,
     ):
         self._settings = settings
-        self._connectors_dir = Path(connectors_dir) if connectors_dir else Path(__file__).parent
+        self._connectors_dir = (
+            Path(connectors_dir) if connectors_dir else Path(__file__).parent
+        )
         self._config_path = config_path
         #: when on, an operation that declares no post-condition cannot
         # register — "no post-condition, no acceptance" enforced at load time.
@@ -85,6 +116,8 @@ class ConnectorRegistry:
         self._connectors: Dict[str, Connector] = {}
         # ids that are always-on injected connectors (e.g. system)
         self._builtin_ids: set = set()
+        # connector_id/dir -> reason, for connectors that failed to load
+        self._failed: Dict[str, str] = {}
         # tool_name -> (connector_id, op_name)
         self._op_index: Dict[str, Tuple[str, str]] = {}
 
@@ -101,13 +134,33 @@ class ConnectorRegistry:
     # ------------------------------------------------------------------
     def _discover(self) -> None:
         # Scan immediate subdirectories for a manifest.yaml.
+        #
+        # Discovery is fault-isolated: a single broken connector (bad manifest,
+        # import error, or an ``operations()`` that raises) is recorded in
+        # ``self._failed`` and skipped, never crashing registry construction.
+        # This matters because LLM-generated connectors are untrusted code that
+        # may not import cleanly — one bad apple must not take the agent down.
         for manifest_path in sorted(self._connectors_dir.glob("*/manifest.yaml")):
-            manifest = _load_yaml(manifest_path)
+            try:
+                manifest = _load_yaml(manifest_path)
+            except Exception as exc:
+                self._failed[manifest_path.parent.name] = f"manifest parse error: {exc}"
+                continue
             connector_id = manifest.get("id")
             class_path = manifest.get("class")
             if not connector_id or not class_path:
+                self._failed[manifest_path.parent.name] = (
+                    "manifest missing required 'id' or 'class'"
+                )
                 continue
-            connector = self._instantiate(class_path)
+            try:
+                connector = self._instantiate(class_path)
+                # Smoke-check operations() once at load so a connector whose
+                # spec construction throws is rejected here, not mid-dispatch.
+                connector.operations()
+            except Exception as exc:
+                self._failed[connector_id] = f"load error: {exc}"
+                continue
             self._manifests[connector_id] = manifest
             self._connectors[connector_id] = connector
 
@@ -220,12 +273,14 @@ class ConnectorRegistry:
                 for spec in self._connectors[connector_id].operations()
                 if self.is_operation_enabled(spec.name)
             )
-            digest.append({
-                "id": connector_id,
-                "name": manifest.get("name", connector_id),
-                "description": manifest.get("description", ""),
-                "operations": op_count,
-            })
+            digest.append(
+                {
+                    "id": connector_id,
+                    "name": manifest.get("name", connector_id),
+                    "description": manifest.get("description", ""),
+                    "operations": op_count,
+                }
+            )
         return digest
 
     def resolve(self, tool_name: str) -> Optional[Tuple[Connector, str]]:
@@ -264,7 +319,9 @@ class ConnectorRegistry:
 
     def _ordered_ids(self) -> List[str]:
         # Discovered connectors first (sorted for determinism), built-ins last.
-        discovered = sorted(cid for cid in self._connectors if cid not in self._builtin_ids)
+        discovered = sorted(
+            cid for cid in self._connectors if cid not in self._builtin_ids
+        )
         builtins = sorted(self._builtin_ids)
         return discovered + builtins
 
@@ -284,6 +341,18 @@ class ConnectorRegistry:
 
     def get_connector(self, connector_id: str) -> Optional[Connector]:
         return self._connectors.get(connector_id)
+
+    def is_builtin(self, connector_id: str) -> bool:
+        """True for always-on injected connectors (system, skill, sandbox, …)."""
+        return connector_id in self._builtin_ids
+
+    def failed_connectors(self) -> Dict[str, str]:
+        """Connectors that failed to load, mapped to the reason they were skipped.
+
+        Surfaced so the user can see *why* a (e.g. freshly generated) connector
+        didn't register, instead of it silently vanishing.
+        """
+        return dict(self._failed)
 
     # ------------------------------------------------------------------
     # Catalog for the setup wizard (metadata for ALL connectors)
@@ -315,3 +384,100 @@ class ConnectorRegistry:
 
     def get_manifest(self, connector_id: str) -> Dict[str, Any]:
         return self._manifests.get(connector_id, {})
+
+    # ------------------------------------------------------------------
+    # Config field introspection (for /connect flow)
+    # ------------------------------------------------------------------
+    def get_config_fields(self, connector_id: str) -> List[ConfigField]:
+        """Describe a connector's config fields (name, type, required, default,
+        is_secret, description) for the ``/connect`` flow.
+
+        Two sources, in order:
+
+        1. The Pydantic settings section whose name matches the connector id
+           (the convention every built-in connector follows).
+        2. A ``config_fields`` list in the connector's ``manifest.yaml`` — the
+           path for **generated** connectors, which have no ``Settings`` section.
+        """
+        section = getattr(self._settings, connector_id, None)
+        if section is None:
+            return self._config_fields_from_manifest(connector_id)
+        fields: List[ConfigField] = []
+        model_fields = getattr(type(section), "model_fields", None) or {}
+        for fname, finfo in model_fields.items():
+            is_required = (
+                finfo.is_required() if hasattr(finfo, "is_required") else False
+            )
+            default_val = finfo.default if hasattr(finfo, "default") else None
+            if (
+                hasattr(default_val, "default_factory")
+                and default_val.default_factory is not None
+            ):
+                default_val = ""
+            elif callable(default_val):
+                default_val = ""
+            annotation = finfo.annotation if hasattr(finfo, "annotation") else str
+            type_name = getattr(annotation, "__name__", str(annotation))
+            if type_name.startswith("Optional["):
+                type_name = "str"
+            is_secret = fname.lower() in _SECRET_FIELD_NAMES
+            desc = finfo.description if hasattr(finfo, "description") else ""
+            fields.append(
+                ConfigField(
+                    name=fname,
+                    field_type=type_name,
+                    required=is_required,
+                    default=default_val if not is_secret else "",
+                    is_secret=is_secret,
+                    description=desc or "",
+                )
+            )
+        return fields
+
+    def _config_fields_from_manifest(self, connector_id: str) -> List[ConfigField]:
+        """Build config fields from a manifest's ``config_fields`` list.
+
+        Each entry is a mapping: ``name`` (required), plus optional ``type``,
+        ``required``, ``default``, ``secret``/``is_secret``, and ``description``.
+        Falls back to ``required_config`` (a bare list of field names) when no
+        rich ``config_fields`` is present, treating each as a required field and
+        inferring secrecy from its name.
+        """
+        manifest = self._manifests.get(connector_id, {})
+        raw = manifest.get("config_fields")
+        fields: List[ConfigField] = []
+        if isinstance(raw, list) and raw:
+            for entry in raw:
+                if not isinstance(entry, dict) or not entry.get("name"):
+                    continue
+                fname = str(entry["name"])
+                is_secret = bool(
+                    entry.get("secret", entry.get("is_secret", False))
+                ) or fname.lower() in _SECRET_FIELD_NAMES
+                fields.append(
+                    ConfigField(
+                        name=fname,
+                        field_type=str(entry.get("type", "str")),
+                        required=bool(entry.get("required", False)),
+                        default="" if is_secret else entry.get("default", ""),
+                        is_secret=is_secret,
+                        description=str(entry.get("description", "")),
+                    )
+                )
+            return fields
+        # Fallback: a bare required_config name list.
+        for fname in manifest.get("required_config", []) or []:
+            fname = str(fname)
+            is_secret = fname.lower() in _SECRET_FIELD_NAMES
+            fields.append(
+                ConfigField(
+                    name=fname,
+                    required=True,
+                    is_secret=is_secret,
+                )
+            )
+        return fields
+
+    def get_connector_ids(self) -> List[str]:
+        """All discovered connector ids (excluding built-ins)."""
+        return [cid for cid in self._ordered_ids() if cid not in self._builtin_ids]
