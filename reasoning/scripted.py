@@ -33,6 +33,7 @@ class ScriptedLLM:
         self._i = 0
         #: Provider-normalized usage of the most recent generate() call.
         self.last_usage: Dict[str, int] = {}
+        self.exhausted: bool = False
 
     async def initialize(self) -> None:
         # No network, nothing to set up.
@@ -47,6 +48,7 @@ class ScriptedLLM:
         model: Optional[str] = None,
     ) -> Tuple[str, List[Dict[str, Any]]]:
         if self._i >= len(self._responses):
+            self.exhausted = True
             raise ScriptExhausted(
                 f"ScriptedLLM exhausted after {len(self._responses)} response(s): "
                 "the agent requested another generation the scenario did not script."

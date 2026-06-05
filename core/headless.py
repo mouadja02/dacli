@@ -151,7 +151,6 @@ async def run_headless(
     from core.agent import DACLI
     from core.memory import AgentMemory
     from connectors.registry import CONNECTORS_CONFIG_PATH
-    from reasoning.scripted import ScriptExhausted
 
     if max_iterations is not None:
         try:
@@ -200,11 +199,16 @@ async def run_headless(
 
     canned = list(canned_inputs or [])
 
+    # Set when the agent asks for input we cannot answer; the kernel swallows the
+    # raised exception into resp.error, so we record it out-of-band to classify
+    # the turn as a scenario error (exit 3) rather than a plain agent error.
+    pending_scenario_error: List[str] = []
+
     def on_user_input_needed(question: str) -> str:
         if not canned:
-            raise _CannedInputExhausted(
-                f"agent requested input with no canned answer left: {question!r}"
-            )
+            msg = f"agent requested input with no canned answer left: {question!r}"
+            pending_scenario_error.append(msg)
+            raise _CannedInputExhausted(msg)
         return canned.pop(0)
 
     agent = DACLI(
@@ -229,23 +233,31 @@ async def run_headless(
             turn = TurnRecord(input=msg)
             try:
                 resp = await agent.process_message(msg)
-                # The kernel catches ALL exceptions and surfaces them as
-                # AgentResponse(error=...). Re-raise ScriptExhausted so the
-                # headless driver can distinguish a scenario-script overrun
-                # (exit 3) from a genuine agent error (exit 1).
-                if resp.error and "ScriptedLLM exhausted" in resp.error:
-                    raise ScriptExhausted(resp.error)
+            except Exception as exc:  # noqa: BLE001 - defensive; kernel rarely raises
+                turn.error = repr(exc)
+                resp = None
+
+            # The kernel swallows exceptions into AgentResponse.error, so we
+            # detect scenario overruns (exit 3) out-of-band: an unanswerable
+            # user-input request, or a ScriptedLLM that ran past its script.
+            scenario_msg = None
+            if pending_scenario_error:
+                scenario_msg = pending_scenario_error[0]
+            elif getattr(llm, "exhausted", False):
+                scenario_msg = (resp.error if resp and resp.error
+                                else "scripted LLM exhausted")
+
+            if scenario_msg is not None:
+                turn.tool_calls = list(current_calls)
+                result.turns.append(turn)
+                result.scenario_error = scenario_msg
+                break
+
+            if resp is not None:
                 turn.content = resp.content or ""
                 turn.error = resp.error
                 turn.needs_user_input = bool(resp.needs_user_input)
                 turn.iterations = getattr(resp, "iteration", 0)
-            except (ScriptExhausted, _CannedInputExhausted) as exc:
-                turn.tool_calls = list(current_calls)
-                result.turns.append(turn)
-                result.scenario_error = str(exc)
-                break
-            except Exception as exc:  # noqa: BLE001 - surface as a turn error
-                turn.error = repr(exc)
             turn.tool_calls = list(current_calls)
             if ledger is not None:
                 decs = ledger.decisions(session_id=sid)
