@@ -1,7 +1,53 @@
+import os
+import shutil
+import tempfile
 import unittest
 from unittest import mock
 
-from config.settings import load_config
+# Temp state dirs created by _settings_for_test(), removed in tearDownModule.
+_TEMP_DIRS = []
+
+
+def tearDownModule():
+    for d in _TEMP_DIRS:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _settings_for_test():
+    """Build hermetic settings with placeholder LLM credentials + isolated state.
+
+    The suite must not depend on an ambient ``config.yaml`` / secrets store
+    (CI runners have neither), and ``Settings()`` fails validation without an
+    LLM config. The scripted/headless paths never use real credentials, so
+    placeholders are sufficient; sandbox is disabled to avoid a docker probe.
+
+    Each call also gets a unique temp state/history dir so the usage store and
+    audit ledger are isolated per run — otherwise two tests in the same
+    wall-clock second share a timestamp session id and accumulate each other's
+    usage counts (a real cross-test bleed).
+    """
+    from config.settings import Settings
+
+    # Only the sub-settings with required fields need an explicit block; the rest
+    # (terminal/sandbox/governance/...) default. Mirrors tests/test_terminal_phase1.
+    settings = Settings(
+        llm={"provider": "scripted", "model": "scripted",
+             "api_key": "scripted", "base_url": "https://api.test.local"},
+        github={"token": "x"},
+        snowflake={"account": "a", "user": "u", "password": "p",
+                   "warehouse": "w", "role": "r", "database": "d"},
+        pinecone={"api_key": "k", "index_name": "i", "environment": "e"},
+        embeddings={"provider": "openai", "api_key": "k", "model": "m"},
+    )
+    root = tempfile.mkdtemp(prefix="dacli_headless_test_")
+    _TEMP_DIRS.append(root)
+    settings.agent.state_path = os.path.join(root, "state.json")
+    settings.agent.history_path = os.path.join(root, "history.json")
+    try:
+        settings.sandbox.enabled = False
+    except Exception:
+        pass
+    return settings
 
 
 class _Sentinel:
@@ -19,11 +65,7 @@ class LLMInjectionTest(unittest.TestCase):
 
     def test_injected_llm_is_used(self):
         from core.agent import DACLI
-        settings = load_config()
-        try:
-            settings.sandbox.enabled = False
-        except Exception:
-            pass
+        settings = _settings_for_test()
         sentinel = _Sentinel()
         agent = DACLI(settings=settings, llm=sentinel)
         self.assertIs(agent.llm, sentinel)
@@ -31,11 +73,7 @@ class LLMInjectionTest(unittest.TestCase):
     def test_default_llm_constructed_when_none(self):
         from core.agent import DACLI
         from reasoning.llm import LLMClient
-        settings = load_config()
-        try:
-            settings.sandbox.enabled = False
-        except Exception:
-            pass
+        settings = _settings_for_test()
         agent = DACLI(settings=settings)
         self.assertIsInstance(agent.llm, LLMClient)
 
@@ -153,12 +191,7 @@ class RunHeadlessTest(unittest.TestCase):
         self.addCleanup(self._pricing_patch.stop)
 
     def _settings(self):
-        s = load_config()
-        try:
-            s.sandbox.enabled = False
-        except Exception:
-            pass
-        return s
+        return _settings_for_test()
 
     def test_happy_path_tool_call_and_usage(self):
         from core.headless import run_headless

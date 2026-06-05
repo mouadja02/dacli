@@ -706,6 +706,31 @@ def eval_cmd(quick, regression, calibrate, as_json):
     raise SystemExit(eval_main(argv))
 
 
+def _load_settings_for_headless(config, *, offline):
+    # Real runs need a configured LLM provider; an offline scripted run never
+    # uses real credentials (the ScriptedLLM is injected), so when no config is
+    # present fall back to a placeholder LLM config. This keeps hermetic CI and
+    # AI-agent runs secret-free, which is the whole point of the scripted path.
+    from config.settings import Settings
+
+    try:
+        return load_config(config)
+    except Exception:
+        if not offline:
+            raise
+        # Only the sub-settings with required fields need an explicit block; the
+        # rest default. These placeholders are never used to reach a network.
+        return Settings(
+            llm={"provider": "scripted", "model": "scripted",
+                 "api_key": "scripted", "base_url": "https://api.test.local"},
+            github={"token": "x"},
+            snowflake={"account": "a", "user": "u", "password": "p",
+                       "warehouse": "w", "role": "r", "database": "d"},
+            pinecone={"api_key": "k", "index_name": "i", "environment": "e"},
+            embeddings={"provider": "openai", "api_key": "k", "model": "m"},
+        )
+
+
 async def _run_headless_cli(
     *,
     inputs,
@@ -723,7 +748,7 @@ async def _run_headless_cli(
     from core.headless import run_headless
     from reasoning.scripted import ScriptedLLM
 
-    settings = load_config(config)
+    settings = _load_settings_for_headless(config, offline=bool(llm_script))
     llm = None
     if llm_script:
         responses = yaml.safe_load(Path(llm_script).read_text(encoding="utf-8")) or []
@@ -791,7 +816,9 @@ def replay_cmd(scenario_file, as_json):
     llm = None
     if scenario.get("llm_script"):
         llm = ScriptedLLM(scenario["llm_script"])
-    settings = load_config(scenario.get("config"))
+    settings = _load_settings_for_headless(
+        scenario.get("config"), offline=bool(scenario.get("llm_script"))
+    )
     result = asyncio.run(run_headless(
         inputs=list(scenario.get("turns") or []),
         settings=settings,
