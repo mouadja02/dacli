@@ -92,3 +92,55 @@ class ScriptedLLMTest(unittest.TestCase):
         llm = ScriptedLLM([{"text": "x"}])
         content, _tc = _run(llm.generate(messages=[], model="some-model"))
         self.assertEqual(content, "x")
+
+
+class ExitCodeTest(unittest.TestCase):
+    def _result(self, **kw):
+        from core.headless import HeadlessResult, TurnRecord
+        turns = kw.pop("turns", [])
+        recs = []
+        for t in turns:
+            recs.append(TurnRecord(
+                input=t.get("input", ""),
+                content=t.get("content", ""),
+                error=t.get("error"),
+                needs_user_input=t.get("needs_user_input", False),
+                tool_calls=t.get("tool_calls", []),
+            ))
+        return HeadlessResult(session_id="s", turns=recs, **kw)
+
+    def test_ok(self):
+        r = self._result(turns=[{"content": "done"}])
+        self.assertEqual(r.exit_code, 0)
+        self.assertTrue(r.ok)
+
+    def test_agent_error_is_1(self):
+        r = self._result(turns=[{"error": "boom"}])
+        self.assertEqual(r.exit_code, 1)
+
+    def test_needs_user_input_is_1(self):
+        r = self._result(turns=[{"needs_user_input": True}])
+        self.assertEqual(r.exit_code, 1)
+
+    def test_governance_block_is_2(self):
+        r = self._result(turns=[{"tool_calls": [{"name": "x", "args": {}, "status": "blocked", "error": "no"}]}])
+        self.assertEqual(r.exit_code, 2)
+
+    def test_block_beats_error(self):
+        r = self._result(turns=[
+            {"error": "boom"},
+            {"tool_calls": [{"name": "x", "args": {}, "status": "denied"}]},
+        ])
+        self.assertEqual(r.exit_code, 2)
+
+    def test_scenario_error_is_3(self):
+        r = self._result(turns=[{"tool_calls": [{"name": "x", "args": {}, "status": "blocked"}]}],
+                         scenario_error="script ran dry")
+        self.assertEqual(r.exit_code, 3)
+
+    def test_to_dict_shape(self):
+        r = self._result(turns=[{"content": "hi"}], usage={"requests": 1})
+        d = r.to_dict()
+        self.assertEqual(set(d.keys()),
+                         {"ok", "exit_code", "session_id", "turns", "usage", "audit_path", "scenario_error"})
+        self.assertEqual(d["turns"][0]["content"], "hi")
