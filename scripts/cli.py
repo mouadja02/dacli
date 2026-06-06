@@ -23,6 +23,7 @@ from connectors.registry import (
     CONNECTORS_CONFIG_PATH,
 )
 from core.agent import DACLI
+from core.logging_setup import setup_logging
 from core.memory import AgentMemory
 from core.store import DacliStore
 from governance.audit import AuditLedger
@@ -330,9 +331,15 @@ def _init_dacli_md(settings: Settings) -> None:
 @click.option("--session", "-s", type=str, help="Session ID to resume")
 @click.option("--version", "-v", is_flag=True, help="Show version")
 @click.option("--setup", is_flag=True, help="Run the setup wizard")
+@click.option("--debug", is_flag=True, help="Verbose DEBUG logging to .dacli/dacli.log "
+                                            "(re-raises unexpected kernel errors)")
 @click.pass_context
-def cli(ctx, config, session, version, setup):
+def cli(ctx, config, session, version, setup, debug):
     # DACLI: AI-powered Data Engineering Assistant
+    # P06: configure the logging tree once, at the single CLI entry point.
+    # --debug (or DACLI_DEBUG=1) flips the whole tree to DEBUG.
+    setup_logging(debug=True if debug else None)
+
     if version:
         console.print(f"DACLI version {__version__}")
         return
@@ -341,6 +348,7 @@ def cli(ctx, config, session, version, setup):
     ctx.obj["config_path"] = config
     ctx.obj["session_id"] = session
     ctx.obj["run_setup"] = setup
+    ctx.obj["debug"] = debug
 
     if ctx.invoked_subcommand is None:
         # Default to chat mode

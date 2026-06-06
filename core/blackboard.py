@@ -24,6 +24,10 @@ append-only and serializable so a run is reconstructable end to end.
 
 from __future__ import annotations
 
+from core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 import threading
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -267,4 +271,4 @@ class Blackboard:
         try:
             write_json_atomic(self._path, self.snapshot(), indent=2, default=str)
         except Exception:
-            pass
+            log.debug("blackboard persist failed (%s)", self._path, exc_info=True)

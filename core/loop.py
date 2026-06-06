@@ -35,6 +35,10 @@ parameterized by an ``executor`` (how a step actually runs) and an optional
 
 from __future__ import annotations
 
+from core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 import json
 import os
 from dataclasses import dataclass, field
@@ -169,7 +173,7 @@ class PlanActObserveVerify:
             try:
                 self._on_event(msg)
             except Exception:
-                pass
+                log.debug("on_event callback failed", exc_info=True)
 
     async def _verify(self, node: Subtask, result: StepResult) -> Tuple[bool, str]:
         """Mandatory verify. Defaults to the step's own success when no verifier

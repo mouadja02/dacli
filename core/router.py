@@ -25,6 +25,10 @@ surfaces to the user with the trail. Every decision is logged for audit (feeds
 
 from __future__ import annotations
 
+from core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 import json
 import os
 from dataclasses import dataclass, field, asdict
@@ -279,7 +283,7 @@ class TierRouter:
             if label in ("tool", "sandbox"):
                 return Tier(label), "cheap-model"
         except Exception:
-            pass
+            log.debug("router LLM tier classification failed", exc_info=True)
         return None, "model unavailable"
 
     # ------------------------------------------------------------------

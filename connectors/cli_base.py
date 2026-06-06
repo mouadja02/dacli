@@ -20,6 +20,10 @@ A subclass sets :attr:`binary`, implements :meth:`operations` and
 
 from __future__ import annotations
 
+from core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 import asyncio
 import shutil
 import time
@@ -77,7 +81,7 @@ async def default_runner(
         try:
             proc.kill()
         except ProcessLookupError:
-            pass
+            log.debug("process already exited before kill", exc_info=True)
         return CliResult(rc=124, stdout="", stderr=f"timed out after {timeout}s",
                          argv=list(argv))
     return CliResult(

@@ -16,6 +16,9 @@ import time
 from typing import Any, Dict, List
 
 from connectors.base import OperationSpec, Risk, ToolResult
+from core.logging_setup import get_logger
+
+log = get_logger(__name__)
 from connectors.cli_base import CliConnector
 from core.verify import PostCondition, VerificationContext, result_succeeded
 
@@ -178,7 +181,7 @@ class S3Connector(CliConnector):
             for c in payload.get("Contents", []) or []:
                 objects.append({"key": c.get("Key"), "size": c.get("Size")})
         except json.JSONDecodeError:
-            pass
+            log.debug("s3 list output was not valid JSON", exc_info=True)
         return self._ok("list_s3_objects",
                         {"bucket": bucket, "prefix": prefix, "objects": objects, "count": len(objects)},
                         started)

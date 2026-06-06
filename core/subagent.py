@@ -27,6 +27,10 @@ fan-out/merge/contradiction path is testable without a live model.
 
 from __future__ import annotations
 
+from core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, List, Optional
@@ -160,7 +164,7 @@ class Lead:
             try:
                 self._on_event(msg)
             except Exception:
-                pass
+                log.debug("on_event callback failed", exc_info=True)
 
     async def fan_out(
         self,

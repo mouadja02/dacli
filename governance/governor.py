@@ -28,6 +28,9 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Optional
 
 from connectors.base import Risk, ToolResult, ToolStatus
+from core.logging_setup import get_logger
+
+log = get_logger(__name__)
 from governance.classifier import ActionClassifier, Classification, Tier
 from governance.policy_engine import PolicyDecision, PolicyEngine, PolicyResult
 from governance.permissions import PermissionRegistry, Scope
@@ -151,7 +154,7 @@ class Governor:
                 if env:
                     return env
             except Exception:
-                pass
+                log.debug("env_resolver raised in _environment", exc_info=True)
         # Fall back to the prod marker the classifier already found.
         return "prod" if classification.is_prod else None
 
@@ -190,7 +193,14 @@ class Governor:
         # op's declared risk — is the truth, so it is parsed by the command
         # classifier (an `ls` is safe even though run_shell_command is write-
         # capable; an `rm -rf` is irreversible).
-        env_hint_seed = self._env_resolver(connector_id, args, connector) if self._env_resolver else None
+        # Guard the resolver exactly like _environment (3.6): a future raising
+        # resolver must not throw out of review() and crash the governance spine.
+        env_hint_seed = None
+        if self._env_resolver:
+            try:
+                env_hint_seed = self._env_resolver(connector_id, args, connector)
+            except Exception:
+                log.debug("env_resolver raised while seeding env hint", exc_info=True)
         command = self._shell_command(spec, connector_id, args)
         classification = self.classifier.classify(
             tool_name, args, declared_risk=declared_risk, env_hint=env_hint_seed,

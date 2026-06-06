@@ -14,6 +14,10 @@ import tempfile
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 # Exit-code contract (consumed by CI steps and AI agents driving the terminal).
 EXIT_OK = 0
 EXIT_AGENT_ERROR = 1
@@ -154,7 +158,7 @@ async def run_headless(
         try:
             settings.agent.max_iterations = int(max_iterations)
         except Exception:
-            pass
+            log.debug("could not apply max_iterations override", exc_info=True)
 
     cfg_path = CONNECTORS_CONFIG_PATH
     tmp_cfg: Optional[str] = None
@@ -200,6 +204,11 @@ async def run_headless(
     # Set when the agent asks for input we cannot answer; the kernel swallows the
     # raised exception into resp.error, so we record it out-of-band to classify
     # the turn as a scenario error (exit 3) rather than a plain agent error.
+    # NOTE (P06): the kernel only swallows-into-error in normal mode. Under
+    # --debug / DACLI_DEBUG=1 the kernel re-raises truly unexpected exceptions
+    # (logged with a traceback first), so a debug headless run can surface a real
+    # bug instead of flattening it — the try/except around process_message below
+    # is what catches it back into turn.error in that case.
     pending_scenario_error: List[str] = []
 
     def on_user_input_needed(question: str) -> str:
@@ -266,13 +275,13 @@ async def run_headless(
         try:
             await agent.shutdown()
         except Exception:
-            pass
+            log.debug("agent shutdown failed", exc_info=True)
         result.usage = _session_usage(agent, sid)
         result.audit_path = str(getattr(ledger, "path", "")) if ledger is not None else ""
         if tmp_cfg:
             try:
                 os.unlink(tmp_cfg)
             except Exception:
-                pass
+                log.debug("failed to remove temp connectors config", exc_info=True)
 
     return result

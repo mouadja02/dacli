@@ -10,6 +10,9 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Set
 
 from connectors.base import ToolStatus
+from core.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 @dataclass
@@ -41,6 +44,7 @@ class Kernel:
         maybe_compact: Optional[Callable[[List[Dict[str, Any]]], Awaitable[List[Dict[str, Any]]]]] = None,
         on_usage: Optional[Callable[[Dict[str, int], str], None]] = None,
         on_retry: Optional[Callable[..., None]] = None,
+        debug: bool = False,
     ):
         self._llm = llm
         self._dispatcher = dispatcher
@@ -75,6 +79,10 @@ class Kernel:
         # LLM when the client supports it (test doubles may not).
         self._on_retry = on_retry or self._emit_retry
         self._llm_accepts_on_retry = self._supports_on_retry(llm)
+        # Debug posture (P06): when True the whole-loop catch-all re-raises truly
+        # unexpected exceptions instead of flattening them into resp.error, so a
+        # real bug (KeyError/AttributeError) surfaces with its traceback.
+        self._debug = debug
         self._current_iteration = 0
 
     @staticmethod
@@ -123,7 +131,9 @@ class Kernel:
         try:
             capture(goal, trace, outcome)
         except Exception:
-            pass  # episodic capture must never break the control loop
+            # Episodic capture must never break the control loop — but record
+            # the failure so "sometimes it doesn't remember" is debuggable.
+            log.debug("episodic capture failed", exc_info=True)
 
     def _seed_working(self) -> List[Dict[str, Any]]:
         """Seed the working conversation list.
@@ -240,6 +250,20 @@ class Kernel:
                 tool_results = []
                 needs_user_input = False
 
+                # Tool-call memory (3.7) — DECISION: intentional lean context.
+                # Assistant tool-calls and their results are appended only to the
+                # local ``working`` list (used across iterations *within this
+                # turn*), never to ``self._memory``. So next turn ``_seed_working``
+                # carries no raw tool trace — by design:
+                #   * large results are spilled off-context (3.4) and refetched by
+                #     handle on demand, not replayed verbatim every turn;
+                #   * the tool trace is preserved durably via episodic capture
+                #     (``_capture_episode``), the retrieval-time memory, not the
+                #     hot-path message window.
+                # Persisting the full tool trace into history would re-inflate the
+                # context window we deliberately keep lean. If a future need arises
+                # to let the model "see what it ran last turn", persist a *compacted*
+                # tool-trace summary here rather than the raw calls/results.
                 # Add assistant message with tool_calls ONCE before processing
                 assistant_msg = {
                     "role": "assistant",
@@ -302,6 +326,16 @@ class Kernel:
                     )
 
             except Exception as e:
+                # P06: log the full traceback BEFORE flattening to resp.error —
+                # this is the single biggest debuggability tax in the hot path.
+                log.exception(
+                    "kernel loop failed at iteration %s: %s",
+                    self._current_iteration, e,
+                )
+                # In --debug mode, re-raise so a truly unexpected bug
+                # (KeyError/AttributeError) isn't masked by the catch-all.
+                if self._debug:
+                    raise
                 return AgentResponse(
                     content="",
                     tool_calls=[],

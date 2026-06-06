@@ -15,6 +15,9 @@ import time
 from typing import Any, Dict, List
 
 from connectors.base import OperationSpec, Risk, ToolResult
+from core.logging_setup import get_logger
+
+log = get_logger(__name__)
 from connectors.cli_base import CliConnector
 from core.verify import PostCondition, VerificationContext, result_succeeded
 
@@ -177,7 +180,7 @@ class GCSConnector(CliConnector):
                 else:
                     objects.append({"key": str(item), "size": None})
         except json.JSONDecodeError:
-            pass
+            log.debug("gcs list output was not valid JSON", exc_info=True)
         return self._ok("list_gcs_objects",
                         {"bucket": bucket, "prefix": prefix, "objects": objects, "count": len(objects)},
                         started)
@@ -233,7 +236,7 @@ class GCSConnector(CliConnector):
             meta = json.loads(res.stdout) if res.stdout.strip() else {}
             enabled = bool((meta.get("versioning") or {}).get("enabled"))
         except json.JSONDecodeError:
-            pass
+            log.debug("gcs versioning output was not valid JSON", exc_info=True)
         if enabled:
             return True, f"bucket '{bucket}' versioning enabled — prior generation restorable"
         return False, f"bucket '{bucket}' versioning disabled — delete/overwrite not reversible"

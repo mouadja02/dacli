@@ -26,6 +26,10 @@ import inspect
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
+from core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 
 def supports_shadow(connector: Any) -> bool:
     return bool(getattr(connector, "supports_shadow", False)) and all(
@@ -103,7 +107,7 @@ class ShadowExecutor:
                 try:
                     await _maybe_await(drop(shadow.clone_ref))
                 except Exception:
-                    pass
+                    log.debug("shadow clone drop failed after promotion", exc_info=True)
         return shadow
 
     async def discard(self, connector: Any, shadow: ShadowResult) -> None:
@@ -113,4 +117,4 @@ class ShadowExecutor:
             try:
                 await _maybe_await(drop(shadow.clone_ref))
             except Exception:
-                pass
+                log.debug("shadow clone discard failed", exc_info=True)

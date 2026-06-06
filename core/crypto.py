@@ -26,6 +26,10 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
+from core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 
 class CredentialDecryptionError(Exception):
     """Raised when an encrypted value can't be decrypted (wrong/rotated key)."""
@@ -66,7 +70,8 @@ def _try_load_fernet_key(raw: bytes) -> Optional[bytes]:
             if len(decoded) == 32:
                 return raw
         except Exception:
-            pass
+            # Not a raw Fernet key -> caller falls back to PBKDF2 derivation.
+            log.debug("value is not a raw Fernet key; will derive", exc_info=True)
     return None
 
 
@@ -100,7 +105,8 @@ def get_encryption_key(base_dir: Optional[str] = None) -> bytes:
     try:
         os.chmod(str(key_file), 0o600)
     except OSError:
-        pass
+        # chmod is a best-effort tighten-down (e.g. unsupported on Windows).
+        log.debug("could not chmod 600 the key file %s", key_file, exc_info=True)
     return key
 
 
@@ -182,5 +188,8 @@ def surface_decryption_failures(
         + ", ".join(sorted(new))
         + " can't be read. Re-enter them or restore `.dacli/.key`."
     )
+    # Intentional user-facing surface (a real reliability issue the operator must
+    # see at once) — kept as a print, but also recorded so it lands in dacli.log.
+    log.warning("undecryptable credentials: %s", ", ".join(sorted(new)))
     print(msg, file=stream or sys.stderr)
     return msg
