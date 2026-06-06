@@ -13,6 +13,8 @@ import json
 import re
 import time
 from dataclasses import dataclass
+
+from core.atomicio import write_json_atomic
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -264,11 +266,7 @@ def _load_cache(cache_dir: str) -> Tuple[float, Any]:
 def _save_cache(cache_dir: str, payload: Any) -> None:
     try:
         path = _cache_path(cache_dir)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps({"fetched_at": time.time(), "payload": payload}),
-            encoding="utf-8",
-        )
+        write_json_atomic(path, {"fetched_at": time.time(), "payload": payload})
     except Exception:
         pass  # caching is best-effort
 

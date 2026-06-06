@@ -14,6 +14,7 @@ ledger for free.
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -180,6 +181,8 @@ class MemoryStore:
     def _append(self, entry: MemoryEntry) -> None:
         with open(self.path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry.to_record(), default=str) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
 
     def _resolve_supersession(self) -> None:
         """Flag any entry pointed at by another's ``supersedes``."""

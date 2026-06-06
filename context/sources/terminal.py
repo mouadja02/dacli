@@ -24,6 +24,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from core.atomicio import write_json_atomic
+
 # How many head/tail lines the summary shows when output is spilled.
 SAMPLE_LINES = 8
 
@@ -66,8 +68,7 @@ class ScrollbackStore:
             "output": output,
         }
         try:
-            with open(self._path(command_id), "w", encoding="utf-8") as f:
-                json.dump(payload, f, default=str)
+            write_json_atomic(self._path(command_id), payload, default=str)
         except Exception:
             pass
         if command_id not in self._order:

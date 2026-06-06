@@ -25,6 +25,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from core.atomicio import write_json_atomic
+
 # How many head/tail rows to show in the summary sample.
 SAMPLE_ROWS = 5
 
@@ -52,8 +54,7 @@ class ResultStore:
             "spilled_at": datetime.now().isoformat(timespec="seconds"),
             "data": data,
         }
-        with open(self._path(handle), "w", encoding="utf-8") as f:
-            json.dump(payload, f, default=str)
+        write_json_atomic(self._path(handle), payload, default=str)
         return handle
 
     def read(self, handle: str, start: int = 0, count: Optional[int] = None) -> Dict[str, Any]:
