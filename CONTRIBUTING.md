@@ -13,7 +13,7 @@ git clone https://github.com/mouadja02/dacli.git
 cd dacli
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-pip install -e .
+pip install -e .   # editable — required so the `dacli` command runs your working tree, not a stale site-packages copy
 ```
 
 ## Before you open a PR

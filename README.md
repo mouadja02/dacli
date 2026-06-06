@@ -152,8 +152,12 @@ python -m venv .venv
 source .venv/bin/activate
 
 pip install -r requirements.txt
-pip install -e .            # optional: installs the `dacli` command on your PATH
+pip install -e .            # editable: puts the `dacli` command on your PATH AND runs your working tree
 ```
+
+> Use the **editable** install (`-e`). A plain `pip install .` copies the
+> sources into `site-packages`, so the `dacli` command then runs that frozen
+> copy and silently diverges from your working tree as you edit.
 
 For CLI-first connectors, install the relevant platform CLIs and authenticate them as you normally would:
 
