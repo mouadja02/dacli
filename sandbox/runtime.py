@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import sys
 import uuid
 from dataclasses import dataclass, field
@@ -32,6 +33,26 @@ from typing import Any, Dict, List, Optional
 from sandbox.bridge import start_bridge
 from sandbox.policy import SandboxPolicy
 from sandbox.sdk import ConnectorSDK
+
+# Each sandbox run leaves a ``run_*`` workspace on disk. Without pruning these
+# grow unbounded; retain at most this many (the most recent), sweeping the rest.
+MAX_SANDBOX_RUNS = 20
+
+
+def _sweep_run_dirs(workdir: Path, keep: int = MAX_SANDBOX_RUNS) -> None:
+    """Prune old ``run_*`` sandbox workspaces under *workdir*, keeping the most
+    recent *keep* (ordered by mtime). Missing dir or fewer than *keep* runs is a
+    no-op. Best-effort: a dir that vanishes or won't delete is skipped."""
+    try:
+        runs = [p for p in workdir.iterdir()
+                if p.is_dir() and p.name.startswith("run_")]
+    except FileNotFoundError:
+        return
+    if len(runs) <= keep:
+        return
+    runs.sort(key=lambda p: p.stat().st_mtime)
+    for stale in runs[:-keep]:
+        shutil.rmtree(stale, ignore_errors=True)
 
 
 @dataclass
@@ -82,8 +103,12 @@ class SandboxRuntime:
 
     async def run_script(self, code: str) -> SandboxRunResult:
         run_id = uuid.uuid4().hex[:10]
-        run_dir = Path(self.policy.workdir) / f"run_{run_id}"
+        workdir = Path(self.policy.workdir)
+        run_dir = workdir / f"run_{run_id}"
         run_dir.mkdir(parents=True, exist_ok=True)
+        # Bound on-disk artifact growth: keep the newest MAX_SANDBOX_RUNS runs
+        # (the just-created one is freshest, so it always survives the sweep).
+        _sweep_run_dirs(workdir)
         script_path = run_dir / "script.py"
         script_path.write_text(code, encoding="utf-8")
 
