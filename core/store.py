@@ -174,11 +174,18 @@ class DacliStore:
         Plaintext values (from pre-encryption stores) are transparently
         re-encrypted in place on first read so migration is invisible.
         """
-        from core.crypto import decrypt_value, encrypt_value, is_encrypted
+        from core.crypto import (
+            CredentialDecryptionError,
+            decrypt_value,
+            encrypt_value,
+            is_encrypted,
+            surface_decryption_failures,
+        )
 
         raw = self._data.get("secrets", {})
         decrypted: Dict[str, Any] = {}
         migrated = False
+        undecryptable: list = []
         for section, fields in raw.items():
             if not isinstance(fields, dict):
                 continue
@@ -189,11 +196,20 @@ class DacliStore:
                         field
                     ] = encrypt_value(val, base_dir=str(self.base_dir))
                     migrated = True
-                decrypted[section][field] = (
-                    decrypt_value(val, base_dir=str(self.base_dir))
-                    if isinstance(val, str)
-                    else val
-                )
+                if not isinstance(val, str):
+                    decrypted[section][field] = val
+                    continue
+                try:
+                    decrypted[section][field] = decrypt_value(
+                        val, base_dir=str(self.base_dir), name=f"{section}.{field}"
+                    )
+                except CredentialDecryptionError:
+                    # Wrong/rotated key: omit the field (so downstream sees it as
+                    # unconfigured) and aggregate for a single startup warning
+                    # rather than handing the ciphertext to a connector.
+                    undecryptable.append(f"{section}.{field}")
+        if undecryptable:
+            surface_decryption_failures(undecryptable)
         if migrated:
             try:
                 self.save()
