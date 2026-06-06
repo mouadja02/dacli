@@ -139,6 +139,19 @@ class _FakeCompletions:
         return _FakeStream(self._chunks)
 
 
+def _bypass_client(chunks) -> LLMClient:
+    # Build an LLMClient without __init__ (no real settings/SDK). The streaming
+    # path now routes through _with_retry, so supply the bits it reads:
+    # ``_provider`` (retryable-exception lookup) and a minimal retry config.
+    client = LLMClient.__new__(LLMClient)
+    client._provider = "openai"
+    client.settings = types.SimpleNamespace(
+        llm=types.SimpleNamespace(retry_attempts=1, retry_base_delay=0.5)
+    )
+    client._client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=_FakeCompletions(chunks)))
+    return client
+
+
 def test_stream_openai_reassembles_text_and_tool_calls():
     chunks = [
         _chunk(content="Let me "),
@@ -147,8 +160,7 @@ def test_stream_openai_reassembles_text_and_tool_calls():
         _chunk(tool_fragments=[(0, "call_1", "run_query", '{"q":')]),
         _chunk(tool_fragments=[(0, None, None, ' "SELECT 1"}')]),
     ]
-    client = LLMClient.__new__(LLMClient)  # bypass __init__ (no settings needed)
-    client._client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=_FakeCompletions(chunks)))
+    client = _bypass_client(chunks)
 
     seen = []
     content, tool_calls = asyncio.run(
@@ -162,8 +174,7 @@ def test_stream_openai_reassembles_text_and_tool_calls():
 
 def test_stream_openai_tolerates_bad_json_arguments():
     chunks = [_chunk(tool_fragments=[(0, "c1", "f", "{not json")])]
-    client = LLMClient.__new__(LLMClient)
-    client._client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=_FakeCompletions(chunks)))
+    client = _bypass_client(chunks)
     content, tool_calls = asyncio.run(client._stream_openai({"model": "x", "messages": []}, on_text=None))
     assert content == ""
     assert tool_calls == [{"id": "c1", "name": "f", "arguments": {}}]

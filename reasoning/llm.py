@@ -1,13 +1,23 @@
 import json
+import random
 import asyncio
-from typing import Callable, Dict, List, Optional, Tuple
+import logging
+from typing import Awaitable, Callable, Dict, List, Optional, Tuple, Type
 
 from config.settings import Settings
+
+logger = logging.getLogger(__name__)
 
 # Type of the optional streaming callback: receives each text delta as it
 # arrives. Returning None; it is presentation-only and must not raise into the
 # generate path (the UI guards its own rendering).
 OnText = Optional[Callable[[str], None]]
+
+# Type of the optional retry-status callback. Invoked once per *retry* (not on
+# the final failure) with the upcoming attempt number, the backoff delay about
+# to be slept, and the transient error that triggered it, so the TUI/logger can
+# render "⟳ retrying in 2.1s (429)".
+OnRetry = Optional[Callable[..., None]]
 
 
 class LLMClient:
@@ -26,12 +36,17 @@ class LLMClient:
         # Initialize the LLM client based on the provider
         provider = self._provider.lower()
 
+        # ``max_retries=0`` hands all retry/backoff to our own ``_with_retry`` so
+        # the configured count is authoritative (no compounding with the SDK's
+        # built-in default) and every retry flows through the on_retry status
+        # callback, including the streaming paths the SDK never retries.
         if provider == "openai":
             from openai import AsyncOpenAI
             self._client = AsyncOpenAI(
                 api_key=self.settings.llm.api_key,
                 base_url=self.settings.llm.base_url,
                 timeout=self.settings.llm.timeout,
+                max_retries=0,
             )
         elif provider == "anthropic":
             from anthropic import AsyncAnthropic
@@ -39,6 +54,7 @@ class LLMClient:
                 api_key=self.settings.llm.api_key,
                 base_url=self.settings.llm.base_url,
                 timeout=self.settings.llm.timeout,
+                max_retries=0,
             )
         elif provider == "google":
             from google.generativeai import genai
@@ -48,12 +64,13 @@ class LLMClient:
             self._client = AsyncOpenAI(
                 api_key=self.settings.llm.api_key,
                 base_url=self.settings.llm.base_url or "https://openrouter.ai/api/v1",
-                timeout=self.settings.llm.timeout
+                timeout=self.settings.llm.timeout,
+                max_retries=0,
             )
         else:
             raise ValueError(f"Unsupported LLM provider: {provider}")
 
-    async def generate(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None, model: Optional[str] = None) -> Tuple[str, List[Dict]]:
+    async def generate(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None, model: Optional[str] = None, on_retry: OnRetry = None) -> Tuple[str, List[Dict]]:
         """
         Generate a response from the LLM.
 
@@ -81,13 +98,94 @@ class LLMClient:
         model = model or self.settings.llm.model
         provider = self._provider.lower()
         if provider in ["openai", "openrouter"]:
-            return await self._generate_openai(messages, tools, system_prompt, on_text=on_text, model=model)
+            return await self._generate_openai(messages, tools, system_prompt, on_text=on_text, model=model, on_retry=on_retry)
         elif provider == "anthropic":
-            return await self._generate_anthropic(messages, tools, system_prompt, on_text=on_text, model=model)
+            return await self._generate_anthropic(messages, tools, system_prompt, on_text=on_text, model=model, on_retry=on_retry)
         elif provider == "google":
-            return await self._generate_google(messages, tools, system_prompt, on_text=on_text, model=model)
+            return await self._generate_google(messages, tools, system_prompt, on_text=on_text, model=model, on_retry=on_retry)
         else:
             raise ValueError(f"Unsupported provider: {provider}")
+
+    def _retryable_exceptions(self) -> Tuple[type, ...]:
+        # Provider-specific *transient* error classes that are safe to retry
+        # (429 rate limit, dropped connection, 5xx). Auth / 4xx-validation
+        # errors are deliberately excluded so they fail fast. Imported lazily
+        # (mirroring initialize()) and tolerant of a missing SDK -> () means
+        # "retry nothing", so a transient blip simply surfaces unchanged.
+        provider = self._provider.lower()
+        try:
+            if provider in ("openai", "openrouter"):
+                from openai import (
+                    RateLimitError,
+                    APIConnectionError,
+                    InternalServerError,
+                )
+                return (RateLimitError, APIConnectionError, InternalServerError)
+            if provider == "anthropic":
+                from anthropic import (
+                    RateLimitError,
+                    APIConnectionError,
+                    InternalServerError,
+                )
+                return (RateLimitError, APIConnectionError, InternalServerError)
+            if provider == "google":
+                from google.api_core.exceptions import (
+                    ResourceExhausted,
+                    ServiceUnavailable,
+                    InternalServerError as GoogleInternalServerError,
+                )
+                return (ResourceExhausted, ServiceUnavailable, GoogleInternalServerError)
+        except ImportError:
+            return ()
+        return ()
+
+    @staticmethod
+    def _default_on_retry(*, attempt: int, delay: float, error: Exception) -> None:
+        # Fallback status sink when no on_retry is wired (e.g. P13 TUI absent):
+        # log the transient failure + backoff so a retried turn is never silent.
+        logger.warning(
+            "LLM call failed (%s); retrying in %.1fs (attempt %d)",
+            type(error).__name__,
+            delay,
+            attempt,
+        )
+
+    async def _with_retry(
+        self,
+        fn: Callable[[], Awaitable],
+        *,
+        attempts: Optional[int] = None,
+        base: Optional[float] = None,
+        on_retry: OnRetry = None,
+        retryable: Optional[Tuple[Type[BaseException], ...]] = None,
+    ):
+        """Run ``fn`` with bounded, jittered exponential backoff (P05).
+
+        ``fn`` is an argument-free coroutine factory invoked once per attempt;
+        for streaming paths it re-establishes the stream from scratch on retry
+        (at-most-once-token caveat: any partial tokens already emitted to the UI
+        are discarded when the stream is restarted). Only ``retryable`` classes
+        are retried — everything else propagates immediately (fail fast).
+        """
+        attempts = attempts or self.settings.llm.retry_attempts
+        base = base if base is not None else self.settings.llm.retry_base_delay
+        retryable = retryable if retryable is not None else self._retryable_exceptions()
+        on_retry = on_retry or self._default_on_retry
+        for i in range(attempts):
+            try:
+                return await fn()
+            except retryable as e:
+                if i == attempts - 1:
+                    raise
+                delay = base * 2 ** i + random.random() * 0.3
+                try:
+                    on_retry(attempt=i + 1, delay=delay, error=e)
+                except Exception:
+                    pass  # a status sink must never break the retry loop
+                await asyncio.sleep(delay)
+        # Unreachable: attempts >= 1, so the loop always returns or raises. Kept
+        # so the function provably never returns None.
+        raise RuntimeError("_with_retry exhausted without returning or raising")
 
     @staticmethod
     def _emit(on_text: OnText, delta: str) -> None:
@@ -135,7 +233,7 @@ class LLMClient:
                 return label
         return answer
 
-    async def _generate_openai(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None, model: Optional[str] = None) -> Tuple[str, List[Dict]]:
+    async def _generate_openai(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None, model: Optional[str] = None, on_retry: OnRetry = None) -> Tuple[str, List[Dict]]:
         # Generate using OpenAI-compatibile API
 
         # Prepare messages includes system prompt
@@ -158,10 +256,13 @@ class LLMClient:
             request_kwargs["tool_choice"] = "auto"
 
         if on_text is not None:
-            return await self._stream_openai(request_kwargs, on_text)
+            return await self._stream_openai(request_kwargs, on_text, on_retry=on_retry)
 
-        # Make request
-        response = await self._client.chat.completions.create(**request_kwargs)
+        # Make request (retried on transient errors; permanent errors fail fast).
+        response = await self._with_retry(
+            lambda: self._client.chat.completions.create(**request_kwargs),
+            on_retry=on_retry,
+        )
 
         # Extract response
         choice = response.choices[0]
@@ -176,52 +277,60 @@ class LLMClient:
         self.last_usage = self._usage_openai(getattr(response, "usage", None))
         return content, tool_calls
 
-    async def _stream_openai(self, request_kwargs: Dict, on_text: OnText) -> Tuple[str, List[Dict]]:
+    async def _stream_openai(self, request_kwargs: Dict, on_text: OnText, on_retry: OnRetry = None) -> Tuple[str, List[Dict]]:
         # Streaming variant: accumulate text deltas (emitted live) and reassemble
         # tool calls, which arrive as indexed fragments across chunks.
         request_kwargs = {**request_kwargs, "stream": True, "stream_options": {"include_usage": True}}
-        stream = await self._client.chat.completions.create(**request_kwargs)
 
-        content = ""
-        usage_obj = None
-        # index -> {"id", "name", "arguments"(str)}
-        acc: Dict[int, Dict[str, str]] = {}
+        # The whole stream is retried as a unit: a transient error while
+        # establishing *or* consuming the stream restarts it from scratch.
+        # at-most-once-token caveat — partial deltas already emitted to the UI on
+        # a failed attempt are discarded; the restart re-emits from the top.
+        async def _do() -> Tuple[str, List[Dict]]:
+            stream = await self._client.chat.completions.create(**request_kwargs)
 
-        async for chunk in stream:
-            if getattr(chunk, "usage", None):
-                usage_obj = chunk.usage  # final usage chunk (include_usage)
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-            if getattr(delta, "content", None):
-                content += delta.content
-                self._emit(on_text, delta.content)
-            for tc in (getattr(delta, "tool_calls", None) or []):
-                slot = acc.setdefault(tc.index, {"id": "", "name": "", "arguments": ""})
-                if getattr(tc, "id", None):
-                    slot["id"] = tc.id
-                fn = getattr(tc, "function", None)
-                if fn is not None:
-                    if getattr(fn, "name", None):
-                        slot["name"] = fn.name
-                    if getattr(fn, "arguments", None):
-                        slot["arguments"] += fn.arguments
+            content = ""
+            usage_obj = None
+            # index -> {"id", "name", "arguments"(str)}
+            acc: Dict[int, Dict[str, str]] = {}
 
-        tool_calls = []
-        for index in sorted(acc):
-            slot = acc[index]
-            if not slot["name"]:
-                continue
-            try:
-                arguments = json.loads(slot["arguments"] or "{}")
-            except json.JSONDecodeError:
-                arguments = {}
-            tool_calls.append({"id": slot["id"], "name": slot["name"], "arguments": arguments})
+            async for chunk in stream:
+                if getattr(chunk, "usage", None):
+                    usage_obj = chunk.usage  # final usage chunk (include_usage)
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if getattr(delta, "content", None):
+                    content += delta.content
+                    self._emit(on_text, delta.content)
+                for tc in (getattr(delta, "tool_calls", None) or []):
+                    slot = acc.setdefault(tc.index, {"id": "", "name": "", "arguments": ""})
+                    if getattr(tc, "id", None):
+                        slot["id"] = tc.id
+                    fn = getattr(tc, "function", None)
+                    if fn is not None:
+                        if getattr(fn, "name", None):
+                            slot["name"] = fn.name
+                        if getattr(fn, "arguments", None):
+                            slot["arguments"] += fn.arguments
 
-        self.last_usage = self._usage_openai(usage_obj)
-        return content, tool_calls
+            tool_calls = []
+            for index in sorted(acc):
+                slot = acc[index]
+                if not slot["name"]:
+                    continue
+                try:
+                    arguments = json.loads(slot["arguments"] or "{}")
+                except json.JSONDecodeError:
+                    arguments = {}
+                tool_calls.append({"id": slot["id"], "name": slot["name"], "arguments": arguments})
 
-    async def _generate_anthropic(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None, model: Optional[str] = None) -> Tuple[str, List[Dict]]:
+            self.last_usage = self._usage_openai(usage_obj)
+            return content, tool_calls
+
+        return await self._with_retry(_do, on_retry=on_retry)
+
+    async def _generate_anthropic(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None, model: Optional[str] = None, on_retry: OnRetry = None) -> Tuple[str, List[Dict]]:
         # Generate using Anthropic API
         # Prepare request
         request_kwargs = {
@@ -245,21 +354,29 @@ class LLMClient:
             request_kwargs["tools"] = anthropic_tools
 
         if on_text is not None:
-            return await self._stream_anthropic(request_kwargs, on_text)
+            return await self._stream_anthropic(request_kwargs, on_text, on_retry=on_retry)
 
-        response = await self._client.messages.create(**request_kwargs)
-        self.last_usage = self._usage_anthropic(getattr(response, "usage", None))
-        return self._extract_anthropic(response.content)
+        async def _do() -> Tuple[str, List[Dict]]:
+            response = await self._client.messages.create(**request_kwargs)
+            self.last_usage = self._usage_anthropic(getattr(response, "usage", None))
+            return self._extract_anthropic(response.content)
 
-    async def _stream_anthropic(self, request_kwargs: Dict, on_text: OnText) -> Tuple[str, List[Dict]]:
+        return await self._with_retry(_do, on_retry=on_retry)
+
+    async def _stream_anthropic(self, request_kwargs: Dict, on_text: OnText, on_retry: OnRetry = None) -> Tuple[str, List[Dict]]:
         # Streaming variant: emit text events live, then read the assembled
-        # final message for the authoritative content + tool_use blocks.
-        async with self._client.messages.stream(**request_kwargs) as stream:
-            async for text in stream.text_stream:
-                self._emit(on_text, text)
-            final = await stream.get_final_message()
-        self.last_usage = self._usage_anthropic(getattr(final, "usage", None))
-        return self._extract_anthropic(final.content)
+        # final message for the authoritative content + tool_use blocks. The
+        # whole stream is retried as a unit (see _stream_openai for the
+        # at-most-once-token caveat on restart).
+        async def _do() -> Tuple[str, List[Dict]]:
+            async with self._client.messages.stream(**request_kwargs) as stream:
+                async for text in stream.text_stream:
+                    self._emit(on_text, text)
+                final = await stream.get_final_message()
+            self.last_usage = self._usage_anthropic(getattr(final, "usage", None))
+            return self._extract_anthropic(final.content)
+
+        return await self._with_retry(_do, on_retry=on_retry)
 
     @staticmethod
     def _usage_openai(usage) -> Dict[str, int]:
@@ -311,7 +428,7 @@ class LLMClient:
                 tool_calls.append({"id": block.id, "name": block.name, "arguments": block.input})
         return content, tool_calls
 
-    async def _generate_google(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None, model: Optional[str] = None) -> Tuple[str, List[Dict]]:
+    async def _generate_google(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None, model: Optional[str] = None, on_retry: OnRetry = None) -> Tuple[str, List[Dict]]:
         # Generate using Google Gemini API
 
         # Reliability: tool calling is not implemented for Gemini. Rather than
@@ -332,7 +449,10 @@ class LLMClient:
             role = "user" if msg["role"] == "user" else "model"
             gemini_messages.append({"role": role, "parts": [msg["content"]]})
 
-        response = await asyncio.to_thread(gen_model.generate_content, gemini_messages)
+        response = await self._with_retry(
+            lambda: asyncio.to_thread(gen_model.generate_content, gemini_messages),
+            on_retry=on_retry,
+        )
         self.last_usage = self._usage_google(getattr(response, "usage_metadata", None))
 
         # Gemini has no streaming path here; emit the full text once so the
