@@ -3,13 +3,14 @@
 The whole-loop ``except`` in the kernel used to flatten real bugs (KeyError,
 AttributeError) into a one-line ``error=str(e)`` with no traceback. These tests
 pin the new behavior: normal mode swallows-and-logs (with traceback); debug mode
-re-raises unexpected exceptions so they aren't masked.
+re-raises unexpected exceptions so they aren't masked. Pure unittest (no pytest).
 """
 
 import asyncio
 import logging
-
-import pytest
+import os
+import tempfile
+import unittest
 
 from core.kernel import Kernel
 from core.logging_setup import setup_logging
@@ -49,19 +50,29 @@ def _kernel(debug):
     )
 
 
-def test_normal_mode_swallows_into_error_and_logs_traceback(tmp_path, caplog):
-    setup_logging(debug=False, base_dir=str(tmp_path), force=True)
-    kernel = _kernel(debug=False)
-    with caplog.at_level(logging.ERROR, logger="dacli"):
+class KernelLoggingTest(unittest.TestCase):
+    def test_normal_mode_swallows_into_error_and_logs_traceback(self):
+        d = tempfile.mkdtemp(prefix="dacli_kernlog_")
+        setup_logging(debug=False, base_dir=d, force=True)
+        kernel = _kernel(debug=False)
         resp = asyncio.run(kernel.orchestrate("hi"))
-    assert resp.error is not None
-    assert "boom-unexpected" in resp.error
-    # A traceback was logged (exc_info present on at least one record).
-    assert any(r.exc_info for r in caplog.records), "expected a logged traceback"
+        self.assertIsNotNone(resp.error)
+        self.assertIn("boom-unexpected", resp.error)
+        for h in logging.getLogger("dacli").handlers:
+            h.flush()
+        with open(os.path.join(d, "dacli.log"), encoding="utf-8") as f:
+            content = f.read()
+        # The full traceback is recorded before flattening to resp.error.
+        self.assertIn("kernel loop failed", content)
+        self.assertIn("Traceback", content)
+
+    def test_debug_mode_reraises_unexpected_exception(self):
+        d = tempfile.mkdtemp(prefix="dacli_kernlog_")
+        setup_logging(debug=True, base_dir=d, force=True)
+        kernel = _kernel(debug=True)
+        with self.assertRaises(KeyError):
+            asyncio.run(kernel.orchestrate("hi"))
 
 
-def test_debug_mode_reraises_unexpected_exception(tmp_path):
-    setup_logging(debug=True, base_dir=str(tmp_path), force=True)
-    kernel = _kernel(debug=True)
-    with pytest.raises(KeyError):
-        asyncio.run(kernel.orchestrate("hi"))
+if __name__ == "__main__":
+    unittest.main()
