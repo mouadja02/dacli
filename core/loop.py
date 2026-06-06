@@ -36,6 +36,7 @@ parameterized by an ``executor`` (how a step actually runs) and an optional
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -121,6 +122,8 @@ class CorrectionAuditLog:
         record = {"ts": datetime.now().isoformat(), **record}
         with open(self.path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, default=str) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
 
     def recent(self, n: int = 20) -> List[dict]:
         if not self.path.exists():

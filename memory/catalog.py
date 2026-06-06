@@ -28,6 +28,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from core.atomicio import write_json_atomic
+
 
 # Default time-to-live per object type, in seconds. Structure that changes
 # rarely (databases) lives longer than structure that churns (tables/row counts).
@@ -144,8 +146,7 @@ class CatalogCache:
 
     def _save(self) -> None:
         data = {"entries": [e.to_record() for e in self._entries.values()]}
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, default=str)
+        write_json_atomic(self.path, data, indent=2, default=str)
 
     # -- writes -------------------------------------------------------------
     def record_object(

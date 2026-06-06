@@ -23,6 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from core.atomicio import write_json_atomic
 from memory.store import MemoryStore, MemoryEntry
 from memory.catalog import CatalogCache
 from memory.semantic import SemanticMemory
@@ -351,16 +352,14 @@ class AgentMemory:
         state_data = asdict(self.state)
         state_data["tool_history"] = [asdict(t) for t in self._tool_history]
 
-        with open(state_file, "w", encoding="utf-8") as f:
-            json.dump(state_data, f, indent=2, default=str)
+        write_json_atomic(state_file, state_data, indent=2, default=str)
 
     def _save_history(self) -> None:
         # Save the conversation history to a file
         history_file = self._get_history_file()
         history_data = [asdict(m) for m in self._messages]
 
-        with open(history_file, "w", encoding="utf-8") as f:
-            json.dump(history_data, f, indent=2)
+        write_json_atomic(history_file, history_data, indent=2)
 
     def list_sessions(self) -> List[Dict[str, Any]]:
         """List all available sessions."""

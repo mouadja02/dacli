@@ -24,12 +24,13 @@ append-only and serializable so a run is reconstructable end to end.
 
 from __future__ import annotations
 
-import json
 import threading
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from core.atomicio import write_json_atomic
 
 
 def _now() -> str:
@@ -264,7 +265,6 @@ class Blackboard:
         if self._path is None:
             return
         try:
-            with open(self._path, "w", encoding="utf-8") as f:
-                json.dump(self.snapshot(), f, indent=2, default=str)
+            write_json_atomic(self._path, self.snapshot(), indent=2, default=str)
         except Exception:
             pass

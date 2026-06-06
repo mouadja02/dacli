@@ -26,6 +26,7 @@ surfaces to the user with the trail. Every decision is logged for audit (feeds
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from enum import Enum
@@ -102,6 +103,8 @@ class RoutingAuditLog:
     def log(self, decision: RoutingDecision) -> None:
         with open(self.path, "a", encoding="utf-8") as f:
             f.write(json.dumps(decision.to_dict(), default=str) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
 
     def recent(self, n: int = 20) -> List[dict]:
         if not self.path.exists():

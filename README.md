@@ -193,6 +193,14 @@ OPENAI_API_KEY=...        # used for Pinecone embeddings
 > `config.yaml`, `.env`, and the wizard-generated `config/connectors.yaml` are git-ignored.
 > Full reference: **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)**.
 
+> **State durability & sessions.** Session state, encrypted secrets, memory, and
+> usage live under `.dacli/` and are written **atomically** (temp file → `fsync`
+> → `os.replace`), so a crash or `Ctrl-C` mid-write can never truncate or wipe a
+> state file — a reader always sees the complete old or new file. There is **no
+> cross-process lock**, so run **one dacli session per project directory at a
+> time**; two sessions sharing the same `.dacli/` can overwrite each other's
+> last-write-wins state.
+
 ---
 
 ## Quick start

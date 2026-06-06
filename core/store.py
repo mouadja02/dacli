@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from core.atomicio import write_json_atomic
 from core.pricing import TokenUsage
 
 # Config keys whose values must never be written to disk.
@@ -101,10 +102,7 @@ class DacliStore:
 
     def save(self) -> None:
         try:
-            self.base_dir.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(
-                json.dumps(self._data, indent=2, default=str), encoding="utf-8"
-            )
+            write_json_atomic(self.path, self._data, indent=2, default=str)
         except Exception:
             pass  # best-effort; never crash the session over telemetry
 
