@@ -26,6 +26,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -76,9 +80,8 @@ class AuditLedger:
             except Exception:
                 # Telemetry must never crash the control loop — but unlike usage
                 # tracking, a *silently* lost audit record is a reliability hole,
-                # so we still surface it on stderr.
-                import sys
-                print(f"[audit] failed to write event {event.kind}", file=sys.stderr)
+                # so we still surface it (at error level, with the traceback).
+                log.error("failed to write audit event %s", event.kind, exc_info=True)
 
     def log(
         self,

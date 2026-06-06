@@ -9,6 +9,10 @@ gracefully when offline (tokens are still tracked; cost is reported as unknown).
 
 from __future__ import annotations
 
+from core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 import json
 import re
 import time
@@ -268,7 +272,7 @@ def _save_cache(cache_dir: str, payload: Any) -> None:
         path = _cache_path(cache_dir)
         write_json_atomic(path, {"fetched_at": time.time(), "payload": payload})
     except Exception:
-        pass  # caching is best-effort
+        log.debug("pricing cache write failed", exc_info=True)  # best-effort
 
 
 def fetch_api_json(cache_dir: str = ".dacli", force_refresh: bool = False) -> Any:

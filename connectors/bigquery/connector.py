@@ -17,6 +17,10 @@ import re
 import time
 from typing import Any, Dict, List, Optional
 
+from core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 from connectors.base import OperationSpec, Risk, ToolResult
 from connectors.cli_base import CliConnector
 from core.verify import PostCondition, VerificationContext, result_succeeded
@@ -234,7 +238,7 @@ class BigQueryConnector(CliConnector):
             fields = (meta.get("schema", {}) or {}).get("fields", [])
             columns = [{"name": f.get("name"), "type": f.get("type")} for f in fields] or None
         except json.JSONDecodeError:
-            pass
+            log.debug("bq_show output was not valid JSON; columns unknown", exc_info=True)
         effects = [{"action": "create", "object_type": "table", "scope": scope,
                     "source": "bigquery.bq_show", "columns": columns}]
         return self._ok("introspect_bigquery_table",

@@ -8,9 +8,12 @@ from typing import Any, Dict, List, Optional
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from config.settings import Settings
+from core.logging_setup import get_logger
 from core.verify import (
     PostCondition, VerificationContext, result_succeeded, data_has_keys,
 )
+
+log = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -490,10 +493,12 @@ class GithubConnector(Connector):
             if response.status_code == 200:
                 return response.json().get("sha")
             elif response.status_code != 404:
-                print(f"DEBUG: Failed to get SHA for {path} on {branch}. Url: {url}, Status: {response.status_code}, Response: {response.text}")
-        except Exception as e:
-            print(f"Error fetching SHA for {path}: {str(e)}")
-            pass
+                log.debug(
+                    "failed to get SHA for %s on %s (status %s)",
+                    path, branch, response.status_code,
+                )
+        except Exception:
+            log.debug("error fetching SHA for %s", path, exc_info=True)
         return None
 
     async def _op_read_file(self, path: str = "", **kwargs) -> Dict[str, Any]:
@@ -866,7 +871,7 @@ class GithubConnector(Connector):
             if response.status_code == 200:
                 return response.text
         except Exception:
-            pass
+            log.debug("failed to fetch job log for job %s", job_id, exc_info=True)
         return None
 
     async def _get_workflow_logs(self, run_id: int) -> Dict[str, Any]:

@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Callable, Dict, Optional
 
 from config.settings import Settings
+from core.logging_setup import get_logger, is_debug
 from core.memory import AgentMemory
 from core.kernel import Kernel, AgentResponse
 from core.pricing import TokenUsage, fetch_pricing
@@ -33,6 +34,8 @@ from sandbox.factory import build_sandbox_runtime
 from sandbox.terminal import TerminalSession
 from connectors.shell.connector import ShellConnector
 from context.sources.terminal import ScrollbackStore, ScrollbackSource
+
+log = get_logger(__name__)
 
 
 class DACLI:
@@ -232,6 +235,9 @@ class DACLI:
             result_spill=self._context["spill"],
             maybe_compact=self._context["maybe_compact"],
             on_usage=self._usage_sink,
+            # In --debug mode the kernel re-raises truly unexpected exceptions
+            # instead of masking them as resp.error (P06).
+            debug=is_debug(),
         )
 
         # Orchestration & multi-agent (𝒪 / ℛ) — additive. The kernel
@@ -258,7 +264,7 @@ class DACLI:
             )
             self.store.save()
         except Exception:
-            pass
+            log.debug("usage persist failed", exc_info=True)  # swallow but record
 
     def _build_governor(self, settings: Settings, on_approval) -> Optional[Governor]:
         gov = getattr(settings, "governance", None)
@@ -395,7 +401,7 @@ class DACLI:
             try:
                 self._terminal_session.close()
             except Exception:
-                pass
+                log.debug("terminal session close failed", exc_info=True)
 
     # ==================================================================
     # Orchestration & multi-agent (𝒪 / ℛ)

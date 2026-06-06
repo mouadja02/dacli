@@ -24,8 +24,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from core.atomicio import write_json_atomic
+from core.logging_setup import get_logger
 from memory.store import MemoryStore, MemoryEntry
 from memory.catalog import CatalogCache
+
+log = get_logger(__name__)
 from memory.semantic import SemanticMemory
 from memory.episodic import EpisodicMemory
 from memory.procedural import ProceduralMemory
@@ -430,8 +433,8 @@ class AgentMemory:
 
             return True
 
-        except Exception as e:
-            print(f"Error loading session: {e}")
+        except Exception:
+            log.warning("error loading session %s", session_id, exc_info=True)
             return False
 
     def _migrate_legacy_state(self, state_data: Dict[str, Any]) -> None:

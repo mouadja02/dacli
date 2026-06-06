@@ -16,7 +16,10 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from core.atomicio import write_json_atomic
+from core.logging_setup import get_logger
 from core.pricing import TokenUsage
+
+log = get_logger(__name__)
 
 # Config keys whose values must never be written to disk.
 _SECRET_KEYS = {"api_key", "password", "token", "secret", "access_key", "secret_key"}
@@ -85,7 +88,10 @@ class DacliStore:
             if isinstance(data, dict):
                 self._data = self._merge_defaults(data)
         except Exception:
-            pass  # missing/corrupt file -> keep defaults
+            # Missing/corrupt file -> keep defaults, but leave a breadcrumb: a
+            # silently dropped store is exactly the "sometimes it doesn't
+            # remember" failure that is otherwise impossible to debug.
+            log.debug("store load failed (%s); using defaults", self.path, exc_info=True)
         return self
 
     def _merge_defaults(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -104,7 +110,9 @@ class DacliStore:
         try:
             write_json_atomic(self.path, self._data, indent=2, default=str)
         except Exception:
-            pass  # best-effort; never crash the session over telemetry
+            # Best-effort; never crash the session over telemetry — but record
+            # it so a lost usage/secret write isn't completely invisible.
+            log.debug("store save failed (%s)", self.path, exc_info=True)
 
     # ------------------------------------------------------------------
     # mutations
@@ -212,7 +220,7 @@ class DacliStore:
             try:
                 self.save()
             except Exception:
-                pass
+                log.debug("secret re-encryption save failed", exc_info=True)
         return decrypted
 
     def _accumulate(

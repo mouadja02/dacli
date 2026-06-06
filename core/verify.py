@@ -21,6 +21,10 @@ validator implements the small JSON-Schema subset the harness actually uses.
 
 from __future__ import annotations
 
+from core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 import hashlib
 import inspect
 from dataclasses import dataclass, field
@@ -380,7 +384,7 @@ class Verifier:
             try:
                 self._on_report(label, report)
             except Exception:
-                pass
+                log.debug("on_report callback failed", exc_info=True)
         return report
 
 
