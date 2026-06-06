@@ -18,12 +18,18 @@ from __future__ import annotations
 import base64
 import binascii
 import os
+import sys
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, List, Optional, TextIO
 
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+
+class CredentialDecryptionError(Exception):
+    """Raised when an encrypted value can't be decrypted (wrong/rotated key)."""
+
 
 _KEY_FILE = ".key"
 _STABLE_SALT = b"dacli-credential-encryption-v1"
@@ -108,15 +114,30 @@ def encrypt_value(plaintext: str, base_dir: Optional[str] = None) -> str:
     return _fernet(base_dir).encrypt(plaintext.encode("utf-8")).decode("utf-8")
 
 
-def decrypt_value(token: str, base_dir: Optional[str] = None) -> str:
+def decrypt_value(
+    token: str, base_dir: Optional[str] = None, name: Optional[str] = None
+) -> str:
+    """Decrypt a stored credential.
+
+    A value that is *not* a Fernet token is genuine plaintext (pre-encryption
+    store) and is returned unchanged. A value that *is* a Fernet token but
+    fails to decrypt means the key was lost/rotated (``.key`` deleted or
+    ``DACLI_ENCRYPTION_KEY`` changed): rather than silently returning the
+    ciphertext — which a connector would then use as the password and fail
+    opaquely platform-side — raise :class:`CredentialDecryptionError` naming the
+    secret so the real cause is surfaced at startup.
+    """
     if not token:
         return token
     if not is_encrypted(token):
         return token
     try:
         return _fernet(base_dir).decrypt(token.encode("utf-8")).decode("utf-8")
-    except InvalidToken:
-        return token
+    except InvalidToken as exc:
+        label = name or "a stored credential"
+        raise CredentialDecryptionError(
+            f"wrong/rotated encryption key for {label}"
+        ) from exc
 
 
 def is_encrypted(value: str) -> bool:
@@ -134,3 +155,32 @@ def is_encrypted(value: str) -> bool:
     except (binascii.Error, ValueError):
         return False
     return len(decoded) >= _FERNET_MIN_LEN and decoded[0] == _FERNET_VERSION
+
+
+#: Names already reported by :func:`surface_decryption_failures`, so repeated
+#: secret loads (one per connector) don't re-spam the same warning.
+_warned_secrets: set = set()
+
+
+def surface_decryption_failures(
+    names: Iterable[str], *, stream: Optional[TextIO] = None
+) -> Optional[str]:
+    """Report, exactly once, secrets that couldn't be decrypted.
+
+    Aggregates the affected credential names into a single clear message so the
+    user sees the real cause once at startup — *"the encryption key changed"* —
+    instead of N connectors each failing later with an opaque platform-side auth
+    error. Returns the emitted message, or ``None`` if there is nothing new to
+    report (empty input or every name already warned about this process).
+    """
+    new: List[str] = [n for n in names if n and n not in _warned_secrets]
+    if not new:
+        return None
+    _warned_secrets.update(new)
+    msg = (
+        "Encryption key changed; stored credentials for "
+        + ", ".join(sorted(new))
+        + " can't be read. Re-enter them or restore `.dacli/.key`."
+    )
+    print(msg, file=stream or sys.stderr)
+    return msg

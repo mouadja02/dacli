@@ -539,7 +539,11 @@ def _load_dacli_secrets(base_dir: str) -> Dict[str, Any]:
     # Values are Fernet-encrypted; decrypt them here so the overlay fills config
     # fields with plaintext credentials.
     import json
-    from core.crypto import decrypt_value
+    from core.crypto import (
+        CredentialDecryptionError,
+        decrypt_value,
+        surface_decryption_failures,
+    )
 
     try:
         data = json.loads((Path(base_dir) / "dacli.json").read_text(encoding="utf-8"))
@@ -547,16 +551,26 @@ def _load_dacli_secrets(base_dir: str) -> Dict[str, Any]:
         if not isinstance(raw, dict):
             return {}
         decrypted: Dict[str, Any] = {}
+        undecryptable: list = []
         for section, fields in raw.items():
             if not isinstance(fields, dict):
                 continue
             decrypted[section] = {}
             for field, val in fields.items():
-                decrypted[section][field] = (
-                    decrypt_value(val, base_dir=base_dir)
-                    if isinstance(val, str)
-                    else val
-                )
+                if not isinstance(val, str):
+                    decrypted[section][field] = val
+                    continue
+                try:
+                    decrypted[section][field] = decrypt_value(
+                        val, base_dir=base_dir, name=f"{section}.{field}"
+                    )
+                except CredentialDecryptionError:
+                    # Wrong/rotated key: leave the field out so the overlay
+                    # treats it as missing, and aggregate for one clear warning
+                    # instead of N opaque connector auth failures later.
+                    undecryptable.append(f"{section}.{field}")
+        if undecryptable:
+            surface_decryption_failures(undecryptable)
         return decrypted
     except Exception:
         return {}
