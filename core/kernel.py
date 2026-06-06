@@ -40,6 +40,7 @@ class Kernel:
         result_spill: Optional[Callable[[Any], str]] = None,
         maybe_compact: Optional[Callable[[List[Dict[str, Any]]], Awaitable[List[Dict[str, Any]]]]] = None,
         on_usage: Optional[Callable[[Dict[str, int], str], None]] = None,
+        on_retry: Optional[Callable[..., None]] = None,
     ):
         self._llm = llm
         self._dispatcher = dispatcher
@@ -68,7 +69,36 @@ class Kernel:
         # Usage sink: called after each LLM call with (usage_dict, user_message)
         # so the agent can price + persist token consumption (optional).
         self._on_usage = on_usage
+        # Retry-status sink (P05): called once per LLM retry so the TUI can show
+        # "⟳ retrying in 2.1s …". Defaults to the kernel's own status emitter so
+        # a retried turn is never silent even before P13. Only forwarded to the
+        # LLM when the client supports it (test doubles may not).
+        self._on_retry = on_retry or self._emit_retry
+        self._llm_accepts_on_retry = self._supports_on_retry(llm)
         self._current_iteration = 0
+
+    @staticmethod
+    def _supports_on_retry(llm: Any) -> bool:
+        # True when llm.generate accepts an ``on_retry`` kwarg, so test doubles
+        # with a narrower signature are never handed an unexpected argument.
+        import inspect
+
+        try:
+            params = inspect.signature(llm.generate).parameters
+        except (TypeError, ValueError, AttributeError):
+            return False
+        if "on_retry" in params:
+            return True
+        return any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+        )
+
+    def _emit_retry(self, *, attempt: int, delay: float, error: Exception) -> None:
+        # Surface a transient LLM failure + backoff on the status line.
+        self._emit_status(
+            f"⟳ retrying in {delay:.1f}s ({type(error).__name__}) "
+            f"— attempt {attempt}"
+        )
 
     def _emit_status(self, message: str) -> None:
         if self._on_status_update:
@@ -181,6 +211,11 @@ class Kernel:
                     # accept a ``model`` kwarg) unless tiering is actually in use.
                     if model is not None:
                         gen_kwargs["model"] = model
+                    # Likewise thread the retry-status sink only when the client
+                    # supports it (P05); test doubles without ``on_retry`` are
+                    # left untouched.
+                    if self._llm_accepts_on_retry:
+                        gen_kwargs["on_retry"] = self._on_retry
                     content, tool_calls = await self._llm.generate(**gen_kwargs)
                 finally:
                     # Always tear the live region down — even if generation

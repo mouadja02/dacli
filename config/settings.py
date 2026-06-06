@@ -65,7 +65,20 @@ class LLMSettings(BaseModel):
         description="Positive values penalize new tokens based on their existing frequency in the text so far, decreasing the model's likelihood to repeat the same line verbatim",
     )
     timeout: int = Field(
-        default=120, ge=1, description="Timeout in seconds for LLM requests"
+        default=120, ge=1, description="Overall per-call timeout in seconds for LLM requests"
+    )
+    # Bounded retry/backoff (P05). Transient failures (429 / 5xx / dropped
+    # stream) are retried with jittered exponential backoff; permanent errors
+    # (auth / 4xx-validation) fail fast and are never retried.
+    retry_attempts: int = Field(
+        default=4,
+        ge=1,
+        description="Total attempts per LLM call (initial try + retries) before a transient error is surfaced.",
+    )
+    retry_base_delay: float = Field(
+        default=0.5,
+        ge=0.0,
+        description="Base seconds for exponential backoff; delay ~= retry_base_delay * 2**attempt plus jitter.",
     )
 
 

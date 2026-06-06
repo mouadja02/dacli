@@ -24,7 +24,16 @@ llm:
   # Parameters
   temperature: 0.1
   max_tokens: 4096
+
+  # Overall per-call timeout (seconds) for an LLM request.
   timeout: 120
+
+  # Bounded retry/backoff on transient LLM failures (429 / 5xx / dropped
+  # stream). Permanent errors (auth / 4xx-validation) always fail fast.
+  # retry_attempts is the total number of tries (initial + retries); backoff is
+  # jittered exponential: ~ retry_base_delay * 2**attempt seconds.
+  retry_attempts: 4
+  retry_base_delay: 0.5
 
 # ------------------------------------------------------------
 # GitHub Configuration
