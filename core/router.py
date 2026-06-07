@@ -160,14 +160,15 @@ class TierRouter:
     # Platform detection (grounded in the registry when available)
     # ------------------------------------------------------------------
     def _known_platforms(self) -> List[str]:
+        # Grounded in installed connectors. No registry (or an empty/failed
+        # digest) means "no platform signal" — never a hardcoded guess, so a
+        # routing decision reflects what is actually wired up (02.4).
         if self._registry is None:
-            return ["snowflake", "github", "pinecone"]
+            return []
         try:
-            return [
-                d["id"] for d in self._registry.get_tool_digest()
-            ] or ["snowflake", "github", "pinecone"]
+            return [d["id"] for d in self._registry.get_tool_digest()]
         except Exception:
-            return ["snowflake", "github", "pinecone"]
+            return []
 
     def _platforms_in(self, task: str) -> List[str]:
         low = task.lower()
