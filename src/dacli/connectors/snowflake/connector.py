@@ -1,5 +1,4 @@
 import re
-import snowflake.connector
 import time
 from typing import Any
 
@@ -283,8 +282,10 @@ class SnowflakeConnector(Connector):
 
     def __init__(self, settings: Settings):
         super().__init__(settings)
-        self._connection = None
-        self._cursor = None
+        # Typed Any: the SDK is lazy-imported in connect(), so the concrete
+        # SnowflakeConnection/cursor types aren't visible at module scope.
+        self._connection: Any = None
+        self._cursor: Any = None
 
     # ------------------------------------------------------------------
     # Connector contract
@@ -366,7 +367,17 @@ class SnowflakeConnector(Connector):
     # Lifecycle
     # ------------------------------------------------------------------
     async def connect(self) -> bool:
-        # Establish connection with the user snowflake account
+        # Establish connection with the user snowflake account. The SDK is
+        # lazy-imported here (not at module top) so the connector still loads and
+        # appears in the registry when the optional extra isn't installed; only an
+        # actual connect attempt asks for it, with an actionable install hint.
+        try:
+            import snowflake.connector
+        except ImportError as e:
+            raise ConnectionError(
+                "The Snowflake SDK is not installed. Install it with: "
+                "pip install 'dacli[snowflake]'"
+            ) from e
         try:
             snowflake_settings = self.settings.snowflake
 

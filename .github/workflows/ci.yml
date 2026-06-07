@@ -46,9 +46,11 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -e .            # editable install (see P01): test the working tree
-          pip install pytest          # dev-only; declare in pyproject [dev] once P10/P11 land
+          # Reproducible: install the exact pinned closure (base + all extras +
+          # dev tooling) from the lockfile (P11), then the working tree itself
+          # with --no-deps so the lock stays authoritative for versions.
+          pip install -r requirements.lock
+          pip install -e . --no-deps  # editable install (see P01): test the working tree
 
       # Run the DoD gate first and on its own so a governance-debt regression is
       # an unmistakable, named failure rather than buried in the suite.
