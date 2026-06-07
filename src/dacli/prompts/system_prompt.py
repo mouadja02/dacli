@@ -1,13 +1,15 @@
 from pathlib import Path
 from collections.abc import Iterable
 
-# Default location for the system prompt
-SYSTEM_PROMPT_FILE = Path(__file__).parent / "system_message.md"
-
 # Decomposed prompt fragments: an invariant core + per-connector
 # fragments disclosed only when that connector is in play.
 FRAGMENTS_DIR = Path(__file__).parent / "fragments"
 CORE_FRAGMENT = FRAGMENTS_DIR / "core.md"
+
+# The single source of truth for the system prompt (07.E). The agent runs on the
+# composed `core.md`; `/prompt` displays the same source. There is no longer a
+# separate `system_message.md` to drift from it.
+SYSTEM_PROMPT_FILE = CORE_FRAGMENT
 
 
 def _read(path: Path) -> str:
@@ -23,33 +25,29 @@ def compose_system_prompt(
 ) -> str:
     """Assemble the dynamic system prompt.
 
-    Returns the invariant core plus the fragments for the disclosed connectors
+    Returns the invariant core (``prompts/fragments/core.md`` — the one source of
+    truth) plus the fragments for the disclosed connectors
     (``prompts/fragments/<connector_id>.md``). It deliberately does **not** load
     ``DACLI.md`` priors — those are layer L1 of the context assembler
     (``context.assembler.build_context``), which pins them, so loading them here
     too would duplicate them. ``task`` is accepted for future task-conditioned
     fragments; unused today.
-
-    Falls back to the legacy monolithic ``system_message.md`` if the core
-    fragment is missing.
     """
-    core = _read(CORE_FRAGMENT)
-    if not core:
-        return _read(SYSTEM_PROMPT_FILE)
-
-    parts = [core]
+    parts = [_read(CORE_FRAGMENT)]
     for connector_id in disclosed_connectors or []:
         fragment = _read(FRAGMENTS_DIR / f"{connector_id}.md")
         if fragment:
             parts.append(fragment)
-    return "\n\n".join(parts)
+    return "\n\n".join(p for p in parts if p)
 
 def get_default_system_prompt() -> str:
     """Return the default system prompt (the invariant core fragment)."""
     return compose_system_prompt()
 
 def load_system_prompt(custom_path: str | None = None) -> str:
-    # Load the system prompt from file
+    # Load the system prompt. With no custom override this is the single live
+    # source (the composed `core.md`), so the agent's static fallback and the
+    # live pipeline share one prompt; priors are then layered on as below.
     if custom_path:
         custom_file = Path(custom_path)
         try:
@@ -59,15 +57,7 @@ def load_system_prompt(custom_path: str | None = None) -> str:
         except Exception as e:
             raise FileNotFoundError(f"Error loading system prompt from {custom_path}: {e}") from e
 
-    # Check default location
-    prompt_content = ""
-    if SYSTEM_PROMPT_FILE.exists():
-        try:
-            prompt_content = SYSTEM_PROMPT_FILE.read_text(encoding="utf-8")
-        except Exception as e:
-            raise FileNotFoundError(f"Error loading system prompt from {SYSTEM_PROMPT_FILE}: {e}") from e
-    else:
-        raise FileNotFoundError(f"Default system prompt not found at {SYSTEM_PROMPT_FILE}")
+    prompt_content = compose_system_prompt()
 
     # Persistent priors (2.6): DACLI.md is the top layer of context —
     # connection profiles, naming conventions, the medallion rules. It supersedes

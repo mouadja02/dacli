@@ -24,18 +24,15 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from collections.abc import Callable
 
+from dacli.core.timeutils import now_iso as _now_iso
 from dacli.sandbox.shells.base import RawExec, ShellBackend, select_backend
 from dacli.sandbox.shells.transports import Transport, make_transport
 from dacli.sandbox.workspace import SessionWorkspace
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 # A test/eval seam: given a command (+ cwd, timeout) return its raw outcome.
