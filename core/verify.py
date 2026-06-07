@@ -29,7 +29,7 @@ import hashlib
 import inspect
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Union
+from typing import Any
 from collections.abc import Awaitable, Callable
 
 
@@ -54,7 +54,7 @@ class VerificationContext:
 
 
 # A check returns a bool, or ``(bool, detail)``, optionally as a coroutine.
-CheckReturn = Union[bool, tuple[bool, str]]
+CheckReturn = bool | tuple[bool, str]
 CheckFn = Callable[[VerificationContext], CheckReturn | Awaitable[CheckReturn]]
 
 
@@ -425,9 +425,11 @@ def validate_json(instance: Any, schema: dict[str, Any], path: str = "$") -> lis
         errors.append(f"{path}: {instance!r} not in enum {schema['enum']}")
 
     if isinstance(instance, dict):
-        for key in schema.get("required", []) or []:
-            if key not in instance:
-                errors.append(f"{path}: missing required property '{key}'")
+        errors.extend(
+            f"{path}: missing required property '{key}'"
+            for key in schema.get("required", []) or []
+            if key not in instance
+        )
         props = schema.get("properties", {}) or {}
         for key, subschema in props.items():
             if key in instance:

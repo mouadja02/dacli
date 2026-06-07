@@ -86,11 +86,10 @@ def _columns(rows: list[Any]) -> list[str]:
 
 def _null_columns(rows: list[dict[str, Any]], columns: list[str]) -> list[str]:
     """Columns containing any null/empty value — a cheap anomaly hint."""
-    flagged = []
-    for col in columns:
-        if any(row.get(col) in (None, "") for row in rows):
-            flagged.append(col)
-    return flagged
+    return [
+        col for col in columns
+        if any(row.get(col) in (None, "") for row in rows)
+    ]
 
 
 def summarize(result: Any, handle: str) -> str:

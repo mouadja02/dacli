@@ -651,16 +651,17 @@ class GithubConnector(Connector):
         response.raise_for_status()
 
         data = response.json()
-        runs = []
-        for run in data.get("workflow_runs", []):
-            runs.append({
+        runs = [
+            {
                 "id": run["id"],
                 "name": run.get("name", ""),
                 "status": run["status"],
                 "conclusion": run.get("conclusion"),
                 "created_at": run["created_at"],
                 "html_url": run["html_url"],
-            })
+            }
+            for run in data.get("workflow_runs", [])
+        ]
 
         return {"total_count": data.get("total_count", 0), "runs": runs}
 
@@ -827,14 +828,15 @@ class GithubConnector(Connector):
         data = response.json()
         jobs = []
         for job in data.get("jobs", []):
-            steps = []
-            for step in job.get("steps", []):
-                steps.append({
+            steps = [
+                {
                     "name": step["name"],
                     "status": step["status"],
                     "conclusion": step.get("conclusion"),
                     "number": step["number"],
-                })
+                }
+                for step in job.get("steps", [])
+            ]
 
             job_info = {
                 "id": job["id"],

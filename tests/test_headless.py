@@ -31,15 +31,15 @@ def _settings_for_test():
 
     # Only the sub-settings with required fields need an explicit block; the rest
     # (terminal/sandbox/governance/...) default. Mirrors tests/test_terminal_phase1.
-    settings = Settings(
-        llm={"provider": "scripted", "model": "scripted",
-             "api_key": "scripted", "base_url": "https://api.test.local"},
-        github={"token": "x"},
-        snowflake={"account": "a", "user": "u", "password": "p",
-                   "warehouse": "w", "role": "r", "database": "d"},
-        pinecone={"api_key": "k", "index_name": "i", "environment": "e"},
-        embeddings={"provider": "openai", "api_key": "k", "model": "m"},
-    )
+    settings = Settings.model_validate({
+        "llm": {"provider": "scripted", "model": "scripted",
+                "api_key": "scripted", "base_url": "https://api.test.local"},
+        "github": {"token": "x"},
+        "snowflake": {"account": "a", "user": "u", "password": "p",
+                      "warehouse": "w", "role": "r", "database": "d"},
+        "pinecone": {"api_key": "k", "index_name": "i", "environment": "e"},
+        "embeddings": {"provider": "openai", "api_key": "k", "model": "m"},
+    })
     root = tempfile.mkdtemp(prefix="dacli_headless_test_")
     _TEMP_DIRS.append(root)
     settings.agent.state_path = os.path.join(root, "state.json")
@@ -135,15 +135,16 @@ class ExitCodeTest(unittest.TestCase):
     def _result(self, **kw):
         from core.headless import HeadlessResult, TurnRecord
         turns = kw.pop("turns", [])
-        recs = []
-        for t in turns:
-            recs.append(TurnRecord(
+        recs = [
+            TurnRecord(
                 input=t.get("input", ""),
                 content=t.get("content", ""),
                 error=t.get("error"),
                 needs_user_input=t.get("needs_user_input", False),
                 tool_calls=t.get("tool_calls", []),
-            ))
+            )
+            for t in turns
+        ]
         return HeadlessResult(session_id="s", turns=recs, **kw)
 
     def test_ok(self):

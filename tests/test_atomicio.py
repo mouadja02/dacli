@@ -70,9 +70,9 @@ class CrashSimulationTest(unittest.TestCase):
             original = target.read_text(encoding="utf-8")
 
             # Simulate a crash between truncate-equivalent and durable replace.
-            with mock.patch("core.atomicio.os.fsync", side_effect=OSError("boom")):
-                with self.assertRaises(OSError):
-                    write_json_atomic(target, {"secrets": "OVERWRITTEN"})
+            with mock.patch("core.atomicio.os.fsync", side_effect=OSError("boom")), \
+                    self.assertRaises(OSError):
+                write_json_atomic(target, {"secrets": "OVERWRITTEN"})
 
             # The prior file is byte-for-byte intact (the dangerous failure mode).
             self.assertEqual(target.read_text(encoding="utf-8"), original)
@@ -82,9 +82,9 @@ class CrashSimulationTest(unittest.TestCase):
     def test_failed_first_write_creates_no_target(self):
         with TemporaryDirectory() as tmp:
             target = Path(tmp) / "new.json"
-            with mock.patch("core.atomicio.os.fsync", side_effect=OSError("boom")):
-                with self.assertRaises(OSError):
-                    write_text_atomic(target, "partial")
+            with mock.patch("core.atomicio.os.fsync", side_effect=OSError("boom")), \
+                    self.assertRaises(OSError):
+                write_text_atomic(target, "partial")
             self.assertFalse(target.exists())
             self.assertEqual(_tmp_files(Path(tmp)), [])
 

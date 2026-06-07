@@ -97,8 +97,7 @@ class Dashboard:
                     f"{r.correction_rate:>6.2f} {r.governance_interrupt_rate:>6.2f} "
                     f"{r.unguarded:>8} {r.avg_tokens:>7.0f} {r.avg_latency_ms:>8.1f}")
 
-        for row in self.rows:
-            lines.append(fmt(row))
+        lines.extend(fmt(row) for row in self.rows)
         lines.append(sep)
         lines.append(fmt(self.overall))
         lines.append(sep)

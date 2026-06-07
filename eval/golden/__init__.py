@@ -15,8 +15,6 @@ The suite itself is treated as versioned code, reviewed each wave and expanded
 with adversarial/destructive-edge tasks (golden suites going stale is a known risk).
 """
 
-from typing import List
-
 from eval.types import GoldenTask
 from eval.golden.connectors import build_connector_suite
 from eval.golden.spine import build_spine_suite

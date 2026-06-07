@@ -219,12 +219,11 @@ class PlanActObserveVerify:
     async def run_node(self, node: Subtask) -> StepOutcome:
         """Run one node through plan→act→observe→verify with self-correction."""
         # --- approval gate (irreversible actions pause, resumably) ---
-        if node.irreversible and self.require_approval:
-            if not self._approve(node):
-                node.status = NodeStatus.PAUSED
-                self._emit(f"[{node.id}] paused — irreversible action needs approval")
-                return StepOutcome(node.id, "paused", node.attempts, False,
-                                   "awaiting approval for irreversible action")
+        if node.irreversible and self.require_approval and not self._approve(node):
+            node.status = NodeStatus.PAUSED
+            self._emit(f"[{node.id}] paused — irreversible action needs approval")
+            return StepOutcome(node.id, "paused", node.attempts, False,
+                               "awaiting approval for irreversible action")
 
         node.status = NodeStatus.RUNNING
         corrections: list[str] = []

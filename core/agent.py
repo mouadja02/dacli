@@ -660,9 +660,11 @@ class DACLI:
             )
         if isinstance(result, OrchestrationResult):
             parts = [result.summary()]
-            for outcome in result.outcomes:
-                if getattr(outcome, "detail", None):
-                    parts.append(f"- {outcome.node_id}: {outcome.detail}")
+            parts.extend(
+                f"- {outcome.node_id}: {outcome.detail}"
+                for outcome in result.outcomes
+                if getattr(outcome, "detail", None)
+            )
             error = (
                 f"{len(result.escalated)} step(s) escalated to human review"
                 if result.escalated else None

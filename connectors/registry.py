@@ -247,9 +247,11 @@ class ConnectorRegistry:
                 and connector_id not in selected
             ):
                 continue
-            for spec in self._connectors[connector_id].operations():
-                if self.is_operation_enabled(spec.name):
-                    tools.append(spec.to_tool_definition())
+            tools.extend(
+                spec.to_tool_definition()
+                for spec in self._connectors[connector_id].operations()
+                if self.is_operation_enabled(spec.name)
+            )
         return tools
 
     def get_tool_digest(self) -> list[dict[str, Any]]:

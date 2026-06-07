@@ -142,9 +142,9 @@ class EvalHarness:
         *,
         persist: bool = True,
     ) -> SuiteReport:
-        results: list[PassKResult] = []
-        for task in tasks:
-            results.append(await run_pass_k(task, self._scaled_k(task)))
+        results: list[PassKResult] = [
+            await run_pass_k(task, self._scaled_k(task)) for task in tasks
+        ]
         report = SuiteReport(suite=suite_name, results=results)
         if persist:
             self.history.append(report)

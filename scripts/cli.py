@@ -399,7 +399,7 @@ def setup(config, profile):
         asyncio.run(_run_setup_wizard(config_path, settings))
 
 
-async def _run_setup_wizard(config_path: str, settings: Settings) -> dict:
+async def _run_setup_wizard(_config_path: str, settings: Settings) -> dict:
     """Run the setup wizard and save results."""
     registry = ConnectorRegistry(settings, config_path=CONNECTORS_CONFIG_PATH)
     wizard = SetupWizard(settings, registry, CONNECTORS_CONFIG_PATH)
@@ -725,15 +725,15 @@ def _load_settings_for_headless(config, *, offline):
             raise
         # Only the sub-settings with required fields need an explicit block; the
         # rest default. These placeholders are never used to reach a network.
-        return Settings(
-            llm={"provider": "scripted", "model": "scripted",
-                 "api_key": "scripted", "base_url": "https://api.test.local"},
-            github={"token": "x"},
-            snowflake={"account": "a", "user": "u", "password": "p",
-                       "warehouse": "w", "role": "r", "database": "d"},
-            pinecone={"api_key": "k", "index_name": "i", "environment": "e"},
-            embeddings={"provider": "openai", "api_key": "k", "model": "m"},
-        )
+        return Settings.model_validate({
+            "llm": {"provider": "scripted", "model": "scripted",
+                    "api_key": "scripted", "base_url": "https://api.test.local"},
+            "github": {"token": "x"},
+            "snowflake": {"account": "a", "user": "u", "password": "p",
+                          "warehouse": "w", "role": "r", "database": "d"},
+            "pinecone": {"api_key": "k", "index_name": "i", "environment": "e"},
+            "embeddings": {"provider": "openai", "api_key": "k", "model": "m"},
+        })
 
 
 async def _run_headless_cli(
@@ -869,6 +869,8 @@ async def _validate_connections(settings: Settings):
         label = f"{info['icon']} {info['name']}"
         with console.status(f"[bold green]Testing {info['name']} connection..."):
             connector = registry.get_connector(connector_id)
+            if connector is None:
+                continue
             try:
                 result = await connector.health()
                 if result.success:
@@ -883,12 +885,11 @@ async def _validate_connections(settings: Settings):
 
 def _enabled_connector_names(registry) -> list:
     # Short connector names for the welcome card / status bar.
-    names = []
     catalog = registry.get_catalog()
-    for connector_id in catalog:
-        if registry.is_connector_enabled(connector_id):
-            names.append(connector_id)
-    return names
+    return [
+        connector_id for connector_id in catalog
+        if registry.is_connector_enabled(connector_id)
+    ]
 
 
 def _ctx_pct(memory) -> int:

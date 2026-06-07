@@ -230,14 +230,14 @@ class DbtConnector(CliConnector):
             raw = json.loads(self._target_path("run_results.json").read_text(encoding="utf-8"))
         except Exception:
             return None
-        out = []
-        for r in raw.get("results", []) or []:
-            out.append({
+        return [
+            {
                 "node": r.get("unique_id"),
                 "status": r.get("status"),
                 "message": r.get("message"),
-            })
-        return out
+            }
+            for r in raw.get("results", []) or []
+        ]
 
     def _read_manifest(self) -> dict[str, Any] | None:
         try:

@@ -19,6 +19,7 @@ Two reliability rules from the framework:
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from typing import Any
 from collections.abc import Callable
@@ -109,10 +110,9 @@ async def compact(
         return CompactionResult(messages=list(messages), note="", compacted_count=0)
 
     if store_fn is not None:
-        try:
+        # persistence is best-effort; must not break the loop
+        with contextlib.suppress(Exception):
             store_fn(note)
-        except Exception:
-            pass  # persistence is best-effort; must not break the loop
 
     note_msg = {
         "role": "user",

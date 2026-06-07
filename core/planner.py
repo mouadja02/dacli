@@ -216,8 +216,7 @@ class TaskDAG:
                 flags.append("irreversible — needs approval")
             flag_str = f"  [{'; '.join(flags)}]" if flags else ""
             lines.append(f"{i}. [{node.id}] {node.description}{deps}{flag_str}")
-            for crit in node.success_criteria:
-                lines.append(f"      ✓ {crit}")
+            lines.extend(f"      ✓ {crit}" for crit in node.success_criteria)
         return "\n".join(lines)
 
     def to_dict(self) -> dict[str, Any]:

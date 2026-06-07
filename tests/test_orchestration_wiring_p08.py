@@ -62,10 +62,9 @@ def _settings(orchestration=None):
     settings.agent.history_path = os.path.join(root, "history.json")
     with contextlib.suppress(Exception):
         settings.sandbox.enabled = False
-    try:
-        settings.terminal.enabled = False  # avoid spawning a workspace/shell
-    except Exception:
-        pass
+    # avoid spawning a workspace/shell
+    with contextlib.suppress(Exception):
+        settings.terminal.enabled = False
     return settings
 
 

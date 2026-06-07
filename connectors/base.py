@@ -68,9 +68,8 @@ class ToolResult:
         # Format data for the LLM context. Data work: send the FULL result set —
         # no row cap — so the model never has to guess or summarize ("... N more
         # rows"). The CLI renders the same data as a table for the human.
-        if isinstance(self.data, list) and len(self.data) > 0:
-            if isinstance(self.data[0], dict):
-                return "\n".join(f" Row {i+1}: {row}" for i, row in enumerate(self.data))
+        if isinstance(self.data, list) and len(self.data) > 0 and isinstance(self.data[0], dict):
+            return "\n".join(f" Row {i+1}: {row}" for i, row in enumerate(self.data))
         return str(self.data)
 
 

@@ -26,6 +26,7 @@ credential *names* or redacted markers only — see ``core.store._redact`` and
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from logging.handlers import RotatingFileHandler
@@ -81,14 +82,12 @@ def setup_logging(
     # stack duplicate file handlers (which would double every line).
     for h in list(logger.handlers):
         logger.removeHandler(h)
-        try:
+        # Intentionally silent: this is the logging bootstrap itself, mid
+        # handler-swap — there is no sound sink to record into here (the very
+        # handlers we'd log through are being torn down). Not an app-level
+        # swallow; the P06 "swallow-and-record" rule doesn't apply.
+        with contextlib.suppress(Exception):
             h.close()
-        except Exception:
-            # Intentionally silent: this is the logging bootstrap itself, mid
-            # handler-swap — there is no sound sink to record into here (the very
-            # handlers we'd log through are being torn down). Not an app-level
-            # swallow; the P06 "swallow-and-record" rule doesn't apply.
-            pass
 
     handler: logging.Handler
     try:

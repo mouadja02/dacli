@@ -178,8 +178,10 @@ class S3Connector(CliConnector):
         objects: list[dict[str, Any]] = []
         try:
             payload = json.loads(res.stdout) if res.stdout.strip() else {}
-            for c in payload.get("Contents", []) or []:
-                objects.append({"key": c.get("Key"), "size": c.get("Size")})
+            objects.extend(
+                {"key": c.get("Key"), "size": c.get("Size")}
+                for c in payload.get("Contents", []) or []
+            )
         except json.JSONDecodeError:
             log.debug("s3 list output was not valid JSON", exc_info=True)
         return self._ok("list_s3_objects",

@@ -33,9 +33,8 @@ class _MockConnector(Connector):
         self._ops = ops
 
     def operations(self) -> list[OperationSpec]:
-        specs = []
-        for j in range(self._ops):
-            specs.append(OperationSpec(
+        return [
+            OperationSpec(
                 name=f"{self.name}_op{j}",
                 description=("A reasonably verbose operation description that exists "
                              "to make full tool schemas expensive relative to the digest. " * 2),
@@ -49,8 +48,9 @@ class _MockConnector(Connector):
                 },
                 capability=f"{self.name}.op{j}",
                 risk=Risk.SAFE,
-            ))
-        return specs
+            )
+            for j in range(self._ops)
+        ]
 
     async def invoke(self, op, args):
         return ToolResult(tool_name=op, status=ToolStatus.SUCCESS, data={"ok": True})

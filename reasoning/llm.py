@@ -2,24 +2,24 @@ import json
 import random
 import asyncio
 import logging
-from typing import Optional
+import contextlib
+from typing import Any, TypeAlias
 from collections.abc import Awaitable, Callable
 
 from config.settings import Settings
-import contextlib
 
 logger = logging.getLogger(__name__)
 
 # Type of the optional streaming callback: receives each text delta as it
 # arrives. Returning None; it is presentation-only and must not raise into the
 # generate path (the UI guards its own rendering).
-OnText = Optional[Callable[[str], None]]
+OnText: TypeAlias = Callable[[str], None] | None
 
 # Type of the optional retry-status callback. Invoked once per *retry* (not on
 # the final failure) with the upcoming attempt number, the backoff delay about
 # to be slept, and the transient error that triggered it, so the TUI/logger can
 # render "⟳ retrying in 2.1s (429)".
-OnRetry = Optional[Callable[..., None]]
+OnRetry = Callable[..., None] | None
 
 
 class LLMClient:
@@ -28,7 +28,11 @@ class LLMClient:
     def __init__(self, settings: Settings):
         # Initialize LLM client with settings
         self.settings = settings
-        self._client = None
+        # Concrete client type varies by provider (AsyncOpenAI / AsyncAnthropic /
+        # genai.Client), each conditionally imported in initialize(); typed Any so
+        # provider-specific attribute access (.chat, .messages, .GenerativeModel)
+        # type-checks without a fragile union.
+        self._client: Any = None
         self._provider = settings.llm.provider
         # Provider-normalized token usage of the most recent generate() call,
         # read by the kernel for cost tracking. Reset on each generate().
@@ -59,7 +63,7 @@ class LLMClient:
                 max_retries=0,
             )
         elif provider == "google":
-            from google.generativeai import genai
+            from google import genai  # type: ignore  # optional google-genai dep, not installed in CI
             self._client = genai.Client(api_key=self.settings.llm.api_key)
         elif provider == "openrouter":
             from openai import AsyncOpenAI
@@ -179,10 +183,9 @@ class LLMClient:
                 if i == attempts - 1:
                     raise
                 delay = base * 2 ** i + random.random() * 0.3
-                try:
+                # a status sink must never break the retry loop
+                with contextlib.suppress(Exception):
                     on_retry(attempt=i + 1, delay=delay, error=e)
-                except Exception:
-                    pass  # a status sink must never break the retry loop
                 await asyncio.sleep(delay)
         # Unreachable: attempts >= 1, so the loop always returns or raises. Kept
         # so the function provably never returns None.
@@ -270,8 +273,10 @@ class LLMClient:
         # Extract tool calls
         tool_calls = []
         if hasattr(choice.message, "tool_calls") and choice.message.tool_calls:
-            for tc in choice.message.tool_calls:
-                tool_calls.append({"id": tc.id, "name": tc.function.name, "arguments": json.loads(tc.function.arguments)})
+            tool_calls.extend(
+                {"id": tc.id, "name": tc.function.name, "arguments": json.loads(tc.function.arguments)}
+                for tc in choice.message.tool_calls
+            )
 
         self.last_usage = self._usage_openai(getattr(response, "usage", None))
         return content, tool_calls
@@ -343,14 +348,14 @@ class LLMClient:
 
         # Convert tools to Anthropic format
         if tools:
-            anthropic_tools = []
-            for tool in tools:
-                anthropic_tools.append({
+            request_kwargs["tools"] = [
+                {
                     "name": tool["function"]["name"],
                     "description": tool["function"]["description"],
                     "input_schema": tool["function"]["parameters"]
-                })
-            request_kwargs["tools"] = anthropic_tools
+                }
+                for tool in tools
+            ]
 
         if on_text is not None:
             return await self._stream_anthropic(request_kwargs, on_text, on_retry=on_retry)
