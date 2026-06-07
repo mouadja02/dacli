@@ -116,7 +116,14 @@ def _routing_accuracy():
     ]
 
     async def run() -> TaskResult:
-        router = TierRouter(llm=None, registry=None)
+        # Platform detection is grounded in installed connectors (02.4): declare
+        # the platforms these labeled cases name via a registry digest, rather
+        # than relying on a hardcoded fallback.
+        class _Reg:
+            def get_tool_digest(self):
+                return [{"id": p} for p in ("snowflake", "github", "pinecone")]
+
+        router = TierRouter(llm=None, registry=_Reg())
         wrong: List[str] = []
         for task, expected in cases:
             decision = await router.route(task)

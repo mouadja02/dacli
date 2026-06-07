@@ -42,6 +42,17 @@ def _empty_dir():
     return tempfile.mkdtemp(prefix="dacli_p4_nc_")
 
 
+class _FakeRegistry:
+    """Minimal registry stub exposing only what the router reads: the digest of
+    installed platform ids. Grounds platform detection (02.4)."""
+
+    def __init__(self, ids):
+        self._ids = list(ids)
+
+    def get_tool_digest(self):
+        return [{"id": i} for i in self._ids]
+
+
 # ---------------------------------------------------------------------------
 # Test doubles
 # ---------------------------------------------------------------------------
@@ -220,7 +231,13 @@ class CreateTablePostConditionTest(unittest.TestCase):
 class RouterTest(unittest.TestCase):
     def _router(self):
         log = RoutingAuditLog(path=_tmp("routing.jsonl"))
-        return TierRouter(llm=None, audit_log=log, min_confidence=0.7, escalation_budget=2), log
+        # Platform detection is grounded in installed connectors (02.4): declare
+        # which platforms are "installed" via a registry digest so a single op on
+        # a named platform is recognized (no hardcoded platform fallback).
+        return TierRouter(
+            llm=None, registry=_FakeRegistry(["snowflake", "github", "pinecone"]),
+            audit_log=log, min_confidence=0.7, escalation_budget=2,
+        ), log
 
     def test_single_op_routes_to_tool_tier(self):
         router, log = self._router()

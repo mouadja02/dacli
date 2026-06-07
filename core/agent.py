@@ -199,16 +199,6 @@ class DACLI:
             )
             self._sandbox_connector.bind_runtime(_runtime)
 
-        # Tier router: classifies each task tool-vs-sandbox with
-        # confidence-aware escalation; decisions are logged for audit/calibration.
-        _state_dir = str(Path(settings.agent.state_path).parent)
-        self.router = TierRouter(
-            llm=self.llm,
-            registry=self.registry,
-            memory=self.memory,
-            audit_log=RoutingAuditLog(path=f"{_state_dir}/routing.jsonl"),
-        )
-
         # Context Constructor wiring — see context.pipeline.
         self._context = build_context_pipeline(
             settings, self.memory, self.registry, self.llm, self._system_connector
@@ -240,12 +230,28 @@ class DACLI:
             debug=is_debug(),
         )
 
-        # Orchestration & multi-agent (𝒪 / ℛ) — additive. The kernel
-        # stays the default single-step path (``process_message``); the
-        # planner→act→observe→verify controller is the opt-in path for complex,
-        # multi-step goals (``process_goal``). All components are offline-safe.
+        # Orchestration & multi-agent (𝒪 / ℛ) — opt-in, gated behind
+        # ``settings.orchestration.enabled`` (off by default). The kernel is the
+        # default single-step path (``process_message``); the
+        # planner→act→observe→verify controller is the path for genuinely
+        # multi-step goals (``process_goal``), reached via a conservative
+        # complexity gate. When disabled, NONE of the subsystems below are built
+        # — a plain startup constructs no planner/blackboard/lead/orchestrator/
+        # model-router/tier-router and writes no blackboard.json (P08).
         self._on_approval_cb = on_approval
-        self._build_orchestration(settings, _state_dir)
+        orch = getattr(settings, "orchestration", None)
+        self._orchestration_on = bool(getattr(orch, "enabled", False)) if orch else False
+        # Declared up front so callers can rely on the attrs existing (== None
+        # when orchestration is off) rather than catching AttributeError.
+        self.router = None
+        self.model_router = None
+        self.planner = None
+        self.blackboard = None
+        self.lead = None
+        self.orchestrator = None
+        if self._orchestration_on:
+            _state_dir = str(Path(settings.agent.state_path).parent)
+            self._build_orchestration(settings, _state_dir)
 
     def _usage_sink(self, usage_dict: Dict[str, int], user_message: str) -> None:
         # Price one LLM call's token usage and fold it into the persistent store.
@@ -407,8 +413,18 @@ class DACLI:
     # Orchestration & multi-agent (𝒪 / ℛ)
     # ==================================================================
     def _build_orchestration(self, settings: Settings, state_dir: str) -> None:
+        # Only reached when ``settings.orchestration.enabled`` (gated in __init__).
         orch = getattr(settings, "orchestration", None)
-        self._orchestration_on = bool(getattr(orch, "enabled", True)) if orch else True
+
+        # Tier router: classifies each task tool-vs-shell-vs-sandbox with
+        # confidence-aware escalation; decisions are logged for audit/calibration.
+        # Used for real by ``process_goal`` to pick a tier before kernel work.
+        self.router = TierRouter(
+            llm=self.llm,
+            registry=self.registry,
+            memory=self.memory,
+            audit_log=RoutingAuditLog(path=f"{state_dir}/routing.jsonl"),
+        )
 
         # ℛ model tiering: cheap = explicit cheap_model, else the fallback_model,
         # else the default; strong = explicit strong_model, else the default. So a
@@ -554,24 +570,67 @@ class DACLI:
         return worker
 
     async def process_message(self, user_message: str) -> AgentResponse:
-        # Delegate the control loop to the kernel (the default single-step path).
+        """The live entry point. A conservative **complexity gate** keeps common
+        turns on the cheap single-step kernel loop; a genuinely multi-step goal
+        (or an explicit ``/plan``) is escalated to the orchestrated planner path,
+        whose result is folded back into an :class:`AgentResponse` so the UI /
+        headless callers see one stable contract.
+        """
+        if self._should_orchestrate(user_message):
+            result = await self.process_goal(user_message)
+            return self._as_response(result)
         return await self.kernel.orchestrate(user_message)
+
+    def _should_orchestrate(self, message: str) -> bool:
+        """The complexity gate for the *live* path. Conservative on purpose:
+        orchestration must be enabled, and the turn must either be an explicit
+        ``/plan`` request or decompose into enough steps (the planner's gate).
+        Everything else stays on the cheap kernel loop.
+        """
+        if not self._orchestration_on or self.planner is None:
+            return False
+        stripped = (message or "").strip()
+        if stripped.lower().startswith("/plan"):
+            return True
+        return self.planner.is_complex(stripped)
 
     async def process_goal(self, goal: str):
         """Orchestrated entry point for complex, multi-step goals.
 
         The **complexity gate** decides: a goal that does not decompose into
         enough subtasks runs single-step through the kernel (no planner ceremony).
-        A genuinely multi-step goal is decomposed into an inspectable DAG,
-        presented for approval (plan-approve-execute), then driven by the
-        plan→act→observe→verify controller with bounded self-correction. Returns
-        the kernel's :class:`AgentResponse` for the simple path, or the
-        :class:`~core.loop.OrchestrationResult` for the orchestrated path.
+        A genuinely multi-step goal is **routed to a tier** by the
+        :class:`~core.router.TierRouter` (explicit tool/shell/sandbox choice —
+        not left implicit to the LLM picking a tool), decomposed into an
+        inspectable DAG, presented for approval (plan-approve-execute), then
+        driven by the plan→act→observe→verify controller with bounded
+        self-correction. Returns the kernel's :class:`AgentResponse` for the
+        simple path, or the :class:`~core.loop.OrchestrationResult` for the
+        orchestrated path.
         """
-        if not self._orchestration_on or not self.planner.is_complex(goal):
-            return await self.process_message(goal)
+        if not self._orchestration_on or self.planner is None:
+            return await self.kernel.orchestrate(goal)
 
-        dag = self.planner.decompose(goal)
+        forced = goal.strip().lower().startswith("/plan")
+        clean = goal.strip()[len("/plan"):].strip() if forced else goal.strip()
+        if not forced and not self.planner.is_complex(clean):
+            return await self.kernel.orchestrate(clean)
+
+        # Route to an execution tier *explicitly* before any kernel work — this
+        # closes the gap where tiering happened implicitly via the LLM choosing
+        # run_sandbox_code / run_shell_command as ordinary tools. The decision is
+        # logged for audit/calibration by the router's audit log.
+        decision = await self.router.route(clean)
+        self._emit_status(
+            f"Routed to {decision.tier} tier "
+            f"({decision.confidence:.2f}) — {decision.rationale}"
+        )
+
+        dag = self.planner.decompose(clean)
+        self.blackboard.record_decision(
+            f"routed goal to {decision.tier} tier; planned {len(dag)} step(s)",
+            agent="lead",
+        )
         # Present the plan for approval (the low-friction governance posture).
         if self.orchestrator.require_approval and self._on_approval_cb is not None:
             self._emit_status("Proposed plan:\n" + dag.render())
@@ -582,8 +641,40 @@ class DACLI:
             if not approved:
                 self._emit_status("Plan not approved — not executing.")
                 return dag
-        self.blackboard.record_decision(f"approved plan for goal: {goal}", agent="lead")
+        self.blackboard.record_decision(f"approved plan for goal: {clean}", agent="lead")
         return await self.orchestrator.run_dag(dag)
+
+    def _as_response(self, result) -> AgentResponse:
+        """Fold an orchestrated outcome back into the :class:`AgentResponse`
+        contract the live callers (CLI / headless) expect.
+        """
+        if isinstance(result, AgentResponse):
+            return result  # simple path already returned a kernel response
+        from core.planner import TaskDAG
+        from core.loop import OrchestrationResult
+        if isinstance(result, TaskDAG):
+            return AgentResponse(
+                content="Proposed plan (not approved — nothing executed):\n" + result.render(),
+                tool_calls=[],
+                needs_user_input=True,
+            )
+        if isinstance(result, OrchestrationResult):
+            parts = [result.summary()]
+            for outcome in result.outcomes:
+                if getattr(outcome, "detail", None):
+                    parts.append(f"- {outcome.node_id}: {outcome.detail}")
+            error = (
+                f"{len(result.escalated)} step(s) escalated to human review"
+                if result.escalated else None
+            )
+            return AgentResponse(
+                content="\n".join(parts),
+                tool_calls=[],
+                error=error,
+                needs_user_input=bool(result.paused),
+            )
+        # Defensive: anything else stringifies into a plain response.
+        return AgentResponse(content=str(result), tool_calls=[])
 
     def get_progress(self) -> Dict:
         # Get current progress summary

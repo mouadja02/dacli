@@ -134,6 +134,13 @@ structured summary + fetch handle.
   token-bounded summaries via the blackboard.
 - `kernel.py` — the default single-step control loop; `agent.py` is a thin wiring object.
 
+> **Gating (P08).** The orchestration stack is **opt-in**, built and reached only when
+> `orchestration.enabled` (default **off**, so a plain startup is lean — no planner/blackboard/
+> lead/orchestrator/model-router/tier-router constructed). When enabled, `process_message`
+> applies a conservative complexity gate: an explicit `/plan` or a genuinely multi-step goal
+> goes through `process_goal` → `TierRouter.route()` → planner DAG → plan→act→observe→verify;
+> every other turn stays on the cheap kernel loop.
+
 ### 𝒢 Governance — `governance/`, `core/verify.py`
 
 See [GOVERNANCE.md](GOVERNANCE.md). In short: a blast-radius **classifier** tiers each action, a **policy

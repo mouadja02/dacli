@@ -439,8 +439,8 @@ class TerminalSettings(BaseModel):
 class OrchestrationSettings(BaseModel):
     # Orchestration & multi-agent (𝒪 / ℛ) configuration.
     enabled: bool = Field(
-        default=True,
-        description="Allow the planner→act→observe→verify orchestrator for multi-step goals. When off, every message runs the single-step kernel loop.",
+        default=False,
+        description="Build and use the planner→act→observe→verify orchestrator for multi-step goals. Off by default so a plain startup is lean (no planner/blackboard/lead/orchestrator/model-router/tier-router built); when off, every message runs the single-step kernel loop.",
     )
     complexity_gate: int = Field(
         default=2,

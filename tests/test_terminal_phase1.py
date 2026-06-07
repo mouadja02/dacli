@@ -47,6 +47,17 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+class _FakeRegistry:
+    """Minimal registry stub: the digest of installed platform ids the router
+    reads to ground platform detection (02.4)."""
+
+    def __init__(self, ids):
+        self._ids = list(ids)
+
+    def get_tool_digest(self):
+        return [{"id": i} for i in self._ids]
+
+
 def _tmp(prefix="dacli_p1_"):
     return tempfile.mkdtemp(prefix=prefix)
 
@@ -534,7 +545,10 @@ class ShellConnectorTest(unittest.TestCase):
 # ===========================================================================
 class RouterShellTierTest(unittest.TestCase):
     def route(self, task):
-        return _run(TierRouter(llm=None, registry=None).route(task)).tier
+        # Platform detection is grounded in installed connectors (02.4): a
+        # registry digest declares which platforms exist, so "row counts in
+        # BRONZE" is recognized as a single-platform (snowflake) op.
+        return _run(TierRouter(llm=None, registry=_FakeRegistry(["snowflake"])).route(task)).tier
 
     def test_explicit_terminal_cue_routes_shell(self):
         self.assertEqual(self.route("run `git status` in the terminal"), "shell")
