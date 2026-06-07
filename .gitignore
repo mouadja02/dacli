@@ -26,6 +26,7 @@ htmlcov/
 # Local runtime state (generated, not committed)
 config.yaml
 config/connectors.yaml
+src/dacli/config/connectors.yaml
 .dacli
 
 # Credential encryption key — NEVER commit. Covered by .dacli for the default

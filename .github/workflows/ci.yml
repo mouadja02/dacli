@@ -65,7 +65,7 @@ jobs:
       # against the simulated platforms on every PR. Fails loudly on an unguarded
       # destructive execution (the DROP-guard must hold across k runs).
       - name: Reliability eval (sim suite, pass^k)
-        run: python -m eval --quick
+        run: python -m dacli.eval --quick
 
       # End-to-end smoke of the headless agent surface: drives the real agent
       # loop + governance with a scripted (offline, free) LLM and asserts the

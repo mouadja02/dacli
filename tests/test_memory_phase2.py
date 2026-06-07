@@ -9,17 +9,17 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta
 
-from memory.store import (
+from dacli.memory.store import (
     MemoryStore, MemoryEntry, MemoryKind, VerificationStatus,
     confidence_for_source, MAX_CONFIDENCE,
 )
-from memory.catalog import CatalogCache
-from memory.retrieval import rank, retrieve, staleness_penalty
-from memory.verify import verify, build_catalog_verifier
-from connectors.snowflake.connector import parse_catalog_effects
-from connectors.base import ToolResult, ToolStatus, Risk, OperationSpec
-from connectors.dispatcher import Dispatcher
-from core.memory import AgentMemory, AgentState
+from dacli.memory.catalog import CatalogCache
+from dacli.memory.retrieval import rank, retrieve, staleness_penalty
+from dacli.memory.verify import verify, build_catalog_verifier
+from dacli.connectors.snowflake.connector import parse_catalog_effects
+from dacli.connectors.base import ToolResult, ToolStatus, Risk, OperationSpec
+from dacli.connectors.dispatcher import Dispatcher
+from dacli.core.memory import AgentMemory, AgentState
 
 
 def _tmp(name):

@@ -12,8 +12,8 @@ import os
 import tempfile
 import unittest
 
-from core.kernel import Kernel
-from core.logging_setup import setup_logging
+from dacli.core.kernel import Kernel
+from dacli.core.logging_setup import setup_logging
 
 
 class BoomLLM:

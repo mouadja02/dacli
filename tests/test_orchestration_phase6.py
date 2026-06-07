@@ -8,13 +8,13 @@ import asyncio
 import tempfile
 import unittest
 
-from core.planner import Planner, TaskDAG, Subtask, NodeStatus, CyclicPlanError
-from core.loop import (
+from dacli.core.planner import Planner, TaskDAG, Subtask, NodeStatus, CyclicPlanError
+from dacli.core.loop import (
     PlanActObserveVerify, StepResult, StepContext, CorrectionAuditLog,
 )
-from core.blackboard import Blackboard
-from core.subagent import Lead, Assignment, WorkerOutput
-from reasoning.model_router import (
+from dacli.core.blackboard import Blackboard
+from dacli.core.subagent import Lead, Assignment, WorkerOutput
+from dacli.reasoning.model_router import (
     ModelRouter, ModelTier, Stakes, ModelRoutingAuditLog,
 )
 

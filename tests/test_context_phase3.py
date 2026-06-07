@@ -9,18 +9,18 @@ import tempfile
 import unittest
 from dataclasses import dataclass
 
-from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
-from connectors.registry import ConnectorRegistry
-from connectors.system.connector import SystemConnector
-from core.kernel import Kernel
+from dacli.connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
+from dacli.connectors.registry import ConnectorRegistry
+from dacli.connectors.system.connector import SystemConnector
+from dacli.core.kernel import Kernel
 
-from context.assembler import build_context, Context
-from context.budget import Budget, PINNED, PRIORS
-from context.compaction import compact, needs_compaction
-from context.disclosure import disclose
-from context.spill import ResultStore, summarize_or_inline
-from context.tokenizer import make_counter
-from prompts.system_prompt import compose_system_prompt
+from dacli.context.assembler import build_context, Context
+from dacli.context.budget import Budget, PINNED, PRIORS
+from dacli.context.compaction import compact, needs_compaction
+from dacli.context.disclosure import disclose
+from dacli.context.spill import ResultStore, summarize_or_inline
+from dacli.context.tokenizer import make_counter
+from dacli.prompts.system_prompt import compose_system_prompt
 
 
 # ---------------------------------------------------------------------------
@@ -300,7 +300,7 @@ class KernelNewPathTest(unittest.TestCase):
                                 extra_connectors=[system])
         system.bind_registry(reg)
 
-        from connectors.dispatcher import Dispatcher
+        from dacli.connectors.dispatcher import Dispatcher
         dispatcher = Dispatcher(reg, memory=memory)
         counter = make_counter(None)
         budget = Budget(total=8000)

@@ -14,15 +14,15 @@ import asyncio
 import types
 import unittest
 
-from connectors.base import Risk, ToolStatus
-from connectors.http_base import HttpResult
-from core.verify import VerificationContext, run_postconditions
+from dacli.connectors.base import Risk, ToolStatus
+from dacli.connectors.http_base import HttpResult
+from dacli.core.verify import VerificationContext, run_postconditions
 
-from connectors.airflow.connector import AirflowConnector
-from connectors.dagster.connector import DagsterConnector
+from dacli.connectors.airflow.connector import AirflowConnector
+from dacli.connectors.dagster.connector import DagsterConnector
 
-from governance.rollback import RollbackStrategist
-from governance.classifier import Classification, Tier
+from dacli.governance.rollback import RollbackStrategist
+from dacli.governance.classifier import Classification, Tier
 
 
 def _run(coro):

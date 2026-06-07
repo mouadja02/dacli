@@ -28,7 +28,7 @@ python -m unittest tests.test_connector_dod -v
 python -m unittest discover -s tests -p "test_*.py"
 
 # 3. Offline reliability suite (pass^k) against simulated platforms
-python -m eval --quick
+python -m dacli.eval --quick
 ```
 
 All three must pass. The `eval --quick` run exits non-zero on any unguarded destructive execution.

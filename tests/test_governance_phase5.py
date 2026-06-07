@@ -9,24 +9,24 @@ import tempfile
 import unittest
 from typing import Any
 
-from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
-from connectors.registry import ConnectorRegistry
-from connectors.dispatcher import Dispatcher
+from dacli.connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
+from dacli.connectors.registry import ConnectorRegistry
+from dacli.connectors.dispatcher import Dispatcher
 
-from governance.classifier import ActionClassifier, Tier, classify_sql, detect_prod
-from governance.policy_engine import (
+from dacli.governance.classifier import ActionClassifier, Tier, classify_sql, detect_prod
+from dacli.governance.policy_engine import (
     PolicyEngine, PolicyConfig, PolicyDecision,
 )
-from governance.permissions import PermissionRegistry, Scope
-from governance.rollback import RollbackStrategist
-from governance.shadow import ShadowExecutor
-from governance.audit import AuditLedger
-from governance.governor import Governor
+from dacli.governance.permissions import PermissionRegistry, Scope
+from dacli.governance.rollback import RollbackStrategist
+from dacli.governance.shadow import ShadowExecutor
+from dacli.governance.audit import AuditLedger
+from dacli.governance.governor import Governor
 
-from sandbox.policy import SandboxPolicy
-from sandbox.sdk import ConnectorSDK
-from sandbox.runtime import SandboxRuntime
-from sandbox.connector import SandboxConnector
+from dacli.sandbox.policy import SandboxPolicy
+from dacli.sandbox.sdk import ConnectorSDK
+from dacli.sandbox.runtime import SandboxRuntime
+from dacli.sandbox.connector import SandboxConnector
 
 
 def _run(coro):

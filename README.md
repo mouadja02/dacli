@@ -336,7 +336,7 @@ python -m unittest discover -s tests -p "test_*.py"
 python -m unittest tests.test_connector_dod
 
 # Offline reliability suite (pass^k) against simulated platforms
-python -m eval --quick
+python -m dacli.eval --quick
 ```
 
 CI runs the DoD gate, the full suite (Python 3.10–3.12), and the pass^k sim suite on every pull request.

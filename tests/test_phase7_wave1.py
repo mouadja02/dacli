@@ -17,20 +17,20 @@ import tempfile
 import types
 import unittest
 
-from connectors.base import Risk, ToolStatus
-from connectors.cli_base import CliResult
-from core.verify import VerificationContext, run_postconditions
+from dacli.connectors.base import Risk, ToolStatus
+from dacli.connectors.cli_base import CliResult
+from dacli.core.verify import VerificationContext, run_postconditions
 
-from connectors.dbt.connector import DbtConnector
-from connectors.bigquery.connector import (
+from dacli.connectors.dbt.connector import DbtConnector
+from dacli.connectors.bigquery.connector import (
     BigQueryConnector, bigquery_ddl_object_exists, _split_ref,
 )
-from connectors.databricks.connector import DatabricksConnector
-from connectors.s3.connector import S3Connector
-from connectors.gcs.connector import GCSConnector
+from dacli.connectors.databricks.connector import DatabricksConnector
+from dacli.connectors.s3.connector import S3Connector
+from dacli.connectors.gcs.connector import GCSConnector
 
-from governance.rollback import RollbackStrategist
-from governance.classifier import Classification, Tier
+from dacli.governance.rollback import RollbackStrategist
+from dacli.governance.classifier import Classification, Tier
 
 
 def _run(coro):

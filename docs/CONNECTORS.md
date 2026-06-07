@@ -46,8 +46,8 @@ connectors/<platform>/
 ### `connector.py`
 
 ```python
-from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
-from core.verify import result_succeeded, PostCondition, VerificationContext
+from dacli.connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
+from dacli.core.verify import result_succeeded, PostCondition, VerificationContext
 
 class MyPlatformConnector(Connector):
     name = "myplatform"
@@ -85,7 +85,7 @@ id: myplatform
 name: My Platform
 description: What it does
 icon: "🔌"
-class: connectors.myplatform.connector.MyPlatformConnector
+class: dacli.connectors.myplatform.connector.MyPlatformConnector
 required_config: [api_key]
 enabled: false                # the wizard turns it on
 default_scope: read_only      # least privilege

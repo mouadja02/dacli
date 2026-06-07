@@ -11,8 +11,8 @@ Run with:
 
 import unittest
 
-from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
-from connectors.dod import audit_connectors, check_connector_dod
+from dacli.connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
+from dacli.connectors.dod import audit_connectors, check_connector_dod
 
 
 class AllShippedConnectorsPassDod(unittest.TestCase):
@@ -41,7 +41,7 @@ class _BadConnector(Connector):
         super().__init__(settings=None)
 
     def operations(self) -> list[OperationSpec]:
-        from core.verify import result_succeeded
+        from dacli.core.verify import result_succeeded
         return [
             OperationSpec(
                 name="bad_write", description="writes something",
@@ -76,7 +76,7 @@ class DodHasTeeth(unittest.TestCase):
     def test_compliant_manifest_shape_clears_manifest_rules(self):
         # A fully-formed manifest for a read-only connector with introspection
         # should not raise the manifest/scope/golden rules.
-        from core.verify import data_has_keys
+        from dacli.core.verify import data_has_keys
 
         class _Good(Connector):
             name = "good"

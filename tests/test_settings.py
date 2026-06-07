@@ -1,7 +1,7 @@
 import os
 import unittest
 
-from config.settings import _substitute_env_vars
+from dacli.config.settings import _substitute_env_vars
 
 
 class SettingsEnvSubstitutionTest(unittest.TestCase):

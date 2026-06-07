@@ -27,7 +27,7 @@ def _settings_for_test():
     wall-clock second share a timestamp session id and accumulate each other's
     usage counts (a real cross-test bleed).
     """
-    from config.settings import Settings
+    from dacli.config.settings import Settings
 
     # Only the sub-settings with required fields need an explicit block; the rest
     # (terminal/sandbox/governance/...) default. Mirrors tests/test_terminal_phase1.
@@ -58,20 +58,20 @@ class _Sentinel:
 class LLMInjectionTest(unittest.TestCase):
     def setUp(self):
         # Keep construction offline + fast.
-        self._pricing_patch = mock.patch("core.agent.fetch_pricing", return_value=None)
+        self._pricing_patch = mock.patch("dacli.core.agent.fetch_pricing", return_value=None)
         self._pricing_patch.start()
         self.addCleanup(self._pricing_patch.stop)
 
     def test_injected_llm_is_used(self):
-        from core.agent import DACLI
+        from dacli.core.agent import DACLI
         settings = _settings_for_test()
         sentinel = _Sentinel()
         agent = DACLI(settings=settings, llm=sentinel)
         self.assertIs(agent.llm, sentinel)
 
     def test_default_llm_constructed_when_none(self):
-        from core.agent import DACLI
-        from reasoning.llm import LLMClient
+        from dacli.core.agent import DACLI
+        from dacli.reasoning.llm import LLMClient
         settings = _settings_for_test()
         agent = DACLI(settings=settings)
         self.assertIsInstance(agent.llm, LLMClient)
@@ -90,7 +90,7 @@ def _run(coro):
 
 class ScriptedLLMTest(unittest.TestCase):
     def test_returns_text_tool_calls_and_usage(self):
-        from reasoning.scripted import ScriptedLLM
+        from dacli.reasoning.scripted import ScriptedLLM
         llm = ScriptedLLM([
             {"text": "hi", "tool_calls": [{"name": "update_plan", "arguments": {"todos": []}}],
              "usage": {"input": 10, "output": 2}},
@@ -109,7 +109,7 @@ class ScriptedLLMTest(unittest.TestCase):
         self.assertEqual(tc2, [])
 
     def test_assigns_unique_ids(self):
-        from reasoning.scripted import ScriptedLLM
+        from dacli.reasoning.scripted import ScriptedLLM
         llm = ScriptedLLM([
             {"tool_calls": [{"name": "a", "arguments": {}}, {"name": "b", "arguments": {}}]},
         ])
@@ -118,14 +118,14 @@ class ScriptedLLMTest(unittest.TestCase):
         self.assertEqual(len(ids), len(set(ids)))
 
     def test_raises_when_exhausted(self):
-        from reasoning.scripted import ScriptedLLM, ScriptExhausted
+        from dacli.reasoning.scripted import ScriptedLLM, ScriptExhausted
         llm = ScriptedLLM([{"text": "only one"}])
         _run(llm.generate(messages=[]))
         with self.assertRaises(ScriptExhausted):
             _run(llm.generate(messages=[]))
 
     def test_accepts_model_kwarg(self):
-        from reasoning.scripted import ScriptedLLM
+        from dacli.reasoning.scripted import ScriptedLLM
         llm = ScriptedLLM([{"text": "x"}])
         content, _tc = _run(llm.generate(messages=[], model="some-model"))
         self.assertEqual(content, "x")
@@ -133,7 +133,7 @@ class ScriptedLLMTest(unittest.TestCase):
 
 class ExitCodeTest(unittest.TestCase):
     def _result(self, **kw):
-        from core.headless import HeadlessResult, TurnRecord
+        from dacli.core.headless import HeadlessResult, TurnRecord
         turns = kw.pop("turns", [])
         recs = [
             TurnRecord(
@@ -186,7 +186,7 @@ class ExitCodeTest(unittest.TestCase):
 
 class RunHeadlessTest(unittest.TestCase):
     def setUp(self):
-        self._pricing_patch = mock.patch("core.agent.fetch_pricing", return_value=None)
+        self._pricing_patch = mock.patch("dacli.core.agent.fetch_pricing", return_value=None)
         self._pricing_patch.start()
         self.addCleanup(self._pricing_patch.stop)
 
@@ -194,8 +194,8 @@ class RunHeadlessTest(unittest.TestCase):
         return _settings_for_test()
 
     def test_happy_path_tool_call_and_usage(self):
-        from core.headless import run_headless
-        from reasoning.scripted import ScriptedLLM
+        from dacli.core.headless import run_headless
+        from dacli.reasoning.scripted import ScriptedLLM
         llm = ScriptedLLM([
             {"text": "planning",
              "tool_calls": [{"name": "update_plan",
@@ -217,8 +217,8 @@ class RunHeadlessTest(unittest.TestCase):
         self.assertEqual(result.usage.get("input"), 70)
 
     def test_governance_block_is_exit_2(self):
-        from core.headless import run_headless
-        from reasoning.scripted import ScriptedLLM
+        from dacli.core.headless import run_headless
+        from dacli.reasoning.scripted import ScriptedLLM
         llm = ScriptedLLM([
             {"text": "wiping",
              "tool_calls": [{"name": "run_shell_command",
@@ -234,8 +234,8 @@ class RunHeadlessTest(unittest.TestCase):
         self.assertTrue(any(s in ("denied", "blocked") for s in statuses))
 
     def test_script_exhausted_is_exit_3(self):
-        from core.headless import run_headless
-        from reasoning.scripted import ScriptedLLM
+        from dacli.core.headless import run_headless
+        from dacli.reasoning.scripted import ScriptedLLM
         # Calls a tool but never scripts a final answer -> loop pulls again -> dry.
         llm = ScriptedLLM([
             {"tool_calls": [{"name": "update_plan", "arguments": {"todos": []}}]},
@@ -255,7 +255,7 @@ import os as _os
 
 class CliCommandTest(unittest.TestCase):
     def setUp(self):
-        self._pricing_patch = mock.patch("core.agent.fetch_pricing", return_value=None)
+        self._pricing_patch = mock.patch("dacli.core.agent.fetch_pricing", return_value=None)
         self._pricing_patch.start()
         self.addCleanup(self._pricing_patch.stop)
 
@@ -268,7 +268,7 @@ class CliCommandTest(unittest.TestCase):
 
     def test_run_command_emits_json_exit_0(self):
         from click.testing import CliRunner
-        from scripts.cli import cli
+        from dacli.scripts.cli import cli
         script = self._write("_llm.json", _json.dumps([
             {"text": "done", "usage": {"input": 5, "output": 1}},
         ]))
@@ -282,7 +282,7 @@ class CliCommandTest(unittest.TestCase):
 
     def test_replay_command_runs_scenario(self):
         from click.testing import CliRunner
-        from scripts.cli import cli
+        from dacli.scripts.cli import cli
         scenario = self._write("_scenario.json", _json.dumps({
             "no_connectors": True,
             "approve": "deny",

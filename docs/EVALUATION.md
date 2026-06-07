@@ -15,7 +15,7 @@ dacli eval --regression    # also diff against the previous run in history
 dacli eval --calibrate     # print data-driven threshold recommendations
 dacli eval --json          # machine-readable output
 
-python -m eval --quick     # equivalent module entrypoint
+python -m dacli.eval --quick     # equivalent module entrypoint
 ```
 
 Everything here is **offline**: deterministic simulated platforms, no credentials, no network, no cost.

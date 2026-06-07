@@ -11,16 +11,16 @@ import asyncio
 import tempfile
 import unittest
 
-from eval.types import GoldenTask, Stakes, TaskResult
-from eval.passk import PassKResult, run_pass_k
-from eval.harness import EvalHarness, SuiteReport
-from eval.sim.cli import SimCli
-from eval.sim.platforms import s3_responder
-from eval.golden import build_golden_suite, build_connector_suite, build_spine_suite
-from eval.regression import compare
-from eval.dashboard import Dashboard
-from eval.selfimprove import SelfImprovement
-from eval.calibration import calibrate
+from dacli.eval.types import GoldenTask, Stakes, TaskResult
+from dacli.eval.passk import PassKResult, run_pass_k
+from dacli.eval.harness import EvalHarness, SuiteReport
+from dacli.eval.sim.cli import SimCli
+from dacli.eval.sim.platforms import s3_responder
+from dacli.eval.golden import build_golden_suite, build_connector_suite, build_spine_suite
+from dacli.eval.regression import compare
+from dacli.eval.dashboard import Dashboard
+from dacli.eval.selfimprove import SelfImprovement
+from dacli.eval.calibration import calibrate
 
 
 def _run(coro):
@@ -205,7 +205,7 @@ class SelfImprovementTest(unittest.TestCase):
                 GoldenTask("candidate", "x", "runbook path", cand, stakes=Stakes.WRITE))
 
     def test_runbook_promoted_only_when_it_beats_baseline(self):
-        from governance.audit import AuditLedger
+        from dacli.governance.audit import AuditLedger
 
         proc = _FakeProcedural()
         ledger = AuditLedger(path=_tmp("audit.jsonl"))
@@ -224,7 +224,7 @@ class SelfImprovementTest(unittest.TestCase):
         self.assertIn("promoted", events[0]["summary"])
 
     def test_unvetted_runbook_is_rejected(self):
-        from governance.audit import AuditLedger
+        from dacli.governance.audit import AuditLedger
 
         proc = _FakeProcedural()
         ledger = AuditLedger(path=_tmp("audit.jsonl"))

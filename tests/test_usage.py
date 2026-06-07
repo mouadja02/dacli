@@ -8,9 +8,9 @@ import json
 import tempfile
 import unittest
 
-from config.settings import _overlay_secrets
-from core.pricing import TokenUsage, pricing_from_payload
-from core.store import DacliStore, _redact
+from dacli.config.settings import _overlay_secrets
+from dacli.core.pricing import TokenUsage, pricing_from_payload
+from dacli.core.store import DacliStore, _redact
 
 
 # A trimmed models.dev-shaped payload.

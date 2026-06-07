@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from logging.handlers import RotatingFileHandler
 
-from core.logging_setup import get_logger, is_debug, setup_logging
+from dacli.core.logging_setup import get_logger, is_debug, setup_logging
 
 
 def _flush():

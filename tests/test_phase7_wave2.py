@@ -14,17 +14,17 @@ import json
 import types
 import unittest
 
-from connectors.base import Risk, ToolStatus
-from connectors.cli_base import CliResult
-from core.verify import VerificationContext, run_postconditions
+from dacli.connectors.base import Risk, ToolStatus
+from dacli.connectors.cli_base import CliResult
+from dacli.core.verify import VerificationContext, run_postconditions
 
-from connectors.postgres.connector import PostgresConnector, postgres_ddl_object_exists
-from connectors.mysql.connector import MySQLConnector, mysql_ddl_object_exists
-from connectors.mongodb.connector import MongoDBConnector
-from connectors.dynamodb.connector import DynamoDBConnector
+from dacli.connectors.postgres.connector import PostgresConnector, postgres_ddl_object_exists
+from dacli.connectors.mysql.connector import MySQLConnector, mysql_ddl_object_exists
+from dacli.connectors.mongodb.connector import MongoDBConnector
+from dacli.connectors.dynamodb.connector import DynamoDBConnector
 
-from governance.rollback import RollbackStrategist
-from governance.classifier import Classification, Tier
+from dacli.governance.rollback import RollbackStrategist
+from dacli.governance.classifier import Classification, Tier
 
 
 def _run(coro):
