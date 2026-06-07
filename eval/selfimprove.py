@@ -14,7 +14,7 @@ subtly-wrong-but-passing shortcut (post-condition gaming at the runbook level).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import Any
 
 from eval.passk import run_pass_k
 from eval.types import GoldenTask
@@ -61,7 +61,7 @@ class SelfImprovement:
         self._session_id = session_id
 
     @staticmethod
-    def distill_runbook_steps(episode_steps: List[dict]) -> str:
+    def distill_runbook_steps(episode_steps: list[dict]) -> str:
         """Turn a concrete episodic trace into a parameterized step list.
 
         Object names seen in the trace become ``<param>`` placeholders so the
@@ -103,14 +103,13 @@ class SelfImprovement:
                 f"candidate did not beat baseline on pass^{k} "
                 f"({cand_pk:.2f} vs {base_pk:.2f}) — not promoted")
 
-        result = PromotionResult(
+        return PromotionResult(
             runbook=runbook_name, promoted=promoted,
             baseline_pass_k=base_pk, candidate_pass_k=cand_pk,
             baseline_success_rate=base.success_rate,
             candidate_success_rate=cand.success_rate,
             k=k, reason=reason,
         )
-        return result
 
     async def distill_and_promote(
         self,
@@ -120,7 +119,7 @@ class SelfImprovement:
         candidate_task: GoldenTask,
         *,
         k: int = 5,
-        derived_from: Optional[List[str]] = None,
+        derived_from: list[str] | None = None,
     ) -> PromotionResult:
         """Evaluate, and — only if it beats the baseline — write the runbook to
         procedural memory and record the comparison in the audit ledger."""

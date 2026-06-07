@@ -11,7 +11,7 @@ connector dir, so the registry never loads it.
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from core.connector_config import load_connector_config
@@ -30,7 +30,7 @@ class MyToolConnector(Connector):
         self.cfg = load_connector_config("mytool", settings=settings)
         self._client = None  # lazily built from self.cfg in _ensure_client()
 
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         return [
             OperationSpec(
                 name="mytool_list_items",
@@ -71,7 +71,7 @@ class MyToolConnector(Connector):
             ),
         ]
 
-    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+    async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         try:
             if op == "mytool_list_items":
@@ -99,10 +99,10 @@ class MyToolConnector(Connector):
     # ------------------------------------------------------------------
     # Implementation details (replace with real SDK/HTTP calls)
     # ------------------------------------------------------------------
-    async def _list_items(self, limit: int) -> List[Dict[str, Any]]:
+    async def _list_items(self, limit: int) -> list[dict[str, Any]]:
         return []
 
-    async def _create_item(self, title: str) -> Dict[str, Any]:
+    async def _create_item(self, title: str) -> dict[str, Any]:
         return {"title": title, "created": True}
 
     def _ok(self, op: str, data: Any, started: float) -> ToolResult:

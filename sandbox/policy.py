@@ -11,7 +11,6 @@ the credentials), never directly.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 
 @dataclass
@@ -21,13 +20,13 @@ class SandboxPolicy:
     max_memory_mb: int = 1024
     max_output_chars: int = 20000
     network: str = "allowlist"          # "off" | "allowlist" | "open"
-    egress_allowlist: List[str] = field(default_factory=list)
+    egress_allowlist: list[str] = field(default_factory=list)
     # The loopback port of the governance bridge the worker may always reach
     # (set per-run by the runtime). Everything else is subject to ``network``.
-    bridge_port: Optional[int] = None
+    bridge_port: int | None = None
 
     @classmethod
-    def from_settings(cls, settings) -> "SandboxPolicy":
+    def from_settings(cls, settings) -> SandboxPolicy:
         sb = getattr(settings, "sandbox", None)
         if sb is None:
             return cls()
@@ -49,7 +48,7 @@ class SandboxPolicy:
         }
 
 
-def install_egress_guard(network: str, allowlist: List[str], bridge_port: int) -> None:
+def install_egress_guard(network: str, allowlist: list[str], bridge_port: int) -> None:
     """Monkeypatch ``socket`` so the worker honors the egress policy.
 
     Called *inside the worker process* before user code runs. For ``off`` only
@@ -83,7 +82,7 @@ def install_egress_guard(network: str, allowlist: List[str], bridge_port: int) -
             host = address[0]
             port = address[1] if len(address) > 1 else None
         except Exception:
-            raise PermissionError("sandbox egress blocked: malformed address")
+            raise PermissionError("sandbox egress blocked: malformed address") from None
         # The governance bridge on loopback is always permitted.
         if _is_loopback(str(host)) and (bridge_port == 0 or port == bridge_port or network != "off"):
             return _orig_connect(self, address)

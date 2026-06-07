@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 from connectors.base import OperationSpec, Risk, ToolResult
 from connectors.http_base import HttpConnector
@@ -85,17 +85,17 @@ class AirflowConnector(HttpConnector):
         cfg = self._cfg()
         return getattr(cfg, "timeout", 600) if cfg else 600
 
-    def _default_headers(self) -> Dict[str, str]:
+    def _default_headers(self) -> dict[str, str]:
         cfg = self._cfg()
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if cfg and getattr(cfg, "token", ""):
             headers["Authorization"] = f"Bearer {cfg.token}"
         elif cfg and getattr(cfg, "username", ""):
-            raw = f"{cfg.username}:{getattr(cfg, 'password', '')}".encode("utf-8")
+            raw = f"{cfg.username}:{getattr(cfg, 'password', '')}".encode()
             headers["Authorization"] = "Basic " + base64.b64encode(raw).decode("ascii")
         return headers
 
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         dag = {"dag_id": {"type": "string", "description": "DAG id."}}
         return [
             OperationSpec(
@@ -153,7 +153,7 @@ class AirflowConnector(HttpConnector):
             ),
         ]
 
-    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+    async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
         args = dict(args or {})
         if op == "list_airflow_dags":
             return await self._list_dags(args)
@@ -170,7 +170,7 @@ class AirflowConnector(HttpConnector):
         return self._unknown_op(op)
 
     # ------------------------------------------------------------------
-    async def get_dag(self, dag_id: str) -> Dict[str, Any]:
+    async def get_dag(self, dag_id: str) -> dict[str, Any]:
         """Read one DAG's metadata (used by post-conditions)."""
         res = await self._request("GET", f"/api/v1/dags/{dag_id}")
         if res.status == 404:
@@ -180,7 +180,7 @@ class AirflowConnector(HttpConnector):
         data = res.data or {}
         return {"exists": True, "dag_id": dag_id, "is_paused": data.get("is_paused")}
 
-    async def _list_dags(self, args: Dict[str, Any]) -> ToolResult:
+    async def _list_dags(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         limit = int(args.get("limit") or 100)
         res = await self._request("GET", "/api/v1/dags", params={"limit": limit})
@@ -190,7 +190,7 @@ class AirflowConnector(HttpConnector):
                 for d in (res.data or {}).get("dags", [])]
         return self._ok("list_airflow_dags", {"dags": dags, "count": len(dags)}, started)
 
-    async def _get_run(self, args: Dict[str, Any]) -> ToolResult:
+    async def _get_run(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         dag_id, run_id = args.get("dag_id"), args.get("dag_run_id")
         res = await self._request("GET", f"/api/v1/dags/{dag_id}/dagRuns/{run_id}")
@@ -200,7 +200,7 @@ class AirflowConnector(HttpConnector):
         return self._ok("get_airflow_dag_run",
                         {"dag_id": dag_id, "dag_run_id": run_id, "state": d.get("state")}, started)
 
-    async def _task_instances(self, args: Dict[str, Any]) -> ToolResult:
+    async def _task_instances(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         dag_id, run_id = args.get("dag_id"), args.get("dag_run_id")
         res = await self._request(
@@ -212,7 +212,7 @@ class AirflowConnector(HttpConnector):
         return self._ok("get_airflow_task_instances",
                         {"dag_id": dag_id, "dag_run_id": run_id, "task_instances": tis}, started)
 
-    async def _trigger(self, args: Dict[str, Any]) -> ToolResult:
+    async def _trigger(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         dag_id = args.get("dag_id")
         body = {"conf": args.get("conf") or {}}
@@ -224,7 +224,7 @@ class AirflowConnector(HttpConnector):
         cfg = self._cfg()
         interval = getattr(cfg, "poll_interval", 5) if cfg else 5
         max_attempts = max(1, self._timeout() // max(interval, 1))
-        for attempt in range(max_attempts):
+        for _attempt in range(max_attempts):
             if state in _TERMINAL:
                 break
             run = await self._request("GET", f"/api/v1/dags/{dag_id}/dagRuns/{run_id}")
@@ -240,7 +240,7 @@ class AirflowConnector(HttpConnector):
                 "task_instances": task_instances}
         return self._ok("trigger_airflow_dag", data, started)
 
-    async def _pause(self, args: Dict[str, Any]) -> ToolResult:
+    async def _pause(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         dag_id = args.get("dag_id")
         res = await self._request("PATCH", f"/api/v1/dags/{dag_id}", json={"is_paused": True})
@@ -249,7 +249,7 @@ class AirflowConnector(HttpConnector):
         return self._ok("pause_airflow_dag",
                         {"dag_id": dag_id, "is_paused": (res.data or {}).get("is_paused")}, started)
 
-    async def _delete(self, args: Dict[str, Any]) -> ToolResult:
+    async def _delete(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         dag_id = args.get("dag_id")
         res = await self._request("DELETE", f"/api/v1/dags/{dag_id}")
@@ -258,7 +258,7 @@ class AirflowConnector(HttpConnector):
         return self._ok("delete_airflow_dag", {"dag_id": dag_id, "deleted": True}, started)
 
     # ------------------------------------------------------------------
-    async def verify_rollback(self, plan, args: Dict[str, Any]):
+    async def verify_rollback(self, plan, args: dict[str, Any]):
         if getattr(plan, "primitive", "") == "airflow_unpause":
             return True, "unpause restores scheduling"
         return False, ("deleting a DAG removes run history with no native undo "

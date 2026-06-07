@@ -1,5 +1,5 @@
 import time
-from typing import Dict, List, Any
+from typing import Any
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from config.settings import Settings
@@ -27,7 +27,7 @@ class PineconeConnector(Connector):
     # ------------------------------------------------------------------
     # Connector contract
     # ------------------------------------------------------------------
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         return [
             OperationSpec(
                 name="search_snowflake_docs",
@@ -60,7 +60,7 @@ class PineconeConnector(Connector):
             ),
         ]
 
-    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+    async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
         if op == "search_snowflake_docs":
             return await self._search(query=args.get("query", ""))
         if op == "describe_pinecone_index":
@@ -83,7 +83,7 @@ class PineconeConnector(Connector):
             self._index = pc.Index(pinecone_settings.index_name)
         except Exception as e:
             self._is_connected = False
-            raise ConnectionError(f"Failed to connect to Pinecone: {str(e)}")
+            raise ConnectionError(f"Failed to connect to Pinecone: {e!s}") from e
 
         try:
             embedding_settings = self.settings.embeddings
@@ -100,7 +100,7 @@ class PineconeConnector(Connector):
 
         except Exception as e:
             self._is_connected = False
-            raise ConnectionError(f"Failed to connect to Pinecone: {str(e)}")
+            raise ConnectionError(f"Failed to connect to Pinecone: {e!s}") from e
 
         self._is_connected = True
         return True
@@ -150,17 +150,16 @@ class PineconeConnector(Connector):
                 execution_time_ms=execution_time,
             )
 
-    def _get_embedding(self, text: str) -> List[float]:
+    def _get_embedding(self, text: str) -> list[float]:
         # Get embedding vector for text
         if self.settings.embeddings.provider == "openai":
             response = self._embeddings_client.embeddings.create(
                 model=self._embeddings_model, input=text
             )
             return response.data[0].embedding
-        else:
-            raise ValueError(
-                f"Unsupported embedding provider: {self.settings.embeddings.provider}"
-            )
+        raise ValueError(
+            f"Unsupported embedding provider: {self.settings.embeddings.provider}"
+        )
 
     # ------------------------------------------------------------------
     # Operations

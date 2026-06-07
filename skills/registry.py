@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import importlib
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yaml
 
@@ -26,7 +26,7 @@ from core.verify import require_postconditions
 from skills.spec import Skill
 
 
-def _parse_front_matter(text: str) -> Dict[str, Any]:
+def _parse_front_matter(text: str) -> dict[str, Any]:
     """Read the YAML front matter block delimited by leading/trailing ``---``."""
     stripped = text.lstrip()
     if not stripped.startswith("---"):
@@ -46,14 +46,14 @@ class SkillRegistry:
 
     def __init__(
         self,
-        skills_dir: Optional[str] = None,
+        skills_dir: str | None = None,
         *,
-        extra_skills: Optional[List[Skill]] = None,
+        extra_skills: list[Skill] | None = None,
     ):
         self._skills_dir = Path(skills_dir) if skills_dir else Path(__file__).parent
-        self._skills: Dict[str, Skill] = {}
-        self._manifests: Dict[str, Dict[str, Any]] = {}
-        self._enabled: Dict[str, bool] = {}
+        self._skills: dict[str, Skill] = {}
+        self._manifests: dict[str, dict[str, Any]] = {}
+        self._enabled: dict[str, bool] = {}
 
         self._discover()
         for skill in extra_skills or []:
@@ -81,7 +81,7 @@ class SkillRegistry:
         cls = getattr(module, class_name)
         return cls()
 
-    def _register(self, skill: Skill, meta: Dict[str, Any], *, enabled: bool) -> None:
+    def _register(self, skill: Skill, meta: dict[str, Any], *, enabled: bool) -> None:
         spec = skill.spec
         # MANDATORY: no post-condition, no registration.
         require_postconditions(f"skill:{spec.name}", spec.postconditions)
@@ -98,20 +98,20 @@ class SkillRegistry:
     def is_enabled(self, name: str) -> bool:
         return bool(self._enabled.get(name, False))
 
-    def get(self, name: str) -> Optional[Skill]:
+    def get(self, name: str) -> Skill | None:
         # Tolerate the underscore form used in tool names (diagram_mermaid).
         if name in self._skills:
             return self._skills[name]
         hyphen = name.replace("_", "-")
         return self._skills.get(hyphen)
 
-    def all(self) -> List[Skill]:
+    def all(self) -> list[Skill]:
         return list(self._skills.values())
 
-    def names(self) -> List[str]:
+    def names(self) -> list[str]:
         return list(self._skills.keys())
 
-    def digest(self) -> List[Dict[str, Any]]:
+    def digest(self) -> list[dict[str, Any]]:
         """Progressive-disclosure surface: name + one-liner per enabled skill."""
         out = []
         for name, manifest in self._manifests.items():
@@ -125,7 +125,7 @@ class SkillRegistry:
             })
         return out
 
-    def get_tool_definitions(self) -> List[Dict[str, Any]]:
+    def get_tool_definitions(self) -> list[dict[str, Any]]:
         return [
             s.spec.to_tool_definition()
             for name, s in self._skills.items()

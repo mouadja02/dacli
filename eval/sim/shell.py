@@ -24,7 +24,6 @@ from __future__ import annotations
 import os
 import shlex
 import shutil
-from typing import Dict, List, Optional, Tuple
 
 from sandbox.shells.base import RawExec
 
@@ -35,18 +34,18 @@ class SimShell:
     def __init__(
         self,
         *,
-        responses: Optional[Dict[str, Tuple[str, int]]] = None,
-        fail_commands: Optional[List[str]] = None,
+        responses: dict[str, tuple[str, int]] | None = None,
+        fail_commands: list[str] | None = None,
     ):
         # Exact-or-prefix canned responses: command (or its prefix) -> (out, rc).
         self.responses = dict(responses or {})
         # Commands whose *leading program* should report a non-zero exit even
         # though they "ran" (to exercise the shell_exit_zero post-condition).
         self.fail_commands = set(fail_commands or [])
-        self.calls: List[str] = []
+        self.calls: list[str] = []
 
     # The TerminalSession command_runner signature.
-    def __call__(self, command: str, *, cwd: str = ".", timeout: Optional[float] = None) -> RawExec:
+    def __call__(self, command: str, *, cwd: str = ".", timeout: float | None = None) -> RawExec:
         command = (command or "").strip()
         self.calls.append(command)
 
@@ -59,7 +58,7 @@ class SimShell:
             if command.startswith(prefix):
                 return RawExec(output=out, exit_code=rc)
 
-        out_lines: List[str] = []
+        out_lines: list[str] = []
         rc = 0
         # Sequence on && / ; ; stop a && chain on first failure (real shell semantics).
         segments = _split_sequence(command)
@@ -77,7 +76,7 @@ class SimShell:
         return any(needle in c for c in self.calls)
 
     # ------------------------------------------------------------------
-    def _run_segment(self, segment: str, cwd: str) -> Tuple[str, int]:
+    def _run_segment(self, segment: str, cwd: str) -> tuple[str, int]:
         try:
             tokens = shlex.split(segment, posix=True)
         except ValueError:
@@ -125,7 +124,7 @@ class SimShell:
     def _abs(self, cwd: str, rel: str) -> str:
         return rel if os.path.isabs(rel) else os.path.join(cwd, rel)
 
-    def _write(self, cwd: str, target: str, text: str, *, append: bool) -> Tuple[str, int]:
+    def _write(self, cwd: str, target: str, text: str, *, append: bool) -> tuple[str, int]:
         path = self._abs(cwd, target)
         try:
             os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -135,7 +134,7 @@ class SimShell:
         except Exception as e:
             return f"write failed: {e}", 1
 
-    def _mkdir(self, cwd: str, dirs: List[str]) -> Tuple[str, int]:
+    def _mkdir(self, cwd: str, dirs: list[str]) -> tuple[str, int]:
         for d in dirs:
             try:
                 os.makedirs(self._abs(cwd, d), exist_ok=True)
@@ -143,7 +142,7 @@ class SimShell:
                 return f"mkdir: {e}", 1
         return "", 0
 
-    def _touch(self, cwd: str, files: List[str]) -> Tuple[str, int]:
+    def _touch(self, cwd: str, files: list[str]) -> tuple[str, int]:
         for f in [a for a in files if not a.startswith("-")]:
             try:
                 open(self._abs(cwd, f), "a", encoding="utf-8").close()
@@ -151,21 +150,22 @@ class SimShell:
                 return f"touch: {e}", 1
         return "", 0
 
-    def _cat(self, cwd: str, files: List[str]) -> Tuple[str, int]:
-        out: List[str] = []
+    def _cat(self, cwd: str, files: list[str]) -> tuple[str, int]:
+        out: list[str] = []
         for f in [a for a in files if not a.startswith("-")]:
             p = self._abs(cwd, f)
             if not os.path.exists(p):
                 return f"cat: {f}: No such file or directory", 1
             try:
-                out.append(open(p, "r", encoding="utf-8").read().rstrip("\n"))
+                with open(p, encoding="utf-8") as fh:
+                    out.append(fh.read().rstrip("\n"))
             except Exception as e:
                 return f"cat: {e}", 1
         return "\n".join(out), 0
 
-    def _ls(self, cwd: str, args: List[str]) -> Tuple[str, int]:
+    def _ls(self, cwd: str, args: list[str]) -> tuple[str, int]:
         targets = [a for a in args if not a.startswith("-")] or ["."]
-        out: List[str] = []
+        out: list[str] = []
         for t in targets:
             p = self._abs(cwd, t)
             if not os.path.exists(p):
@@ -176,7 +176,7 @@ class SimShell:
                 out.append(os.path.basename(p))
         return "\n".join(out), 0
 
-    def _rm(self, cwd: str, args: List[str]) -> Tuple[str, int]:
+    def _rm(self, cwd: str, args: list[str]) -> tuple[str, int]:
         targets = [a for a in args if not a.startswith("-")]
         recursive = any(a for a in args if a.startswith("-") and ("r" in a.lower()))
         for t in targets:
@@ -193,7 +193,7 @@ class SimShell:
                 return f"rm: {e}", 1
         return "", 0
 
-    def _cp(self, cwd: str, args: List[str]) -> Tuple[str, int]:
+    def _cp(self, cwd: str, args: list[str]) -> tuple[str, int]:
         files = [a for a in args if not a.startswith("-")]
         if len(files) < 2:
             return "cp: missing destination", 1
@@ -207,7 +207,7 @@ class SimShell:
         except Exception as e:
             return f"cp: {e}", 1
 
-    def _mv(self, cwd: str, args: List[str]) -> Tuple[str, int]:
+    def _mv(self, cwd: str, args: list[str]) -> tuple[str, int]:
         files = [a for a in args if not a.startswith("-")]
         if len(files) < 2:
             return "mv: missing destination", 1
@@ -221,9 +221,9 @@ class SimShell:
 # ---------------------------------------------------------------------------
 # parsing helpers
 # ---------------------------------------------------------------------------
-def _split_sequence(command: str) -> List[Tuple[str, str]]:
+def _split_sequence(command: str) -> list[tuple[str, str]]:
     """Split on && and ; keeping the joiner that *preceded* each segment."""
-    out: List[Tuple[str, str]] = []
+    out: list[tuple[str, str]] = []
     buf = ""
     i = 0
     joiner = ""
@@ -247,11 +247,11 @@ def _split_sequence(command: str) -> List[Tuple[str, str]]:
     return [(s, j) for s, j in out if s]
 
 
-def _extract_redirect(args: List[str]) -> Tuple[Optional[str], Optional[str], List[str]]:
+def _extract_redirect(args: list[str]) -> tuple[str | None, str | None, list[str]]:
     """Pull a trailing ``> file`` / ``>> file`` out of args; return (target, mode, rest)."""
-    target: Optional[str] = None
-    mode: Optional[str] = None
-    rest: List[str] = []
+    target: str | None = None
+    mode: str | None = None
+    rest: list[str] = []
     i = 0
     while i < len(args):
         a = args[i]
@@ -277,14 +277,14 @@ def _extract_redirect(args: List[str]) -> Tuple[Optional[str], Optional[str], Li
     return target, mode, rest
 
 
-def _echo_text(prog: str, rest: List[str]) -> str:
+def _echo_text(prog: str, rest: list[str]) -> str:
     # printf's first arg is a format; echo just joins. Good enough for the sim.
     if prog == "printf" and rest:
         return rest[0].replace("\\n", "\n")
     return " ".join(rest)
 
 
-def _seq(args: List[str]) -> Tuple[str, int]:
+def _seq(args: list[str]) -> tuple[str, int]:
     nums = [a for a in args if not a.startswith("-")]
     try:
         if len(nums) == 1:
@@ -304,7 +304,7 @@ def make_sim_session(
     session_id: str,
     workspace_root: str,
     *,
-    sim: Optional[SimShell] = None,
+    sim: SimShell | None = None,
     **kwargs,
 ):
     """Convenience: a :class:`TerminalSession` driven by a :class:`SimShell`."""

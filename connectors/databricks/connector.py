@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from connectors.base import OperationSpec, Risk, ToolResult
 from connectors.cli_base import CliConnector
@@ -70,7 +70,7 @@ class DatabricksConnector(CliConnector):
         cfg = getattr(settings, "databricks", None)
         self.binary = getattr(cfg, "databricks_binary", "databricks") or "databricks"
 
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         return [
             OperationSpec(
                 name="execute_databricks_sql",
@@ -102,7 +102,7 @@ class DatabricksConnector(CliConnector):
             ),
         ]
 
-    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+    async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
         args = dict(args or {})
         if op == "execute_databricks_sql":
             return await self._query(args.get("query", ""))
@@ -121,7 +121,7 @@ class DatabricksConnector(CliConnector):
     async def _query(self, sql: str) -> ToolResult:
         started = time.time()
         cfg = self._cfg()
-        body: Dict[str, Any] = {
+        body: dict[str, Any] = {
             "warehouse_id": getattr(cfg, "warehouse_id", "") if cfg else "",
             "statement": sql,
             "wait_timeout": "50s",
@@ -143,7 +143,7 @@ class DatabricksConnector(CliConnector):
                         query=sql[:200], statement_state=state,
                         catalog_effects=self._catalog_effects(sql))
 
-    async def _introspect(self, args: Dict[str, Any]) -> ToolResult:
+    async def _introspect(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         cfg = self._cfg()
         catalog = args.get("catalog") or (getattr(cfg, "catalog", "") if cfg else "")
@@ -167,14 +167,14 @@ class DatabricksConnector(CliConnector):
 
     # ------------------------------------------------------------------
     @staticmethod
-    def _parse_json(text: str) -> Optional[Dict[str, Any]]:
+    def _parse_json(text: str) -> dict[str, Any] | None:
         try:
             return json.loads(text) if text.strip() else {}
         except json.JSONDecodeError:
             return None
 
     @staticmethod
-    def _rows_from_payload(payload: Optional[Dict[str, Any]]) -> Any:
+    def _rows_from_payload(payload: dict[str, Any] | None) -> Any:
         if not payload:
             return None
         result = payload.get("result") or {}
@@ -184,11 +184,11 @@ class DatabricksConnector(CliConnector):
         if data_array is None:
             return None
         if names:
-            return [dict(zip(names, row)) for row in data_array]
+            return [dict(zip(names, row, strict=True)) for row in data_array]
         return data_array
 
     @staticmethod
-    def _catalog_effects(sql: str) -> List[Dict[str, Any]]:
+    def _catalog_effects(sql: str) -> list[dict[str, Any]]:
         m = _DROP_TRUNC_RE.match(_norm(sql))
         if m:
             return [{"action": "invalidate", "object_type": "table",
@@ -198,7 +198,7 @@ class DatabricksConnector(CliConnector):
     # ------------------------------------------------------------------
     # Governance: rollback-path verification (DoD)
     # ------------------------------------------------------------------
-    async def verify_rollback(self, plan, args: Dict[str, Any]):
+    async def verify_rollback(self, plan, args: dict[str, Any]):
         primitive = getattr(plan, "primitive", "")
         if primitive == "delta_shallow_clone":
             return True, "shadow on a shallow CLONE; original untouched until promote"

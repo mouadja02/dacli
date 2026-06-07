@@ -18,10 +18,10 @@ reads ``self.settings.<id>`` — transparently, never touching plaintext on disk
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, Optional
+from typing import Any
 
 
-def _resolve_base_dir(base_dir: Optional[str]) -> str:
+def _resolve_base_dir(base_dir: str | None) -> str:
     if base_dir:
         return base_dir
     # Mirror core.crypto's resolution so the key/secret locations always agree.
@@ -33,9 +33,9 @@ def _resolve_base_dir(base_dir: Optional[str]) -> str:
 
 def load_connector_config(
     connector_id: str,
-    base_dir: Optional[str] = None,
+    base_dir: str | None = None,
     settings: Any = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Return the decrypted config dict for ``connector_id``.
 
     Reads the ``secrets`` block of ``.dacli/dacli.json`` via :class:`DacliStore`

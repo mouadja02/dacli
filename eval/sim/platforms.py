@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import types
-from typing import Any, List, Optional
+from typing import Any
 
 from connectors.cli_base import CliResult
 
@@ -44,7 +44,7 @@ SIM_SETTINGS = sim_settings
 # ---------------------------------------------------------------------------
 def s3_responder(*, head_exists: bool = True, versioned: bool = False,
                  mutation_rc: int = 0):
-    def respond(argv: List[str]) -> CliResult:
+    def respond(argv: list[str]) -> CliResult:
         joined = " ".join(argv)
         if "head-object" in argv:
             return (CliResult(0, "", "", argv) if head_exists
@@ -62,7 +62,7 @@ def s3_responder(*, head_exists: bool = True, versioned: bool = False,
 # ---------------------------------------------------------------------------
 def gcs_responder(*, ls_exists: bool = True, versioned: bool = False,
                   mutation_rc: int = 0):
-    def respond(argv: List[str]) -> CliResult:
+    def respond(argv: list[str]) -> CliResult:
         joined = " ".join(argv)
         if "ls" in argv:
             if ls_exists:
@@ -78,8 +78,8 @@ def gcs_responder(*, ls_exists: bool = True, versioned: bool = False,
 # BigQuery — ``bq show`` is the oracle for a CREATE
 # ---------------------------------------------------------------------------
 def bigquery_responder(*, object_exists: bool = True,
-                       rows: Optional[List[dict]] = None):
-    def respond(argv: List[str]) -> CliResult:
+                       rows: list[dict] | None = None):
+    def respond(argv: list[str]) -> CliResult:
         if "show" in argv:
             if object_exists:
                 return CliResult(0, json.dumps(
@@ -93,7 +93,7 @@ def bigquery_responder(*, object_exists: bool = True,
 # Databricks — the statement STATE is the oracle
 # ---------------------------------------------------------------------------
 def databricks_responder(*, state: str = "SUCCEEDED"):
-    def respond(argv: List[str]) -> CliResult:
+    def respond(argv: list[str]) -> CliResult:
         payload: dict = {"status": {"state": state}}
         if state == "SUCCEEDED":
             payload["manifest"] = {"schema": {"columns": [{"name": "c"}]}}

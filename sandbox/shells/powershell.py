@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import shutil
-from typing import List, Optional
 
 from sandbox.shells.base import SENTINEL, ShellBackend
 
@@ -12,7 +11,7 @@ class PowerShellBackend(ShellBackend):
     name = "powershell"
     binary = "powershell"
 
-    def __init__(self, *, binary: Optional[str] = None):
+    def __init__(self, *, binary: str | None = None):
         # Prefer cross-platform pwsh when available; fall back to Windows
         # PowerShell. An explicit ``binary`` always wins.
         if binary:
@@ -23,7 +22,7 @@ class PowerShellBackend(ShellBackend):
             resolved = "powershell"
         super().__init__(binary=resolved)
 
-    def launch_argv(self) -> List[str]:
+    def launch_argv(self) -> list[str]:
         # ``-Command -`` reads a command stream from stdin; -NoProfile keeps the
         # session deterministic (no user profile side effects).
         return [self.binary, "-NoLogo", "-NoProfile", "-Command", "-"]

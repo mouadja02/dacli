@@ -25,6 +25,7 @@ import socket
 import sys
 import traceback
 from pathlib import Path
+import contextlib
 
 
 class _BridgeSDK:
@@ -79,7 +80,7 @@ class _BridgeSDK:
         out = []
         if not path.exists():
             return out
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             for i, line in enumerate(f):
                 if limit is not None and i >= limit:
                     break
@@ -119,7 +120,7 @@ def _install_egress_guard(network: str, allowlist, bridge_host: str) -> None:
             host = address[0]
             port = address[1] if len(address) > 1 else None
         except Exception:
-            raise PermissionError("sandbox egress blocked: malformed address")
+            raise PermissionError("sandbox egress blocked: malformed address") from None
         if _ok(str(host)):
             return _orig_connect(self, address)
         raise PermissionError(
@@ -169,17 +170,13 @@ def main() -> int:
         error = traceback.format_exc()
         print(error, file=sys.stderr)
 
-    try:
+    with contextlib.suppress(Exception):
         result_path.write_text(
             json.dumps({"ok": ok, "error": error, "returned": sdk._returned}, default=str),
             encoding="utf-8",
         )
-    except Exception:
-        pass
-    try:
+    with contextlib.suppress(Exception):
         sock.close()
-    except Exception:
-        pass
     return 0 if ok else 1
 
 

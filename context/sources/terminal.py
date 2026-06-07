@@ -22,9 +22,10 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from core.atomicio import write_json_atomic
+import contextlib
 
 # How many head/tail lines the summary shows when output is spilled.
 SAMPLE_LINES = 8
@@ -46,7 +47,7 @@ class ScrollbackStore:
         self.session_id = session_id or "default"
         self.dir = Path(root) / self.session_id / "scrollback"
         self.dir.mkdir(parents=True, exist_ok=True)
-        self._order: List[str] = []
+        self._order: list[str] = []
 
     def _path(self, command_id: str) -> Path:
         safe = "".join(c for c in command_id if c.isalnum() or c in ("_", "-"))
@@ -67,15 +68,13 @@ class ScrollbackStore:
             "line_count": len(output.splitlines()),
             "output": output,
         }
-        try:
+        with contextlib.suppress(Exception):
             write_json_atomic(self._path(command_id), payload, default=str)
-        except Exception:
-            pass
         if command_id not in self._order:
             self._order.append(command_id)
         return command_id
 
-    def read(self, command_id: str, start: int = 0, count: Optional[int] = None) -> Dict[str, Any]:
+    def read(self, command_id: str, start: int = 0, count: int | None = None) -> dict[str, Any]:
         """Read full (or a line-window of a) command's output back from disk."""
         path = self._path(command_id)
         if not path.exists():
@@ -98,8 +97,8 @@ class ScrollbackStore:
             "output": "\n".join(window),
         }
 
-    def recent(self, n: int = 5) -> List[Dict[str, Any]]:
-        records: List[Dict[str, Any]] = []
+    def recent(self, n: int = 5) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
         for p in sorted(self.dir.glob("*.json"), key=lambda x: x.stat().st_mtime)[-n:]:
             try:
                 records.append(json.loads(p.read_text(encoding="utf-8")))
@@ -108,7 +107,7 @@ class ScrollbackStore:
         return records
 
 
-def bound_output(output: str, max_chars: int) -> Dict[str, Any]:
+def bound_output(output: str, max_chars: int) -> dict[str, Any]:
     """Return a model-facing view of a command's output, summarised if large.
 
     Small output is returned verbatim; large output is replaced by a head/tail
@@ -131,11 +130,11 @@ def bound_output(output: str, max_chars: int) -> Dict[str, Any]:
 class ScrollbackSource:
     """The context layer over a live :class:`TerminalSession` + its store."""
 
-    def __init__(self, session: Any = None, store: Optional[ScrollbackStore] = None):
+    def __init__(self, session: Any = None, store: ScrollbackStore | None = None):
         self._session = session
         self._store = store
 
-    def get(self, command_id: str, start: int = 0, count: Optional[int] = None) -> Dict[str, Any]:
+    def get(self, command_id: str, start: int = 0, count: int | None = None) -> dict[str, Any]:
         """JIT fetch: the full (or a slice of a) command's output by id."""
         if self._store is not None:
             result = self._store.read(command_id, start=start, count=count)
@@ -155,13 +154,13 @@ class ScrollbackSource:
                 }
         return {"error": f"Unknown scrollback handle '{command_id}'."}
 
-    def summary_lines(self, limit_commands: int = 5) -> List[str]:
+    def summary_lines(self, limit_commands: int = 5) -> list[str]:
         """Provenance-tagged, compact digest of recent terminal activity.
 
         One line per recent command — enough for the model to know *what
         happened* and *which handle to fetch* — never the raw output.
         """
-        out: List[str] = []
+        out: list[str] = []
         commands = []
         if self._session is not None and getattr(self._session, "commands", None):
             commands = self._session.commands[-limit_commands:]

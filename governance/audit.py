@@ -24,7 +24,7 @@ import threading
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from core.logging_setup import get_logger
 
@@ -46,12 +46,12 @@ class AuditEvent:
     session_id: str = ""
     decision_id: str = ""           # correlates all events for one action
     actor: str = "agent"            # "agent" | "sandbox" | "human"
-    tier: Optional[str] = None
+    tier: str | None = None
     summary: str = ""
-    detail: Dict[str, Any] = field(default_factory=dict)
+    detail: dict[str, Any] = field(default_factory=dict)
     timestamp: str = field(default_factory=_now_iso)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -91,7 +91,7 @@ class AuditLedger:
         session_id: str = "",
         decision_id: str = "",
         actor: str = "agent",
-        tier: Optional[str] = None,
+        tier: str | None = None,
         summary: str = "",
         **detail: Any,
     ) -> AuditEvent:
@@ -106,11 +106,11 @@ class AuditLedger:
     # ------------------------------------------------------------------
     # read / reconstruct
     # ------------------------------------------------------------------
-    def all_events(self) -> List[Dict[str, Any]]:
+    def all_events(self) -> list[dict[str, Any]]:
         if not self.path.exists():
             return []
-        out: List[Dict[str, Any]] = []
-        with open(self.path, "r", encoding="utf-8") as f:
+        out: list[dict[str, Any]] = []
+        with open(self.path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -124,9 +124,9 @@ class AuditLedger:
     def events(
         self,
         *,
-        session_id: Optional[str] = None,
-        kind: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        session_id: str | None = None,
+        kind: str | None = None,
+    ) -> list[dict[str, Any]]:
         rows = self.all_events()
         if session_id:
             rows = [r for r in rows if r.get("session_id") == session_id]
@@ -134,23 +134,23 @@ class AuditLedger:
             rows = [r for r in rows if r.get("kind") == kind]
         return rows
 
-    def sessions(self) -> List[str]:
-        seen: List[str] = []
+    def sessions(self) -> list[str]:
+        seen: list[str] = []
         for r in self.all_events():
             sid = r.get("session_id") or ""
             if sid and sid not in seen:
                 seen.append(sid)
         return seen
 
-    def decisions(self, session_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def decisions(self, session_id: str | None = None) -> list[dict[str, Any]]:
         """Group the flat event stream into one record per governed action.
 
         Returns a list of ``{decision_id, tool_name, tier, events:[...]}`` in
         first-seen order — the structure ``dacli audit`` renders to answer
         "why did the agent do that?".
         """
-        grouped: Dict[str, Dict[str, Any]] = {}
-        order: List[str] = []
+        grouped: dict[str, dict[str, Any]] = {}
+        order: list[str] = []
         for r in self.events(session_id=session_id):
             did = r.get("decision_id") or f"_{len(order)}"
             if did not in grouped:

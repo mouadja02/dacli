@@ -10,7 +10,6 @@ Run with:
 """
 
 import unittest
-from typing import List
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from connectors.dod import audit_connectors, check_connector_dod
@@ -41,7 +40,7 @@ class _BadConnector(Connector):
     def __init__(self):
         super().__init__(settings=None)
 
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         from core.verify import result_succeeded
         return [
             OperationSpec(

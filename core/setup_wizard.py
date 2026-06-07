@@ -4,7 +4,7 @@
 # iterates over whatever connectors the ConnectorRegistry discovered and writes
 # the user's selections to config/connectors.yaml.
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, ClassVar
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -34,7 +34,7 @@ class SetupWizard:
         self.console = Console()
         self.catalog = registry.get_catalog()
         # {connector_id: {"enabled": bool, "operations": {op: bool}}}
-        self.selections: Dict[str, Dict[str, Any]] = {}
+        self.selections: dict[str, dict[str, Any]] = {}
 
     def print_welcome(self):
         """Print welcome banner"""
@@ -57,7 +57,7 @@ You can always re-run this wizard later by using: `dacli --setup`
         """Check if setup wizard should run"""
         return not self.registry.setup_completed
 
-    async def run(self) -> Dict[str, Any]:
+    async def run(self) -> dict[str, Any]:
         """Run the complete setup wizard. Returns a connectors-config dict."""
         self.print_welcome()
         self.console.print()
@@ -93,7 +93,7 @@ You can always re-run this wizard later by using: `dacli --setup`
         table.add_column("Description")
         table.add_column("Operations", justify="center")
 
-        for idx, (connector_id, info) in enumerate(self.catalog.items(), 1):
+        for idx, (_connector_id, info) in enumerate(self.catalog.items(), 1):
             table.add_row(
                 str(idx),
                 f"{info['icon']} {info['name']}",
@@ -109,7 +109,7 @@ You can always re-run this wizard later by using: `dacli --setup`
                 f"Enable {info['icon']} [bold]{info['name']}[/bold]?",
                 default=True
             )
-            operations = {op: True for op in info['operations']} if enabled else {}
+            operations = dict.fromkeys(info['operations'], True) if enabled else {}
             self.selections[connector_id] = {"enabled": enabled, "operations": operations}
 
     def _select_operations(self):
@@ -131,7 +131,7 @@ You can always re-run this wizard later by using: `dacli --setup`
             ops_table.add_column("Category", style="dim")
 
             operations = list(info['operations'].items())
-            for idx, (op_name, op_info) in enumerate(operations, 1):
+            for idx, (_op_name, op_info) in enumerate(operations, 1):
                 ops_table.add_row(
                     str(idx),
                     op_info['name'],
@@ -156,12 +156,12 @@ You can always re-run this wizard later by using: `dacli --setup`
                     new_operations[op_name] = op_enabled
                 self.selections[connector_id]["operations"] = new_operations
             else:
-                self.selections[connector_id]["operations"] = {op: True for op in info['operations']}
+                self.selections[connector_id]["operations"] = dict.fromkeys(info['operations'], True)
 
     # Secrets to collect per connector id: (settings section, field, label).
     # The LLM key is always required (not tied to an optional connector).
-    _ALWAYS_SECRETS = [("llm", "api_key", "LLM API key")]
-    _SECRET_FIELDS = {
+    _ALWAYS_SECRETS: ClassVar[list[tuple[str, str, str]]] = [("llm", "api_key", "LLM API key")]
+    _SECRET_FIELDS: ClassVar[dict[str, list[tuple[str, str, str]]]] = {
         "snowflake": [("snowflake", "password", "Snowflake password")],
         "github": [("github", "token", "GitHub personal access token")],
         "pinecone": [
@@ -220,9 +220,9 @@ You can always re-run this wizard later by using: `dacli --setup`
             self.settings = load_config()
             self.console.print("[green]✓ Credentials saved.[/green]\n")
 
-    async def _validate_credentials(self) -> Dict[str, Tuple[bool, str]]:
+    async def _validate_credentials(self) -> dict[str, tuple[bool, str]]:
         """Validate credentials for enabled connectors"""
-        results: Dict[str, Tuple[bool, str]] = {}
+        results: dict[str, tuple[bool, str]] = {}
         enabled_ids = [cid for cid, sel in self.selections.items() if sel["enabled"]]
 
         if not enabled_ids:
@@ -247,7 +247,7 @@ You can always re-run this wizard later by using: `dacli --setup`
 
         return results
 
-    async def _validate_connector(self, connector_id: str) -> Tuple[bool, str]:
+    async def _validate_connector(self, connector_id: str) -> tuple[bool, str]:
         """Validate a connector: required config present, then a live health check."""
         info = self.catalog[connector_id]
 
@@ -275,9 +275,9 @@ You can always re-run this wizard later by using: `dacli --setup`
                 return (True, "Connected successfully")
             return (False, result.error or "Connection failed")
         except Exception as e:
-            return (False, f"Connection failed: {str(e)}")
+            return (False, f"Connection failed: {e!s}")
 
-    def _show_summary(self, validation_results: Dict[str, Tuple[bool, str]]):
+    def _show_summary(self, validation_results: dict[str, tuple[bool, str]]):
         """Show configuration summary"""
         self.console.print("\n")
 
@@ -346,19 +346,19 @@ class QuickSetup:
     """
 
     @staticmethod
-    def _all_enabled(registry: ConnectorRegistry, only: Optional[str] = None) -> Dict[str, Any]:
+    def _all_enabled(registry: ConnectorRegistry, only: str | None = None) -> dict[str, Any]:
         catalog = registry.get_catalog()
-        connectors: Dict[str, Any] = {}
+        connectors: dict[str, Any] = {}
         for connector_id, info in catalog.items():
             enabled = (only is None) or (connector_id == only)
             connectors[connector_id] = {
                 "enabled": enabled,
-                "operations": {op: enabled for op in info["operations"]},
+                "operations": dict.fromkeys(info["operations"], enabled),
             }
         return {"setup_completed": True, "connectors": connectors}
 
     @classmethod
-    def list_profiles(cls, registry: ConnectorRegistry) -> Dict[str, Dict[str, str]]:
+    def list_profiles(cls, registry: ConnectorRegistry) -> dict[str, dict[str, str]]:
         profiles = {
             "full": {"name": "Full Stack", "description": "All connectors enabled"},
             "none": {"name": "None", "description": "All connectors disabled"},
@@ -371,7 +371,7 @@ class QuickSetup:
         return profiles
 
     @classmethod
-    def get_profile(cls, profile_name: str, registry: ConnectorRegistry) -> Optional[Dict[str, Any]]:
+    def get_profile(cls, profile_name: str, registry: ConnectorRegistry) -> dict[str, Any] | None:
         if profile_name == "full":
             return cls._all_enabled(registry)
         if profile_name == "none":

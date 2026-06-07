@@ -3,7 +3,7 @@ import os
 import yaml
 from pathlib import Path
 from urllib.parse import urlparse
-from typing import Any, Dict, Optional
+from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from dotenv import load_dotenv
 
@@ -17,9 +17,9 @@ def _substitute_env_vars(value: Any) -> Any:
         # Match the  ${VAR_NAME} pattern
         pattern = r"\$\{([^}]+)\}"
         return re.sub(pattern, lambda match: os.environ.get(match.group(1), ""), value)
-    elif isinstance(value, dict):
+    if isinstance(value, dict):
         return {k: _substitute_env_vars(v) for k, v in value.items()}
-    elif isinstance(value, list):
+    if isinstance(value, list):
         return [_substitute_env_vars(x) for x in value]
     return value
 
@@ -28,13 +28,13 @@ class LLMSettings(BaseModel):
     # LLM provider configuration
     provider: str
     model: str
-    fallback_model: Optional[str] = None
+    fallback_model: str | None = None
     # Model tiering (ℛ). ``cheap_model`` runs classification, planning
     # drafts, summaries and post-condition judgments; ``strong_model`` runs
     # ambiguous reasoning, error diagnosis and irreversible-action plans. Both
     # default to ``model`` so a single-model config behaves exactly as before.
-    cheap_model: Optional[str] = None
-    strong_model: Optional[str] = None
+    cheap_model: str | None = None
+    strong_model: str | None = None
     api_key: str
     base_url: str
     max_tokens: int = Field(
@@ -85,7 +85,7 @@ class LLMSettings(BaseModel):
 class GithubSettings(BaseModel):
     # Github configuration
     token: str
-    repository_url: Optional[str] = None
+    repository_url: str | None = None
     owner: str = ""
     repo: str = ""
     branch: str = "main"
@@ -309,7 +309,7 @@ class GovernanceSettings(BaseModel):
         default="config/policy.yaml",
         description="Path to the tier->decision policy overrides (per connector/environment).",
     )
-    audit_path: Optional[str] = Field(
+    audit_path: str | None = Field(
         default=None,
         description="Append-only audit ledger path. Defaults to <state_dir>/audit.jsonl.",
     )
@@ -533,7 +533,7 @@ def _is_secret_placeholder(v: Any) -> bool:
     return v is None or v == "" or (isinstance(v, str) and v.startswith("${"))
 
 
-def _dacli_base_dir(config_data: Dict[str, Any]) -> str:
+def _dacli_base_dir(config_data: dict[str, Any]) -> str:
     # Resolve through core.crypto's single source of truth so the secrets store
     # and the encryption key always agree on their directory (see resolve_base_dir).
     from core.crypto import resolve_base_dir
@@ -547,7 +547,7 @@ def _dacli_base_dir(config_data: Dict[str, Any]) -> str:
     return str(resolve_base_dir(cfg_state_path or ".dacli/state/"))
 
 
-def _load_dacli_secrets(base_dir: str) -> Dict[str, Any]:
+def _load_dacli_secrets(base_dir: str) -> dict[str, Any]:
     # Read the `secrets` block from .dacli/dacli.json (written by the setup wizard).
     # Values are Fernet-encrypted; decrypt them here so the overlay fills config
     # fields with plaintext credentials.
@@ -563,7 +563,7 @@ def _load_dacli_secrets(base_dir: str) -> Dict[str, Any]:
         raw = data.get("secrets")
         if not isinstance(raw, dict):
             return {}
-        decrypted: Dict[str, Any] = {}
+        decrypted: dict[str, Any] = {}
         undecryptable: list = []
         for section, fields in raw.items():
             if not isinstance(fields, dict):
@@ -590,8 +590,8 @@ def _load_dacli_secrets(base_dir: str) -> Dict[str, Any]:
 
 
 def _overlay_secrets(
-    config_data: Dict[str, Any], secrets: Dict[str, Any]
-) -> Dict[str, Any]:
+    config_data: dict[str, Any], secrets: dict[str, Any]
+) -> dict[str, Any]:
     """Fill missing/placeholder config fields from the dacli.json secrets block.
 
     Explicit values from config.yaml / env take precedence; dacli.json only fills
@@ -610,7 +610,7 @@ def _overlay_secrets(
     return config_data
 
 
-def load_config(config_path: Optional[str] = None) -> Settings:
+def load_config(config_path: str | None = None) -> Settings:
     """
     Load configuration from YAML file with environment variable substitution.
 
@@ -642,7 +642,7 @@ def load_config(config_path: Optional[str] = None) -> Settings:
         return Settings()
 
     # Load YAML
-    with open(config_file, "r", encoding="utf-8") as f:
+    with open(config_file, encoding="utf-8") as f:
         raw_config = yaml.safe_load(f)
     if raw_config is None:
         return Settings()

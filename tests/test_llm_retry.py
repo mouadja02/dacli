@@ -132,7 +132,7 @@ class WithRetryTest(unittest.TestCase):
             _run(_client(attempts=4, base=0.5)._with_retry(fn, retryable=(_Retryable,)))
 
         self.assertEqual(self._slept, [0.5, 1.0, 2.0])
-        self.assertTrue(all(b > a for a, b in zip(self._slept, self._slept[1:])))
+        self.assertTrue(all(b > a for a, b in zip(self._slept, self._slept[1:], strict=False)))
 
     def test_attempts_override_beats_settings(self):
         # An explicit attempts= overrides settings.llm.retry_attempts.

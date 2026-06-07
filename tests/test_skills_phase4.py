@@ -7,7 +7,6 @@ Each test maps to an exit criterion in the plan. Run with:
 import asyncio
 import tempfile
 import unittest
-from typing import List
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from connectors.registry import ConnectorRegistry
@@ -65,7 +64,7 @@ class _UncheckedConnector(Connector):
         super().__init__(settings=None)
         self._is_connected = True
 
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         return [OperationSpec(
             name="do_thing", description="x", parameters={"type": "object", "properties": {}},
             capability="unchecked.do", risk=Risk.SAFE,
@@ -93,7 +92,7 @@ class _FakeSnowflake(Connector):
         self._is_connected = True
         self._live_columns = live_columns  # list[{name,type}] or None for "missing"
 
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         return [
             OperationSpec(
                 name="execute_snowflake_query", description="run sql",

@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 # Default location for the system prompt
 SYSTEM_PROMPT_FILE = Path(__file__).parent / "system_message.md"
@@ -19,7 +19,7 @@ def _read(path: Path) -> str:
 
 def compose_system_prompt(
     task: str = "",
-    disclosed_connectors: Optional[Iterable[str]] = None,
+    disclosed_connectors: Iterable[str] | None = None,
 ) -> str:
     """Assemble the dynamic system prompt.
 
@@ -48,17 +48,16 @@ def get_default_system_prompt() -> str:
     """Return the default system prompt (the invariant core fragment)."""
     return compose_system_prompt()
 
-def load_system_prompt(custom_path: Optional[str] = None) -> str:
+def load_system_prompt(custom_path: str | None = None) -> str:
     # Load the system prompt from file
     if custom_path:
         custom_file = Path(custom_path)
         try:
             if custom_file.exists():
                 return custom_file.read_text(encoding="utf-8")
-            else:
-                raise FileNotFoundError(f"System prompt not found at {custom_path}")
+            raise FileNotFoundError(f"System prompt not found at {custom_path}")
         except Exception as e:
-            raise FileNotFoundError(f"Error loading system prompt from {custom_path}: {e}")
+            raise FileNotFoundError(f"Error loading system prompt from {custom_path}: {e}") from e
 
     # Check default location
     prompt_content = ""
@@ -66,7 +65,7 @@ def load_system_prompt(custom_path: Optional[str] = None) -> str:
         try:
             prompt_content = SYSTEM_PROMPT_FILE.read_text(encoding="utf-8")
         except Exception as e:
-            raise FileNotFoundError(f"Error loading system prompt from {SYSTEM_PROMPT_FILE}: {e}")
+            raise FileNotFoundError(f"Error loading system prompt from {SYSTEM_PROMPT_FILE}: {e}") from e
     else:
         raise FileNotFoundError(f"Default system prompt not found at {SYSTEM_PROMPT_FILE}")
 
@@ -89,7 +88,7 @@ def load_system_prompt(custom_path: Optional[str] = None) -> str:
 
     return prompt_content
 
-def save_system_prompt(content: str, custom_path: Optional[str] = None) -> Path:
+def save_system_prompt(content: str, custom_path: str | None = None) -> Path:
     # Save the system prompt to file
     target = Path(custom_path) if custom_path else SYSTEM_PROMPT_FILE
     target.parent.mkdir(parents=True, exist_ok=True)

@@ -12,7 +12,7 @@ it exercises the full skill contract. Its post-conditions are the point:
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from connectors.base import ToolResult, ToolStatus
 from core.verify import PostCondition, VerificationContext
@@ -129,7 +129,7 @@ class MermaidSkill(Skill):
         category="diagram",
     )
 
-    async def execute(self, args: Dict[str, Any], context: SkillContext) -> ToolResult:
+    async def execute(self, args: dict[str, Any], context: SkillContext) -> ToolResult:
         args = dict(args or {})
         diagram_type = (args.get("diagram_type") or "er").lower()
         connector = args.get("connector")
@@ -157,7 +157,7 @@ class MermaidSkill(Skill):
         )
 
     # ------------------------------------------------------------------
-    def _tables(self, memory: Any, *, connector=None, schema=None) -> List[Any]:
+    def _tables(self, memory: Any, *, connector=None, schema=None) -> list[Any]:
         catalog = getattr(memory, "catalog", None)
         if catalog is None or not hasattr(catalog, "list_objects"):
             return []
@@ -173,9 +173,9 @@ class MermaidSkill(Skill):
         scope = getattr(entry, "scope", {}) or {}
         return _canon(scope.get("object")) or "UNKNOWN"
 
-    def _render_er(self, tables: List[Any]) -> Tuple[str, List[str]]:
+    def _render_er(self, tables: list[Any]) -> tuple[str, list[str]]:
         lines = ["erDiagram"]
-        entities: List[str] = []
+        entities: list[str] = []
         for entry in tables:
             name = self._entity_name(entry)
             entities.append(name)
@@ -191,9 +191,9 @@ class MermaidSkill(Skill):
             lines.append("    }")
         return "\n".join(lines) + "\n", entities
 
-    def _render_flow(self, tables: List[Any]) -> Tuple[str, List[str]]:
+    def _render_flow(self, tables: list[Any]) -> tuple[str, list[str]]:
         lines = ["flowchart TD"]
-        entities: List[str] = []
+        entities: list[str] = []
         for entry in tables:
             scope = getattr(entry, "scope", {}) or {}
             name = self._entity_name(entry)

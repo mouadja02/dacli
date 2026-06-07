@@ -17,7 +17,8 @@ folder with a manifest", not "edit an enum + the agent".
 import importlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
+from collections.abc import Iterable
 
 import yaml
 
@@ -51,12 +52,12 @@ class ConfigField:
     description: str = ""
 
 
-def _load_yaml(path: Path) -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
+def _load_yaml(path: Path) -> dict[str, Any]:
+    with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
 
-def load_connectors_config(config_path: str = CONNECTORS_CONFIG_PATH) -> Dict[str, Any]:
+def load_connectors_config(config_path: str = CONNECTORS_CONFIG_PATH) -> dict[str, Any]:
     """Load the persisted enable/disable selections.
 
     Shape::
@@ -77,7 +78,7 @@ def load_connectors_config(config_path: str = CONNECTORS_CONFIG_PATH) -> Dict[st
 
 
 def save_connectors_config(
-    config: Dict[str, Any], config_path: str = CONNECTORS_CONFIG_PATH
+    config: dict[str, Any], config_path: str = CONNECTORS_CONFIG_PATH
 ) -> None:
     """Persist the enable/disable selections to ``config/connectors.yaml``."""
     path = Path(config_path)
@@ -94,9 +95,9 @@ class ConnectorRegistry:
     def __init__(
         self,
         settings: Any,
-        connectors_dir: Optional[str] = None,
+        connectors_dir: str | None = None,
         config_path: str = CONNECTORS_CONFIG_PATH,
-        extra_connectors: Optional[List[Connector]] = None,
+        extra_connectors: list[Connector] | None = None,
         enforce_postconditions: bool = False,
     ):
         self._settings = settings
@@ -111,15 +112,15 @@ class ConnectorRegistry:
         self._enforce_postconditions = enforce_postconditions
 
         # id -> manifest dict
-        self._manifests: Dict[str, Dict[str, Any]] = {}
+        self._manifests: dict[str, dict[str, Any]] = {}
         # id -> Connector instance
-        self._connectors: Dict[str, Connector] = {}
+        self._connectors: dict[str, Connector] = {}
         # ids that are always-on injected connectors (e.g. system)
         self._builtin_ids: set = set()
         # connector_id/dir -> reason, for connectors that failed to load
-        self._failed: Dict[str, str] = {}
+        self._failed: dict[str, str] = {}
         # tool_name -> (connector_id, op_name)
-        self._op_index: Dict[str, Tuple[str, str]] = {}
+        self._op_index: dict[str, tuple[str, str]] = {}
 
         self._config = load_connectors_config(config_path)
 
@@ -170,7 +171,7 @@ class ConnectorRegistry:
         cls = getattr(module, class_name)
         return cls(self._settings)
 
-    def _inject(self, extra_connectors: List[Connector]) -> None:
+    def _inject(self, extra_connectors: list[Connector]) -> None:
         # Always-on connectors provided by the agent (e.g. the system connector).
         for connector in extra_connectors:
             self._connectors[connector.name] = connector
@@ -217,8 +218,8 @@ class ConnectorRegistry:
     # LLM-facing surface
     # ------------------------------------------------------------------
     def get_tool_definitions(
-        self, connector_ids: Optional[Iterable[str]] = None
-    ) -> List[Dict[str, Any]]:
+        self, connector_ids: Iterable[str] | None = None
+    ) -> list[dict[str, Any]]:
         """Build OpenAI-style tool definitions for enabled operations.
 
         ``connector_ids`` is the progressive-disclosure selector:
@@ -234,7 +235,7 @@ class ConnectorRegistry:
         turn.
         """
         selected = set(connector_ids) if connector_ids is not None else None
-        tools: List[Dict[str, Any]] = []
+        tools: list[dict[str, Any]] = []
         for connector_id in self._ordered_ids():
             if not self.is_connector_enabled(connector_id):
                 continue
@@ -246,12 +247,14 @@ class ConnectorRegistry:
                 and connector_id not in selected
             ):
                 continue
-            for spec in self._connectors[connector_id].operations():
-                if self.is_operation_enabled(spec.name):
-                    tools.append(spec.to_tool_definition())
+            tools.extend(
+                spec.to_tool_definition()
+                for spec in self._connectors[connector_id].operations()
+                if self.is_operation_enabled(spec.name)
+            )
         return tools
 
-    def get_tool_digest(self) -> List[Dict[str, Any]]:
+    def get_tool_digest(self) -> list[dict[str, Any]]:
         """Cheap name + one-line description for every enabled connector.
 
         This is the progressive-disclosure surface: the system
@@ -261,7 +264,7 @@ class ConnectorRegistry:
         once the connector is disclosed. Built-ins are excluded — their tools are
         always live in the prompt.
         """
-        digest: List[Dict[str, str]] = []
+        digest: list[dict[str, str]] = []
         for connector_id in self._ordered_ids():
             if connector_id in self._builtin_ids:
                 continue
@@ -283,7 +286,7 @@ class ConnectorRegistry:
             )
         return digest
 
-    def resolve(self, tool_name: str) -> Optional[Tuple[Connector, str]]:
+    def resolve(self, tool_name: str) -> tuple[Connector, str] | None:
         """Resolve an LLM tool name to (connector instance, op name)."""
         entry = self._op_index.get(tool_name)
         if not entry:
@@ -317,7 +320,7 @@ class ConnectorRegistry:
                 return spec
         return None
 
-    def _ordered_ids(self) -> List[str]:
+    def _ordered_ids(self) -> list[str]:
         # Discovered connectors first (sorted for determinism), built-ins last.
         discovered = sorted(
             cid for cid in self._connectors if cid not in self._builtin_ids
@@ -328,7 +331,7 @@ class ConnectorRegistry:
     # ------------------------------------------------------------------
     # Lifecycle helpers
     # ------------------------------------------------------------------
-    def enabled_connectors(self) -> List[Connector]:
+    def enabled_connectors(self) -> list[Connector]:
         """Connectors that should be connected at startup (excludes built-ins)."""
         return [
             self._connectors[cid]
@@ -336,17 +339,17 @@ class ConnectorRegistry:
             if cid not in self._builtin_ids and self.is_connector_enabled(cid)
         ]
 
-    def all_connectors(self) -> List[Connector]:
+    def all_connectors(self) -> list[Connector]:
         return [self._connectors[cid] for cid in self._ordered_ids()]
 
-    def get_connector(self, connector_id: str) -> Optional[Connector]:
+    def get_connector(self, connector_id: str) -> Connector | None:
         return self._connectors.get(connector_id)
 
     def is_builtin(self, connector_id: str) -> bool:
         """True for always-on injected connectors (system, skill, sandbox, …)."""
         return connector_id in self._builtin_ids
 
-    def failed_connectors(self) -> Dict[str, str]:
+    def failed_connectors(self) -> dict[str, str]:
         """Connectors that failed to load, mapped to the reason they were skipped.
 
         Surfaced so the user can see *why* a (e.g. freshly generated) connector
@@ -357,13 +360,13 @@ class ConnectorRegistry:
     # ------------------------------------------------------------------
     # Catalog for the setup wizard (metadata for ALL connectors)
     # ------------------------------------------------------------------
-    def get_catalog(self) -> Dict[str, Dict[str, Any]]:
-        catalog: Dict[str, Dict[str, Any]] = {}
+    def get_catalog(self) -> dict[str, dict[str, Any]]:
+        catalog: dict[str, dict[str, Any]] = {}
         for connector_id in self._ordered_ids():
             if connector_id in self._builtin_ids:
                 continue
             manifest = self._manifests.get(connector_id, {})
-            ops_meta: Dict[str, Dict[str, Any]] = {}
+            ops_meta: dict[str, dict[str, Any]] = {}
             for spec in self._connectors[connector_id].operations():
                 ops_meta[spec.name] = {
                     "name": spec.display_name or spec.name,
@@ -382,13 +385,13 @@ class ConnectorRegistry:
             }
         return catalog
 
-    def get_manifest(self, connector_id: str) -> Dict[str, Any]:
+    def get_manifest(self, connector_id: str) -> dict[str, Any]:
         return self._manifests.get(connector_id, {})
 
     # ------------------------------------------------------------------
     # Config field introspection (for /connect flow)
     # ------------------------------------------------------------------
-    def get_config_fields(self, connector_id: str) -> List[ConfigField]:
+    def get_config_fields(self, connector_id: str) -> list[ConfigField]:
         """Describe a connector's config fields (name, type, required, default,
         is_secret, description) for the ``/connect`` flow.
 
@@ -402,7 +405,7 @@ class ConnectorRegistry:
         section = getattr(self._settings, connector_id, None)
         if section is None:
             return self._config_fields_from_manifest(connector_id)
-        fields: List[ConfigField] = []
+        fields: list[ConfigField] = []
         model_fields = getattr(type(section), "model_fields", None) or {}
         for fname, finfo in model_fields.items():
             is_required = (
@@ -412,9 +415,7 @@ class ConnectorRegistry:
             if (
                 hasattr(default_val, "default_factory")
                 and default_val.default_factory is not None
-            ):
-                default_val = ""
-            elif callable(default_val):
+            ) or callable(default_val):
                 default_val = ""
             annotation = finfo.annotation if hasattr(finfo, "annotation") else str
             type_name = getattr(annotation, "__name__", str(annotation))
@@ -434,7 +435,7 @@ class ConnectorRegistry:
             )
         return fields
 
-    def _config_fields_from_manifest(self, connector_id: str) -> List[ConfigField]:
+    def _config_fields_from_manifest(self, connector_id: str) -> list[ConfigField]:
         """Build config fields from a manifest's ``config_fields`` list.
 
         Each entry is a mapping: ``name`` (required), plus optional ``type``,
@@ -445,7 +446,7 @@ class ConnectorRegistry:
         """
         manifest = self._manifests.get(connector_id, {})
         raw = manifest.get("config_fields")
-        fields: List[ConfigField] = []
+        fields: list[ConfigField] = []
         if isinstance(raw, list) and raw:
             for entry in raw:
                 if not isinstance(entry, dict) or not entry.get("name"):
@@ -478,6 +479,6 @@ class ConnectorRegistry:
             )
         return fields
 
-    def get_connector_ids(self) -> List[str]:
+    def get_connector_ids(self) -> list[str]:
         """All discovered connector ids (excluding built-ins)."""
         return [cid for cid in self._ordered_ids() if cid not in self._builtin_ids]

@@ -28,7 +28,7 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 class ModelTier(str, Enum):
@@ -71,9 +71,9 @@ class ModelChoice:
     model: str
     stakes: str
     rationale: str
-    confidence: Optional[float] = None
+    confidence: float | None = None
     escalated: bool = False
-    trail: List[str] = field(default_factory=list)
+    trail: list[str] = field(default_factory=list)
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
 
     def to_dict(self) -> dict:
@@ -91,10 +91,10 @@ class ModelRoutingAuditLog:
         with open(self.path, "a", encoding="utf-8") as f:
             f.write(json.dumps(choice.to_dict(), default=str) + "\n")
 
-    def recent(self, n: int = 20) -> List[dict]:
+    def recent(self, n: int = 20) -> list[dict]:
         if not self.path.exists():
             return []
-        with open(self.path, "r", encoding="utf-8") as f:
+        with open(self.path, encoding="utf-8") as f:
             lines = f.readlines()
         out = []
         for line in lines[-n:]:
@@ -118,10 +118,10 @@ class ModelRouter:
         self,
         llm: Any = None,
         *,
-        cheap_model: Optional[str] = None,
-        strong_model: Optional[str] = None,
-        default_model: Optional[str] = None,
-        audit_log: Optional[ModelRoutingAuditLog] = None,
+        cheap_model: str | None = None,
+        strong_model: str | None = None,
+        default_model: str | None = None,
+        audit_log: ModelRoutingAuditLog | None = None,
         min_confidence: float = 0.7,
     ):
         self._llm = llm
@@ -139,7 +139,7 @@ class ModelRouter:
         model = self._strong if tier == ModelTier.STRONG else self._cheap
         return model or self._default or ""
 
-    def _base_tier(self, kind: str, stakes: Stakes) -> Tuple[ModelTier, str]:
+    def _base_tier(self, kind: str, stakes: Stakes) -> tuple[ModelTier, str]:
         """The tier before any escalation: from the kind, raised by HIGH stakes."""
         if kind in _STRONG_KINDS:
             return ModelTier.STRONG, f"kind '{kind}' is a strong-model job"
@@ -156,7 +156,7 @@ class ModelRouter:
         kind: str,
         *,
         stakes: Stakes = Stakes.MEDIUM,
-        confidence: Optional[float] = None,
+        confidence: float | None = None,
         irreversible: bool = False,
         after_failed_verification: bool = False,
     ) -> ModelChoice:
@@ -204,16 +204,16 @@ class ModelRouter:
     async def generate(
         self,
         kind: str,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         *,
-        tools: Optional[List[Dict]] = None,
-        system_prompt: Optional[str] = None,
+        tools: list[dict] | None = None,
+        system_prompt: str | None = None,
         on_text: Any = None,
         stakes: Stakes = Stakes.MEDIUM,
-        confidence: Optional[float] = None,
+        confidence: float | None = None,
         irreversible: bool = False,
         after_failed_verification: bool = False,
-    ) -> Tuple[str, List[Dict], ModelChoice]:
+    ) -> tuple[str, list[dict], ModelChoice]:
         """Choose a tier, then run the call on that tier's model.
 
         Returns the usual ``(content, tool_calls)`` plus the :class:`ModelChoice`

@@ -13,6 +13,22 @@ on:
     branches: [main]
 
 jobs:
+  # Lint is its own job so a style/correctness regression is a named, fast failure
+  # independent of the test matrix. Pinned ruff version keeps the baseline (P09)
+  # from drifting under us when a new ruff release adds rules.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install ruff==0.15.16
+      - name: ruff check
+        run: ruff check .
+
   test:
     runs-on: ubuntu-latest
     strategy:

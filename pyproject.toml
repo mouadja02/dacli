@@ -1,0 +1,30 @@
+[tool.ruff]
+target-version = "py310"
+extend-exclude = ["build", ".venv", ".claude"]
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "SIM", "RUF", "UP", "C4", "PERF", "RET"]
+ignore = [
+    # Module-level import not at top of file — several modules intentionally set up
+    # sys.path / logging before importing.
+    "E402",
+    # Ambiguous unicode in docstrings/comments — the 𝒮/𝒪/𝒢/ℛ harness glyphs are
+    # intentional mathematical notation, not typos.
+    "RUF002",
+    "RUF003",
+    # Line length is a formatter's concern; no formatter is introduced in P09, and
+    # reflowing ~960 lines would be pure churn that risks the intentional glyph
+    # docstrings. Revisit when a formatter lands.
+    "E501",
+    # try/except inside a loop is an intentional per-iteration error-isolation
+    # pattern here; "fixing" it by hoisting the try outside the loop would change
+    # semantics (stop on first error instead of continuing). No safe autofix exists.
+    "PERF203",
+]
+# The intentional display glyphs that would otherwise trip RUF001 in string
+# literals (× multiplication sign, ❯ prompt chevron, ℹ info marker).
+allowed-confusables = ["×", "❯", "ℹ"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use unused fixture args (ARG) and class-level mutable attrs (RUF012) freely.
+"tests/*" = ["ARG", "RUF012"]

@@ -44,7 +44,8 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Awaitable, Callable, List, Optional, Tuple
+from typing import Any
+from collections.abc import Awaitable, Callable
 
 from core.planner import Subtask, TaskDAG, NodeStatus
 
@@ -62,10 +63,10 @@ class StepContext:
     """
 
     attempt: int = 1
-    feedback: Optional[str] = None
+    feedback: str | None = None
     after_failed_verification: bool = False
-    model: Optional[str] = None
-    model_tier: Optional[str] = None
+    model: str | None = None
+    model_tier: str | None = None
 
 
 @dataclass
@@ -74,17 +75,17 @@ class StepResult:
 
     success: bool
     output: Any = None
-    error: Optional[str] = None
+    error: str | None = None
     # Environmental feedback to drive an informed retry: the real error text, an
     # EXPLAIN plan, a failing dbt test — anything that makes the next attempt
     # converge instead of thrash. Falls back to ``error`` when unset.
-    feedback: Optional[str] = None
+    feedback: str | None = None
 
 
 # An executor runs a node for one attempt; a verifier checks the result against
 # the node's success criteria (returns (passed, detail)).
 Executor = Callable[[Subtask, StepContext], Awaitable[StepResult]]
-Verifier = Callable[[Subtask, StepResult], Awaitable[Tuple[bool, str]]]
+Verifier = Callable[[Subtask, StepResult], Awaitable[tuple[bool, str]]]
 
 
 @dataclass
@@ -94,17 +95,17 @@ class StepOutcome:
     attempts: int
     verified: bool
     detail: str
-    corrections: List[str] = field(default_factory=list)
+    corrections: list[str] = field(default_factory=list)
 
 
 @dataclass
 class OrchestrationResult:
     goal: str
     done: bool
-    completed: List[str] = field(default_factory=list)
-    escalated: List[str] = field(default_factory=list)
-    paused: List[str] = field(default_factory=list)
-    outcomes: List[StepOutcome] = field(default_factory=list)
+    completed: list[str] = field(default_factory=list)
+    escalated: list[str] = field(default_factory=list)
+    paused: list[str] = field(default_factory=list)
+    outcomes: list[StepOutcome] = field(default_factory=list)
 
     def summary(self) -> str:
         bits = [f"{len(self.completed)} completed"]
@@ -129,10 +130,10 @@ class CorrectionAuditLog:
             f.flush()
             os.fsync(f.fileno())
 
-    def recent(self, n: int = 20) -> List[dict]:
+    def recent(self, n: int = 20) -> list[dict]:
         if not self.path.exists():
             return []
-        with open(self.path, "r", encoding="utf-8") as f:
+        with open(self.path, encoding="utf-8") as f:
             lines = f.readlines()
         out = []
         for line in lines[-n:]:
@@ -150,13 +151,13 @@ class PlanActObserveVerify:
         self,
         executor: Executor,
         *,
-        verifier: Optional[Verifier] = None,
+        verifier: Verifier | None = None,
         model_router: Any = None,
-        on_approval: Optional[Callable[[Any], bool]] = None,
-        correction_log: Optional[CorrectionAuditLog] = None,
+        on_approval: Callable[[Any], bool] | None = None,
+        correction_log: CorrectionAuditLog | None = None,
         correction_budget: int = 2,
         require_approval: bool = True,
-        on_event: Optional[Callable[[str], None]] = None,
+        on_event: Callable[[str], None] | None = None,
     ):
         self._executor = executor
         self._verifier = verifier
@@ -175,7 +176,7 @@ class PlanActObserveVerify:
             except Exception:
                 log.debug("on_event callback failed", exc_info=True)
 
-    async def _verify(self, node: Subtask, result: StepResult) -> Tuple[bool, str]:
+    async def _verify(self, node: Subtask, result: StepResult) -> tuple[bool, str]:
         """Mandatory verify. Defaults to the step's own success when no verifier
         is injected; a real verifier asks the environment (never the model)."""
         if not result.success:
@@ -197,7 +198,7 @@ class PlanActObserveVerify:
         except Exception:
             return False
 
-    def _escalated_model(self, node: Subtask) -> Tuple[Optional[str], Optional[str]]:
+    def _escalated_model(self, node: Subtask) -> tuple[str | None, str | None]:
         """Ask the router to escalate weak→strong for a correction attempt.
 
         Returns (model_id, tier). Also *logs* the escalation in the router's
@@ -218,16 +219,15 @@ class PlanActObserveVerify:
     async def run_node(self, node: Subtask) -> StepOutcome:
         """Run one node through plan→act→observe→verify with self-correction."""
         # --- approval gate (irreversible actions pause, resumably) ---
-        if node.irreversible and self.require_approval:
-            if not self._approve(node):
-                node.status = NodeStatus.PAUSED
-                self._emit(f"[{node.id}] paused — irreversible action needs approval")
-                return StepOutcome(node.id, "paused", node.attempts, False,
-                                   "awaiting approval for irreversible action")
+        if node.irreversible and self.require_approval and not self._approve(node):
+            node.status = NodeStatus.PAUSED
+            self._emit(f"[{node.id}] paused — irreversible action needs approval")
+            return StepOutcome(node.id, "paused", node.attempts, False,
+                               "awaiting approval for irreversible action")
 
         node.status = NodeStatus.RUNNING
-        corrections: List[str] = []
-        feedback: Optional[str] = None
+        corrections: list[str] = []
+        feedback: str | None = None
         # total attempts = 1 initial + correction_budget informed retries
         for attempt in range(1, self.correction_budget + 2):
             node.attempts = attempt
@@ -288,7 +288,7 @@ class PlanActObserveVerify:
         for node in dag.paused():
             node.status = NodeStatus.PENDING
 
-        outcomes: List[StepOutcome] = []
+        outcomes: list[StepOutcome] = []
         while True:
             ready = dag.ready()
             if not ready:

@@ -26,7 +26,8 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any
+from collections.abc import Callable
 
 from sandbox.shells.base import RawExec, ShellBackend, select_backend
 from sandbox.shells.transports import Transport, make_transport
@@ -38,7 +39,7 @@ def _now_iso() -> str:
 
 
 # A test/eval seam: given a command (+ cwd, timeout) return its raw outcome.
-CommandRunner = Callable[..., Union[RawExec, tuple]]
+CommandRunner = Callable[..., RawExec | tuple]
 
 
 @dataclass
@@ -51,7 +52,7 @@ class ScrollbackLine:
     stream: str          # "stdout" | "stderr" | "meta"
     text: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "session_id": self.session_id,
             "command_id": self.command_id,
@@ -80,7 +81,7 @@ class CommandResult:
     def ok(self) -> bool:
         return self.exit_code == 0 and not self.timed_out
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "command": self.command,
             "command_id": self.command_id,
@@ -102,10 +103,10 @@ class TerminalSession:
         self,
         session_id: str = "default",
         *,
-        backend: Optional[ShellBackend] = None,
-        transport: Optional[Transport] = None,
-        command_runner: Optional[CommandRunner] = None,
-        workspace: Optional[SessionWorkspace] = None,
+        backend: ShellBackend | None = None,
+        transport: Transport | None = None,
+        command_runner: CommandRunner | None = None,
+        workspace: SessionWorkspace | None = None,
         workspace_root: str = ".dacli/sessions",
         shell: str = "auto",
         wall_clock_seconds: float = 120.0,
@@ -125,8 +126,8 @@ class TerminalSession:
 
         self._started = False
         self._cwd = str(self.workspace.root)
-        self.scrollback: List[ScrollbackLine] = []
-        self.commands: List[CommandResult] = []
+        self.scrollback: list[ScrollbackLine] = []
+        self.commands: list[CommandResult] = []
 
     # ------------------------------------------------------------------
     # identity / lifecycle
@@ -159,7 +160,7 @@ class TerminalSession:
     # ------------------------------------------------------------------
     # the one execution entry point
     # ------------------------------------------------------------------
-    def run(self, command: str, *, timeout: Optional[float] = None) -> CommandResult:
+    def run(self, command: str, *, timeout: float | None = None) -> CommandResult:
         """Run one command in the persistent session and capture its outcome.
 
         This performs **no** governance — callers route through the dispatcher +
@@ -213,13 +214,13 @@ class TerminalSession:
     # ------------------------------------------------------------------
     # scrollback access (the context source + fetch handle read from here)
     # ------------------------------------------------------------------
-    def get_command(self, command_id: str) -> Optional[CommandResult]:
+    def get_command(self, command_id: str) -> CommandResult | None:
         return next((c for c in self.commands if c.command_id == command_id), None)
 
-    def scrollback_for(self, command_id: str) -> List[ScrollbackLine]:
+    def scrollback_for(self, command_id: str) -> list[ScrollbackLine]:
         return [ln for ln in self.scrollback if ln.command_id == command_id]
 
-    def tail(self, n: int = 50) -> List[ScrollbackLine]:
+    def tail(self, n: int = 50) -> list[ScrollbackLine]:
         return self.scrollback[-n:]
 
     # ------------------------------------------------------------------
@@ -236,7 +237,7 @@ class TerminalSession:
         if isinstance(outcome, RawExec):
             return outcome
         if isinstance(outcome, tuple):
-            output, code = (list(outcome) + [0])[:2]
+            output, code = ([*list(outcome), 0])[:2]
             return RawExec(output=str(output), exit_code=int(code))
         # A bare string → assume success.
         return RawExec(output=str(outcome), exit_code=0)
@@ -247,8 +248,8 @@ class TerminalSession:
         self._transport.write(self._backend.format_command(command, nonce))
 
         idle = self.idle_timeout_ms / 1000.0
-        collected: List[str] = []
-        exit_code: Optional[int] = None
+        collected: list[str] = []
+        exit_code: int | None = None
         while time.time() < deadline:
             chunk = self._transport.read_available(timeout=idle)
             if not chunk:
@@ -276,7 +277,7 @@ class TerminalSession:
 
     def _clean_output(self, raw: str, command: str, nonce: str) -> str:
         """Drop echoed input + the sentinel line, keep genuine output."""
-        kept: List[str] = []
+        kept: list[str] = []
         for line in raw.splitlines():
             if self._backend.is_sentinel_line(line, nonce) is not None:
                 continue
@@ -319,11 +320,11 @@ class TerminalSession:
         except Exception:
             pass
 
-    def load_journal(self) -> List[Dict[str, Any]]:
+    def load_journal(self) -> list[dict[str, Any]]:
         """Read the command journal back (P6 resume)."""
         import json
         path = Path(self.workspace.journal_dir) / "commands.jsonl"
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         if not path.exists():
             return out
         try:

@@ -19,8 +19,10 @@ Two reliability rules from the framework:
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
+from collections.abc import Callable
 
 COMPACTION_SYSTEM = (
     "You compact conversation history for an autonomous data-engineering agent. "
@@ -33,17 +35,17 @@ COMPACTION_SYSTEM = (
 
 @dataclass
 class CompactionResult:
-    messages: List[Dict[str, Any]]   # new working message list (note + recent)
+    messages: list[dict[str, Any]]   # new working message list (note + recent)
     note: str                        # the summary text (also stored to memory)
     compacted_count: int             # how many old messages were folded in
 
 
-def _history_tokens(messages: List[Dict[str, Any]], counter: Any) -> int:
+def _history_tokens(messages: list[dict[str, Any]], counter: Any) -> int:
     return counter.count_messages(messages)
 
 
 def needs_compaction(
-    messages: List[Dict[str, Any]],
+    messages: list[dict[str, Any]],
     counter: Any,
     token_budget: int,
     *,
@@ -57,8 +59,8 @@ def needs_compaction(
     return _history_tokens(messages, counter) > pressure * token_budget
 
 
-def _render_transcript(messages: List[Dict[str, Any]]) -> str:
-    lines: List[str] = []
+def _render_transcript(messages: list[dict[str, Any]]) -> str:
+    lines: list[str] = []
     for m in messages:
         role = m.get("role", "?")
         content = m.get("content")
@@ -72,11 +74,11 @@ def _render_transcript(messages: List[Dict[str, Any]]) -> str:
 
 
 async def compact(
-    messages: List[Dict[str, Any]],
+    messages: list[dict[str, Any]],
     llm: Any,
     *,
     keep_recent: int = 6,
-    store_fn: Optional[Callable[[str], Any]] = None,
+    store_fn: Callable[[str], Any] | None = None,
 ) -> CompactionResult:
     """Fold the oldest turns into a summary note, keeping the recent tail verbatim.
 
@@ -108,10 +110,9 @@ async def compact(
         return CompactionResult(messages=list(messages), note="", compacted_count=0)
 
     if store_fn is not None:
-        try:
+        # persistence is best-effort; must not break the loop
+        with contextlib.suppress(Exception):
             store_fn(note)
-        except Exception:
-            pass  # persistence is best-effort; must not break the loop
 
     note_msg = {
         "role": "user",

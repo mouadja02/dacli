@@ -19,7 +19,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import Any, Callable, Dict, Optional
+from typing import Any
+from collections.abc import Callable
 
 from memory.store import (
     MemoryEntry,
@@ -38,8 +39,8 @@ class VerificationOutcome:
     """
     contradicts: bool
     exists: bool = True
-    content: Optional[str] = None
-    scope: Optional[Dict[str, Any]] = None
+    content: str | None = None
+    scope: dict[str, Any] | None = None
     source: str = "introspection"
     detail: str = ""
 
@@ -52,7 +53,7 @@ Verifier = Callable[[MemoryEntry], VerificationOutcome]
 CONFIRM_BUMP = 0.05
 
 
-def build_catalog_verifier(describe: Callable[[MemoryEntry], Dict[str, Any]]) -> Verifier:
+def build_catalog_verifier(describe: Callable[[MemoryEntry], dict[str, Any]]) -> Verifier:
     """Build a :data:`Verifier` from a live-introspection ``describe`` callable.
 
     ``describe(entry)`` inspects the live system and returns a dict like
@@ -81,7 +82,7 @@ def build_catalog_verifier(describe: Callable[[MemoryEntry], Dict[str, Any]]) ->
 def needs_reverification(
     entry: MemoryEntry,
     *,
-    now: Optional[datetime] = None,
+    now: datetime | None = None,
     ttl_days: float = 7.0,
 ) -> bool:
     """True if the entry is stale enough to warrant a live re-check."""
@@ -101,8 +102,8 @@ def verify(
     entry: MemoryEntry,
     verifier: Verifier,
     *,
-    store: Optional[MemoryStore] = None,
-    now: Optional[datetime] = None,
+    store: MemoryStore | None = None,
+    now: datetime | None = None,
 ) -> MemoryEntry:
     """Re-check ``entry`` against the live system; return the trusted entry.
 

@@ -23,7 +23,7 @@ import os
 import shutil
 import tempfile
 from types import SimpleNamespace
-from typing import Any, List, Optional, Tuple
+from typing import Any
 
 from core.verify import VerificationContext, run_postconditions
 from eval.sim.shell import SimShell, make_sim_session
@@ -37,8 +37,8 @@ def _settings(max_output_chars: int = 2000) -> SimpleNamespace:
     ))
 
 
-def _build(scope: str, *, sim: Optional[SimShell] = None, max_output_chars: int = 2000,
-           approve: Optional[Any] = None):
+def _build(scope: str, *, sim: SimShell | None = None, max_output_chars: int = 2000,
+           approve: Any | None = None):
     """Wire a Governor + ShellConnector + SimShell session in a fresh temp jail.
 
     ``approve`` is the human-approval callback. Left ``None`` the Governor is
@@ -76,7 +76,7 @@ def _op_spec(conn: Any):
     return next(o for o in conn.operations() if o.name == "run_shell_command")
 
 
-async def _govern_run_verify(env: Any, command: str) -> Tuple[Any, Any, Any]:
+async def _govern_run_verify(env: Any, command: str) -> tuple[Any, Any, Any]:
     """review → (if allowed) invoke → run the op's post-conditions."""
     spec = _op_spec(env.conn)
     args = {"command": command}
@@ -161,8 +161,10 @@ def _overwrite_rollback_proven():
                 getattr(plan, "primitive", "") == "versioned_copy_aside"
             backups = (result.data.get("backups") if result else None) or []
             bpath = backups[0].get("backup", "") if backups else ""
-            backup_holds_original = bool(bpath) and os.path.isfile(bpath) and \
-                open(bpath, encoding="utf-8").read() == original
+            backup_holds_original = bool(bpath) and os.path.isfile(bpath)
+            if backup_holds_original:
+                with open(bpath, encoding="utf-8") as fh:
+                    backup_holds_original = fh.read() == original
             overwritten = (target.read_text(encoding="utf-8").strip() == "NEWROWS")
 
             # Prove the rollback end-to-end: apply the copy-aside undo and confirm
@@ -202,7 +204,7 @@ def _rm_rf_blocked():
             data_dir.mkdir(parents=True, exist_ok=True)
             (data_dir / "precious.parquet").write_text("rows", encoding="utf-8")
 
-            decision, result, _ = await _govern_run_verify(env, "rm -rf data")
+            decision, _result, _ = await _govern_run_verify(env, "rm -rf data")
             if decision.allowed:
                 # The gate failed: a destructive command just ran ungoverned.
                 return TaskResult(
@@ -235,7 +237,7 @@ def _scrollback_spill():
             big = "\n".join(f"line {i}" for i in range(10000)) + "\n"
             (env.session.workspace.root / "big.txt").write_text(big, encoding="utf-8")
 
-            decision, result, _ = await _govern_run_verify(env, "cat big.txt")
+            _decision, result, _ = await _govern_run_verify(env, "cat big.txt")
             if result is None:
                 return TaskResult("shell.scrollback_spill", success=False, steps_total=3,
                                   failed_step=1, detail="safe cat was not allowed to run")
@@ -280,7 +282,7 @@ def _classifier_accuracy():
     ]
 
     async def run() -> TaskResult:
-        wrong: List[str] = []
+        wrong: list[str] = []
         for command, expected in cases:
             verdict = classify_command(command, network="allowlist", egress_allowlist=[])
             if verdict.tier.value != expected:
@@ -301,7 +303,7 @@ def _jail_escape_blocked():
     async def run() -> TaskResult:
         env = _build("write")   # write scope: an escape (risky) exceeds it → denied
         try:
-            decision, result, _ = await _govern_run_verify(env, "cd /etc && cat passwd")
+            decision, _result, _ = await _govern_run_verify(env, "cd /etc && cat passwd")
             blocked = not decision.allowed
             escaped_cwd = not str(env.session.cwd).startswith(str(env.session.workspace.root))
             ok = blocked and not escaped_cwd
@@ -318,7 +320,7 @@ def _jail_escape_blocked():
     return run
 
 
-def build_terminal_suite() -> List[GoldenTask]:
+def build_terminal_suite() -> list[GoldenTask]:
     return [
         GoldenTask(id="shell.read_autoruns", connector="shell",
                    description="a safe read (cat) auto-runs with no interrupt and exit-0 verified",

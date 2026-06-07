@@ -28,11 +28,12 @@ import sys
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from sandbox.bridge import start_bridge
 from sandbox.policy import SandboxPolicy
 from sandbox.sdk import ConnectorSDK
+import contextlib
 
 # Each sandbox run leaves a ``run_*`` workspace on disk. Without pruning these
 # grow unbounded; retain at most this many (the most recent), sweeping the rest.
@@ -61,14 +62,14 @@ class SandboxRunResult:
     output: str = ""                 # bounded stdout (model-visible)
     stderr: str = ""
     returned: Any = None             # structured return from the script
-    error: Optional[str] = None
+    error: str | None = None
     timed_out: bool = False
-    exit_code: Optional[int] = None
+    exit_code: int | None = None
     workdir: str = ""
-    artifacts: List[str] = field(default_factory=list)
+    artifacts: list[str] = field(default_factory=list)
     calls: int = 0                   # number of governed SDK calls the run made
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "ok": self.ok, "output": self.output, "stderr": self.stderr,
             "returned": self.returned, "error": self.error,
@@ -91,7 +92,7 @@ class SandboxRuntime:
 
     def close(self) -> None:
         """No-op for the subprocess runtime (each run is its own short-lived process)."""
-        return None
+        return
 
     def _truncate(self, text: str) -> str:
         cap = self.policy.max_output_chars
@@ -147,10 +148,8 @@ class SandboxRuntime:
                 proc.communicate(), timeout=self.policy.wall_clock_seconds)
         except asyncio.TimeoutError:
             timed_out = True
-            try:
+            with contextlib.suppress(Exception):
                 proc.kill()
-            except Exception:
-                pass
             stdout_b, stderr_b = b"", b"sandbox run exceeded wall-clock limit"
         finally:
             server.close()

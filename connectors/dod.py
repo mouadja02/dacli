@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from connectors.base import Connector, Risk
 from governance.permissions import _coerce_scope
@@ -59,8 +59,8 @@ class DodViolation:
 class DodReport:
     """Aggregate DoD result across connectors."""
 
-    violations: List[DodViolation] = field(default_factory=list)
-    checked: List[str] = field(default_factory=list)
+    violations: list[DodViolation] = field(default_factory=list)
+    checked: list[str] = field(default_factory=list)
 
     @property
     def passed(self) -> bool:
@@ -95,12 +95,12 @@ def _anchored_beyond_success(spec: Any) -> bool:
 
 def check_connector_dod(
     connector_id: str,
-    manifest: Dict[str, Any],
+    manifest: dict[str, Any],
     connector: Connector,
-    connector_dir: Optional[Path] = None,
-) -> List[DodViolation]:
+    connector_dir: Path | None = None,
+) -> list[DodViolation]:
     """Run every DoD rule for one connector; return the list of violations."""
-    v: List[DodViolation] = []
+    v: list[DodViolation] = []
 
     def fail(rule: str, detail: str) -> None:
         v.append(DodViolation(connector_id, rule, detail))
@@ -173,7 +173,7 @@ def check_connector_dod(
 
 
 def audit_connectors(
-    connectors_root: Optional[str] = None,
+    connectors_root: str | None = None,
     settings: Any = None,
 ) -> DodReport:
     """Discover every connector via its manifest and run the DoD gate on each.
@@ -190,7 +190,7 @@ def audit_connectors(
     report = DodReport()
 
     for manifest_path in sorted(root.glob("*/manifest.yaml")):
-        with open(manifest_path, "r", encoding="utf-8") as f:
+        with open(manifest_path, encoding="utf-8") as f:
             manifest = yaml.safe_load(f) or {}
         connector_id = manifest.get("id")
         class_path = manifest.get("class")

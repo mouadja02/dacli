@@ -10,7 +10,6 @@ the destructive gate runs at the top pass^k bar.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import List
 
 from eval.sim.cli import SimCli
 from eval.sim.platforms import sim_settings, s3_responder
@@ -124,7 +123,7 @@ def _routing_accuracy():
                 return [{"id": p} for p in ("snowflake", "github", "pinecone")]
 
         router = TierRouter(llm=None, registry=_Reg())
-        wrong: List[str] = []
+        wrong: list[str] = []
         for task, expected in cases:
             decision = await router.route(task)
             if decision.tier != expected:
@@ -199,7 +198,7 @@ def _memory_staleness():
     return run
 
 
-def build_spine_suite() -> List[GoldenTask]:
+def build_spine_suite() -> list[GoldenTask]:
     return [
         GoldenTask(id="spine.drop_guard", connector="spine",
                    description="irreversible delete with no verified rollback is blocked (zero unguarded executions)",

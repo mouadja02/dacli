@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any
 
 from core.logging_setup import get_logger
 
@@ -49,9 +49,9 @@ class ShadowResult:
     """Outcome of a shadow run, presented to the human before promotion."""
 
     ran: bool
-    clone_ref: Optional[str] = None
-    diff: Dict[str, Any] = field(default_factory=dict)
-    error: Optional[str] = None
+    clone_ref: str | None = None
+    diff: dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
     promoted: bool = False
 
     def summary(self) -> str:
@@ -66,7 +66,7 @@ class ShadowResult:
             bits.append("checksum changed" if self.diff["checksum_changed"] else "checksum unchanged")
         return "shadow diff: " + (", ".join(bits) if bits else "(no diff fields)")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "ran": self.ran,
             "clone_ref": self.clone_ref,
@@ -79,7 +79,7 @@ class ShadowResult:
 class ShadowExecutor:
     """Runs a transform on a clone and produces a diff for approval."""
 
-    async def run(self, connector: Any, args: Dict[str, Any]) -> ShadowResult:
+    async def run(self, connector: Any, args: dict[str, Any]) -> ShadowResult:
         if not supports_shadow(connector):
             return ShadowResult(ran=False, error="connector does not support shadow execution")
         clone_ref = None
@@ -92,7 +92,7 @@ class ShadowExecutor:
             return ShadowResult(ran=False, clone_ref=str(clone_ref) if clone_ref else None,
                                 error=str(e))
 
-    async def promote(self, connector: Any, args: Dict[str, Any], shadow: ShadowResult) -> ShadowResult:
+    async def promote(self, connector: Any, args: dict[str, Any], shadow: ShadowResult) -> ShadowResult:
         """Apply the validated change to the real object, then drop the clone."""
         if not shadow.ran:
             return shadow

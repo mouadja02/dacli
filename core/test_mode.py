@@ -17,10 +17,10 @@ coordinate state.
 
 from __future__ import annotations
 
-from typing import Any, Optional, Set
+from typing import Any
 
 
-class TestMode:
+class StagingMode:
     """Global test mode state.
 
     When active, :class:`connectors.dispatcher.Dispatcher` runs the
@@ -37,17 +37,17 @@ class TestMode:
     def __init__(self) -> None:
         self._active = False
         self._runtime: Any = None
-        self._connector_name: Optional[str] = None
+        self._connector_name: str | None = None
         #: connectors whose ``health()`` already passed this test-mode session,
         # so we health-gate only on the first staged call (not every call).
-        self._verified: Set[str] = set()
+        self._verified: set[str] = set()
 
     @property
     def is_active(self) -> bool:
         return self._active
 
     @property
-    def connector_name(self) -> Optional[str]:
+    def connector_name(self) -> str | None:
         return self._connector_name
 
     def applies_to(self, connector_name: str) -> bool:
@@ -68,7 +68,7 @@ class TestMode:
     def mark_verified(self, connector_name: str) -> None:
         self._verified.add(connector_name)
 
-    def toggle(self, connector_name: Optional[str] = None) -> bool:
+    def toggle(self, connector_name: str | None = None) -> bool:
         """Toggle test mode. Returns the new state (True = on)."""
         self._active = not self._active
         if self._active:
@@ -79,7 +79,7 @@ class TestMode:
         self._verified.clear()
         return self._active
 
-    def activate(self, connector_name: Optional[str] = None) -> None:
+    def activate(self, connector_name: str | None = None) -> None:
         self._active = True
         self._connector_name = connector_name
         self._verified.clear()
@@ -94,7 +94,7 @@ class TestMode:
         self._runtime = runtime
 
     @property
-    def runtime(self) -> Optional[Any]:
+    def runtime(self) -> Any | None:
         return self._runtime
 
     def toolbar_text(self) -> str:
@@ -104,4 +104,4 @@ class TestMode:
         return f"[{label}]"
 
 
-test_mode = TestMode()
+test_mode = StagingMode()

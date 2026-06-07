@@ -10,4 +10,4 @@ a provenance-tagged, budget-aware layer. Today:
 
 from context.sources.terminal import ScrollbackStore, ScrollbackSource
 
-__all__ = ["ScrollbackStore", "ScrollbackSource"]
+__all__ = ["ScrollbackSource", "ScrollbackStore"]

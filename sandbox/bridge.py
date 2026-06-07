@@ -28,16 +28,18 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Callable, Optional, Tuple
+from typing import Any
+from collections.abc import Callable
+import contextlib
 
 
 async def start_bridge(
     sdk: Any,
     *,
     host: str = "127.0.0.1",
-    token: Optional[str] = None,
-    on_run: Optional[Callable[[], None]] = None,
-) -> Tuple[asyncio.AbstractServer, int]:
+    token: str | None = None,
+    on_run: Callable[[], None] | None = None,
+) -> tuple[asyncio.AbstractServer, int]:
     """Start the governed bridge on ``host`` (ephemeral port). Returns ``(server, port)``.
 
     ``on_run`` (if given) is called once per governed ``run`` (e.g. to count the
@@ -92,10 +94,8 @@ async def start_bridge(
         except Exception:
             pass
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 writer.close()
-            except Exception:
-                pass
 
     server = await asyncio.start_server(handle_conn, host, 0)
     port = server.sockets[0].getsockname()[1]

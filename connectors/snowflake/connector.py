@@ -1,7 +1,7 @@
 import re
 import snowflake.connector
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from config.settings import Settings
@@ -59,7 +59,7 @@ _TABLE_WRITE_RES = [
 ]
 
 
-def _scope_from_name(qualified: str, object_type: str) -> Dict[str, Any]:
+def _scope_from_name(qualified: str, object_type: str) -> dict[str, Any]:
     """Split ``DB.SCHEMA.OBJECT`` into a catalog scope dict."""
     parts = [p.strip().strip('"') for p in qualified.split(".") if p.strip()]
     if object_type == "schema":
@@ -74,7 +74,7 @@ def _scope_from_name(qualified: str, object_type: str) -> Dict[str, Any]:
     return {"object": parts[0]} if parts else {}
 
 
-def parse_catalog_effects(query: str) -> List[Dict[str, Any]]:
+def parse_catalog_effects(query: str) -> list[dict[str, Any]]:
     """Derive structured catalog effects from an executed SQL statement.
 
     Returns a list of ``{"action", "object_type", "scope"}`` effects:
@@ -127,7 +127,7 @@ _CONSTRAINT_KEYWORDS = {
 }
 
 
-def _split_top_level(body: str) -> List[str]:
+def _split_top_level(body: str) -> list[str]:
     """Split a column-list body on top-level commas (ignores commas in types)."""
     parts, depth, current = [], 0, []
     for ch in body:
@@ -145,7 +145,7 @@ def _split_top_level(body: str) -> List[str]:
     return parts
 
 
-def parse_create_table(query: str) -> Optional[Dict[str, Any]]:
+def parse_create_table(query: str) -> dict[str, Any] | None:
     """Extract the declared table + column names from a CREATE TABLE statement.
 
     Returns ``{"scope": {...}, "columns": [NAME, ...]}`` (column names upper-cased)
@@ -173,7 +173,7 @@ def parse_create_table(query: str) -> Optional[Dict[str, Any]]:
                 break
         body_chars.append(ch)
     body = "".join(body_chars)
-    columns: List[str] = []
+    columns: list[str] = []
     for raw in _split_top_level(body):
         tokens = raw.strip().split()
         if not tokens:
@@ -186,7 +186,7 @@ def parse_create_table(query: str) -> Optional[Dict[str, Any]]:
     return {"scope": scope, "columns": columns}
 
 
-def _canon_col(name: Optional[str]) -> str:
+def _canon_col(name: str | None) -> str:
     return (name or "").strip().strip('"').upper()
 
 
@@ -289,7 +289,7 @@ class SnowflakeConnector(Connector):
     # ------------------------------------------------------------------
     # Connector contract
     # ------------------------------------------------------------------
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         return [
             OperationSpec(
                 name="execute_snowflake_query",
@@ -349,12 +349,12 @@ class SnowflakeConnector(Connector):
             ),
         ]
 
-    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+    async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
         if op == "execute_snowflake_query":
             return await self._execute_query(query=args.get("query", ""))
-        elif op == "introspect_snowflake_object":
+        if op == "introspect_snowflake_object":
             return await self._introspect(args)
-        elif op == "validate_snowflake_connection":
+        if op == "validate_snowflake_connection":
             return await self.health()
         return ToolResult(
             tool_name=op,
@@ -386,13 +386,12 @@ class SnowflakeConnector(Connector):
             return True
         except Exception as e:
             self._is_connected = False
-            raise ConnectionError(f"Failed to connect to Snowflake: {str(e)}")
-        return False
+            raise ConnectionError(f"Failed to connect to Snowflake: {e!s}") from e
 
     # ------------------------------------------------------------------
     # Governance: rollback-path verification
     # ------------------------------------------------------------------
-    async def verify_rollback(self, plan, args: Dict[str, Any]):
+    async def verify_rollback(self, plan, args: dict[str, Any]):
         """Confirm a native rollback path actually exists before an irreversible op.
 
         The governor calls this for ``irreversible`` actions; the action is
@@ -415,7 +414,7 @@ class SnowflakeConnector(Connector):
             cols = [d[0].upper() for d in self._cursor.description]
             value = None
             for row in rows:
-                rec = dict(zip(cols, row))
+                rec = dict(zip(cols, row, strict=True))
                 value = rec.get("VALUE") or rec.get("value")
                 break
             retention = int(value) if value is not None and str(value).isdigit() else 0
@@ -447,7 +446,7 @@ class SnowflakeConnector(Connector):
             self._cursor.execute("SELECT CURRENT_WAREHOUSE() AS WAREHOUSE,CURRENT_DATABASE() AS DATABASE,CURRENT_SCHEMA() AS SCHEMA,CURRENT_ROLE() AS ROLE,CURRENT_USER() AS USER;")
             result = self._cursor.fetchone()
             columns = [desc[0] for desc in self._cursor.description]
-            context = dict(zip(columns, result))
+            context = dict(zip(columns, result, strict=True))
 
             execution_time = (time.time() - start_time) * 1000
             return ToolResult(
@@ -471,7 +470,7 @@ class SnowflakeConnector(Connector):
     # ------------------------------------------------------------------
     # Operations
     # ------------------------------------------------------------------
-    async def _introspect(self, args: Dict[str, Any]) -> ToolResult:
+    async def _introspect(self, args: dict[str, Any]) -> ToolResult:
         """Read an object's live structure from INFORMATION_SCHEMA.
 
         Emits a ``create`` catalog effect (with live columns) so the catalog is
@@ -504,7 +503,7 @@ class SnowflakeConnector(Connector):
             self._cursor.execute(sql)
             rows = self._cursor.fetchall()
             columns = [desc[0] for desc in self._cursor.description]
-            records = [dict(zip(columns, row)) for row in rows]
+            records = [dict(zip(columns, row, strict=True)) for row in rows]
             exists = len(records) > 0
 
             cols = None
@@ -571,7 +570,7 @@ class SnowflakeConnector(Connector):
                 columns = [desc[0] for desc in self._cursor.description]
 
                 # Convert to list of dicts
-                results = [dict(zip(columns, row)) for row in rows]
+                results = [dict(zip(columns, row, strict=True)) for row in rows]
 
                 total_rows = self._cursor.rowcount if self._cursor.rowcount >= 0 else len(results)
 
@@ -591,20 +590,20 @@ class SnowflakeConnector(Connector):
                     }
                 )
 
-            else:  # DDL or DML without results
-                rows_affected = self._cursor.rowcount if self._cursor.rowcount >= 0 else 0
-                execution_time = (time.time() - start_time) * 1000
-                return ToolResult(
-                    tool_name=self.name,
-                    status=ToolStatus.SUCCESS,
-                    data=None,
-                    execution_time_ms=execution_time,
-                    metadata={
-                        "query": query[:200].replace("\n", " ").replace("  ", " ").replace(";", ""),
-                        "rows_affected": rows_affected,
-                        "catalog_effects": parse_catalog_effects(query),
-                    }
-                )
+            # DDL or DML without results
+            rows_affected = self._cursor.rowcount if self._cursor.rowcount >= 0 else 0
+            execution_time = (time.time() - start_time) * 1000
+            return ToolResult(
+                tool_name=self.name,
+                status=ToolStatus.SUCCESS,
+                data=None,
+                execution_time_ms=execution_time,
+                metadata={
+                    "query": query[:200].replace("\n", " ").replace("  ", " ").replace(";", ""),
+                    "rows_affected": rows_affected,
+                    "catalog_effects": parse_catalog_effects(query),
+                }
+            )
         except Exception as e:
             execution_time = (time.time() - start_time) * 1000
             return ToolResult(

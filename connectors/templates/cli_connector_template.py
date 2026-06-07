@@ -11,7 +11,7 @@ This file is a *pattern*, not a live connector.
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 from connectors.base import OperationSpec, Risk, ToolResult
 from connectors.cli_base import CliConnector
@@ -29,7 +29,7 @@ class MyCliConnector(CliConnector):
         super().__init__(settings, runner=runner)
         self.cfg = load_connector_config("mycli", settings=settings)
 
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         return [
             OperationSpec(
                 name="mycli_status",
@@ -61,7 +61,7 @@ class MyCliConnector(CliConnector):
             ),
         ]
 
-    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+    async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         if op == "mycli_status":
             res = await self._run([self.binary, "status", "--format", "json"])

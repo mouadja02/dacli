@@ -28,4 +28,4 @@ CLI_COMMANDS = [
     ("/exit", "Exit the CLI"),
 ]
 
-__all__ = ["Settings", "load_config", "CLI_COMMANDS"]
+__all__ = ["CLI_COMMANDS", "Settings", "load_config"]

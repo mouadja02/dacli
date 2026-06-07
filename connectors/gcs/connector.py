@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 from connectors.base import OperationSpec, Risk, ToolResult
 from core.logging_setup import get_logger
@@ -60,7 +60,7 @@ class GCSConnector(CliConnector):
         cfg = getattr(settings, "gcs", None)
         self.binary = getattr(cfg, "gcloud_binary", "gcloud") or "gcloud"
 
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         key_param = {
             "type": "object",
             "properties": {
@@ -118,7 +118,7 @@ class GCSConnector(CliConnector):
             ),
         ]
 
-    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+    async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
         args = dict(args or {})
         if op == "list_gcs_objects":
             return await self._list(args)
@@ -134,13 +134,13 @@ class GCSConnector(CliConnector):
     def _cfg(self):
         return getattr(self.settings, "gcs", None)
 
-    def _bucket(self, args: Dict[str, Any]) -> str:
+    def _bucket(self, args: dict[str, Any]) -> str:
         cfg = self._cfg()
         return args.get("bucket") or (getattr(cfg, "bucket", "") if cfg else "")
 
-    def _global_flags(self) -> List[str]:
+    def _global_flags(self) -> list[str]:
         cfg = self._cfg()
-        flags: List[str] = []
+        flags: list[str] = []
         if cfg and getattr(cfg, "project", ""):
             flags += [f"--project={cfg.project}"]
         return flags
@@ -157,7 +157,7 @@ class GCSConnector(CliConnector):
         res = await self._run(argv, timeout=self._timeout())
         return res.ok and bool(res.stdout.strip()) and res.stdout.strip() != "[]"
 
-    async def _list(self, args: Dict[str, Any]) -> ToolResult:
+    async def _list(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         bucket = self._bucket(args)
         cfg = self._cfg()
@@ -170,7 +170,7 @@ class GCSConnector(CliConnector):
         if not res.ok:
             return self._fail("list_gcs_objects",
                               f"list failed (rc={res.rc}): {(res.stderr or res.stdout)[-1000:]}", started)
-        objects: List[Dict[str, Any]] = []
+        objects: list[dict[str, Any]] = []
         try:
             payload = json.loads(res.stdout) if res.stdout.strip() else []
             for item in payload:
@@ -185,7 +185,7 @@ class GCSConnector(CliConnector):
                         {"bucket": bucket, "prefix": prefix, "objects": objects, "count": len(objects)},
                         started)
 
-    async def _read(self, args: Dict[str, Any]) -> ToolResult:
+    async def _read(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         bucket, key = self._bucket(args), args.get("key", "")
         argv = [self.binary, "storage", "cat", self._uri(bucket, key), *self._global_flags()]
@@ -195,7 +195,7 @@ class GCSConnector(CliConnector):
                               f"read failed (rc={res.rc}): {(res.stderr or res.stdout)[-1000:]}", started, key=key)
         return self._ok("read_gcs_object", {"bucket": bucket, "key": key, "content": res.stdout}, started, key=key)
 
-    async def _put(self, args: Dict[str, Any]) -> ToolResult:
+    async def _put(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         bucket, key = self._bucket(args), args.get("key", "")
         content = args.get("content", "")
@@ -207,7 +207,7 @@ class GCSConnector(CliConnector):
         exists = await self._exists(bucket, key)
         return self._ok("put_gcs_object", {"bucket": bucket, "key": key, "exists": exists}, started, key=key)
 
-    async def _delete(self, args: Dict[str, Any]) -> ToolResult:
+    async def _delete(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         bucket, key = self._bucket(args), args.get("key", "")
         argv = [self.binary, "storage", "rm", self._uri(bucket, key), *self._global_flags()]
@@ -222,7 +222,7 @@ class GCSConnector(CliConnector):
     # ------------------------------------------------------------------
     # Governance: rollback-path verification (DoD)
     # ------------------------------------------------------------------
-    async def verify_rollback(self, plan, args: Dict[str, Any]):
+    async def verify_rollback(self, plan, args: dict[str, Any]):
         if getattr(plan, "primitive", "") != "versioned_copy_aside":
             return False, f"no verifiable rollback path for primitive '{plan.primitive}'"
         bucket = self._bucket(args)

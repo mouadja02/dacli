@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from governance.classifier import Tier
 
@@ -40,7 +40,7 @@ class PolicyDecision(str, Enum):
 # The locked posture (matches the roadmap table). This is the floor: an override
 # may *tighten* or *loosen* a specific connector/environment, but absent any
 # override these are the decisions.
-DEFAULT_DECISIONS: Dict[Tier, PolicyDecision] = {
+DEFAULT_DECISIONS: dict[Tier, PolicyDecision] = {
     Tier.SAFE: PolicyDecision.AUTO,
     Tier.WRITE: PolicyDecision.VERIFY,
     Tier.RISKY: PolicyDecision.CONFIRM,
@@ -63,7 +63,7 @@ class PolicyResult:
     requires_dry_run: bool = False
     reason: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "decision": self.decision.value,
             "tier": self.tier.value,
@@ -108,8 +108,8 @@ class PolicyConfig:
         prod_markers: [PROD, GOLD]
     """
 
-    defaults: Dict[str, str] = field(default_factory=dict)
-    connectors: Dict[str, Any] = field(default_factory=dict)
+    defaults: dict[str, str] = field(default_factory=dict)
+    connectors: dict[str, Any] = field(default_factory=dict)
     prod_markers: list = field(default_factory=list)
 
 
@@ -129,7 +129,7 @@ def load_policy_config(path: str = DEFAULT_POLICY_PATH) -> PolicyConfig:
     )
 
 
-def _coerce(value: Any) -> Optional[PolicyDecision]:
+def _coerce(value: Any) -> PolicyDecision | None:
     try:
         return PolicyDecision(str(value))
     except ValueError:
@@ -154,11 +154,11 @@ class PolicyEngine:
     ``connector.tiers`` beats global ``defaults`` beats the locked table.
     """
 
-    def __init__(self, config: Optional[PolicyConfig] = None):
+    def __init__(self, config: PolicyConfig | None = None):
         self._config = config or PolicyConfig()
 
     @classmethod
-    def from_path(cls, path: str = DEFAULT_POLICY_PATH) -> "PolicyEngine":
+    def from_path(cls, path: str = DEFAULT_POLICY_PATH) -> PolicyEngine:
         return cls(load_policy_config(path))
 
     @property
@@ -169,8 +169,8 @@ class PolicyEngine:
         self,
         tier: Tier,
         *,
-        connector_id: Optional[str] = None,
-        environment: Optional[str] = None,
+        connector_id: str | None = None,
+        environment: str | None = None,
     ) -> PolicyResult:
         key = tier.value
         # 1. connector + environment (most specific)

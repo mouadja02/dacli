@@ -12,13 +12,13 @@ ranking); it is intentionally lightweight here.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from memory.store import MemoryEntry, MemoryKind, MemoryScope, MemoryStore
 from memory.retrieval import retrieve
 
 
-def _summarize_steps(steps: List[Dict[str, Any]]) -> str:
+def _summarize_steps(steps: list[dict[str, Any]]) -> str:
     lines = []
     for i, step in enumerate(steps, 1):
         name = step.get("tool") or step.get("name") or "step"
@@ -34,11 +34,11 @@ class EpisodicMemory:
     def capture(
         self,
         goal: str,
-        steps: List[Dict[str, Any]],
+        steps: list[dict[str, Any]],
         *,
         outcome: str = "completed",
-        scope: Optional[Dict[str, Any]] = None,
-        tags: Optional[List[str]] = None,
+        scope: dict[str, Any] | None = None,
+        tags: list[str] | None = None,
     ) -> MemoryEntry:
         """Store one task trace.
 
@@ -64,8 +64,8 @@ class EpisodicMemory:
         entry.scope.setdefault("_trace", json.dumps(steps, default=str))
         return entry
 
-    def all(self) -> List[MemoryEntry]:
+    def all(self) -> list[MemoryEntry]:
         return self._store.active(kind=MemoryKind.EPISODIC.value)
 
-    def search(self, query: str, top_k: int = 3) -> List[MemoryEntry]:
+    def search(self, query: str, top_k: int = 3) -> list[MemoryEntry]:
         return retrieve(query, self.all(), top_k=top_k)

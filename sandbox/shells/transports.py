@@ -19,7 +19,8 @@ import os
 import queue
 import subprocess
 import threading
-from typing import List, Optional, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
+import contextlib
 
 
 @runtime_checkable
@@ -28,8 +29,8 @@ class Transport(Protocol):
 
     kind: str
 
-    def start(self, argv: List[str], *, cwd: Optional[str] = None,
-              env: Optional[dict] = None) -> None: ...
+    def start(self, argv: list[str], *, cwd: str | None = None,
+              env: dict | None = None) -> None: ...
 
     def write(self, data: str) -> None: ...
 
@@ -57,12 +58,12 @@ class PipeTransport:
     kind = "pipe"
 
     def __init__(self) -> None:
-        self._proc: Optional[subprocess.Popen] = None
-        self._q: "queue.Queue[str]" = queue.Queue()
-        self._reader: Optional[threading.Thread] = None
+        self._proc: subprocess.Popen | None = None
+        self._q: queue.Queue[str] = queue.Queue()
+        self._reader: threading.Thread | None = None
 
-    def start(self, argv: List[str], *, cwd: Optional[str] = None,
-              env: Optional[dict] = None) -> None:
+    def start(self, argv: list[str], *, cwd: str | None = None,
+              env: dict | None = None) -> None:
         self._proc = subprocess.Popen(
             argv,
             cwd=cwd,
@@ -83,10 +84,8 @@ class PipeTransport:
             except Exception:
                 pass
             finally:
-                try:
+                with contextlib.suppress(Exception):
                     stream.close()
-                except Exception:
-                    pass
 
         self._reader = threading.Thread(target=_pump, args=(self._proc.stdout,), daemon=True)
         self._reader.start()
@@ -97,7 +96,7 @@ class PipeTransport:
             self._proc.stdin.flush()
 
     def read_available(self, timeout: float) -> str:
-        chunks: List[str] = []
+        chunks: list[str] = []
         try:
             chunks.append(self._q.get(timeout=timeout))
         except queue.Empty:
@@ -130,10 +129,8 @@ class PipeTransport:
             return
         try:
             if self._proc.stdin:
-                try:
+                with contextlib.suppress(Exception):
                     self._proc.stdin.close()
-                except Exception:
-                    pass
             self._proc.terminate()
             try:
                 self._proc.wait(timeout=3)
@@ -151,8 +148,8 @@ class WinptyTransport:
     def __init__(self) -> None:
         self._pty = None
 
-    def start(self, argv: List[str], *, cwd: Optional[str] = None,
-              env: Optional[dict] = None) -> None:
+    def start(self, argv: list[str], *, cwd: str | None = None,
+              env: dict | None = None) -> None:
         from winpty import PtyProcess  # type: ignore
 
         self._pty = PtyProcess.spawn(argv, cwd=cwd, env=env)
@@ -178,17 +175,13 @@ class WinptyTransport:
 
     def send_interrupt(self) -> None:
         if self._pty is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._pty.write("\x03")
-            except Exception:
-                pass
 
     def close(self) -> None:
         if self._pty is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._pty.terminate(force=True)
-            except Exception:
-                pass
 
 
 class PosixPtyTransport:
@@ -199,8 +192,8 @@ class PosixPtyTransport:
     def __init__(self) -> None:
         self._pty = None
 
-    def start(self, argv: List[str], *, cwd: Optional[str] = None,
-              env: Optional[dict] = None) -> None:
+    def start(self, argv: list[str], *, cwd: str | None = None,
+              env: dict | None = None) -> None:
         from ptyprocess import PtyProcess  # type: ignore
 
         self._pty = PtyProcess.spawn(argv, cwd=cwd, env=env)
@@ -230,20 +223,16 @@ class PosixPtyTransport:
 
     def send_interrupt(self) -> None:
         if self._pty is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._pty.write(b"\x03")
-            except Exception:
-                pass
 
     def close(self) -> None:
         if self._pty is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._pty.terminate(force=True)
-            except Exception:
-                pass
 
 
-def _pty_available() -> Optional[str]:
+def _pty_available() -> str | None:
     if os.name == "nt":
         try:
             import winpty  # noqa: F401

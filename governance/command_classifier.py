@@ -29,7 +29,6 @@ from __future__ import annotations
 import re
 import shlex
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 
 from governance.classifier import Tier
 
@@ -130,19 +129,19 @@ class CommandVerdict:
     """The auditable blast-radius verdict for one shell command line."""
 
     tier: Tier
-    leading: Optional[str]
+    leading: str | None
     command: str
-    reasons: List[str] = field(default_factory=list)
-    writes: List[str] = field(default_factory=list)
-    overwrites: List[str] = field(default_factory=list)
-    deletes: List[str] = field(default_factory=list)
-    egress_hosts: List[str] = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)
+    writes: list[str] = field(default_factory=list)
+    overwrites: list[str] = field(default_factory=list)
+    deletes: list[str] = field(default_factory=list)
+    egress_hosts: list[str] = field(default_factory=list)
     irreversible: bool = False
     escapes_jail: bool = False
     unknown: bool = False
-    segments: List[str] = field(default_factory=list)
+    segments: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, object]:
+    def to_dict(self) -> dict[str, object]:
         return {
             "tier": self.tier.value,
             "leading": self.leading,
@@ -164,12 +163,12 @@ class CommandVerdict:
 _SEGMENT_SPLIT = re.compile(r"\|\||&&|\||;|&")
 
 
-def _split_segments(command: str) -> List[str]:
+def _split_segments(command: str) -> list[str]:
     """Split a line into command segments (pipelines + sequencing)."""
     return [s.strip() for s in _SEGMENT_SPLIT.split(command) if s.strip()]
 
 
-def _safe_tokens(segment: str) -> List[str]:
+def _safe_tokens(segment: str) -> list[str]:
     try:
         return shlex.split(segment, posix=True)
     except ValueError:
@@ -178,7 +177,7 @@ def _safe_tokens(segment: str) -> List[str]:
         return segment.split()
 
 
-def _strip_wrappers_and_assignments(tokens: List[str]) -> List[str]:
+def _strip_wrappers_and_assignments(tokens: list[str]) -> list[str]:
     out = list(tokens)
     changed = True
     while changed and out:
@@ -214,7 +213,7 @@ class CommandClassifier:
         self,
         *,
         network: str = "allowlist",
-        egress_allowlist: Optional[List[str]] = None,
+        egress_allowlist: list[str] | None = None,
     ):
         self.network = (network or "allowlist").lower()
         self.allowlist = [h.strip().lower() for h in (egress_allowlist or []) if h.strip()]
@@ -308,7 +307,7 @@ class CommandClassifier:
         verdict.tier = _max_tier(verdict.tier, tier)
 
     # -- program/subcommand → tier -------------------------------------
-    def _program_tier(self, program: str, args: List[str], low_args: List[str],
+    def _program_tier(self, program: str, args: list[str], low_args: list[str],
                       verdict: CommandVerdict) -> Tier:
         # CLIs with read/write/destructive sub-verbs (git, dbt, aws, kubectl…).
         subverb = next((a for a in args if not a.startswith("-")), None)
@@ -361,8 +360,8 @@ class CommandClassifier:
         return Tier.RISKY
 
     # -- pattern detectors ---------------------------------------------
-    def _is_destructive_pattern(self, program: str, args: List[str],
-                                low_args: List[str], segment: str,
+    def _is_destructive_pattern(self, program: str, args: list[str],
+                                low_args: list[str], segment: str,
                                 verdict: CommandVerdict) -> bool:
         joined = " ".join(low_args)
         # rm -rf / rm -r -f / rm --recursive --force
@@ -457,7 +456,7 @@ class CommandClassifier:
             if host not in verdict.egress_hosts:
                 verdict.egress_hosts.append(host)
 
-    def _note_write_target(self, program: str, args: List[str], verdict: CommandVerdict) -> None:
+    def _note_write_target(self, program: str, args: list[str], verdict: CommandVerdict) -> None:
         targets = [a for a in args if not a.startswith("-")]
         if program in {"mkdir", "md", "touch"}:
             verdict.writes.extend(targets)
@@ -465,7 +464,7 @@ class CommandClassifier:
             verdict.writes.append(targets[-1])
 
     @staticmethod
-    def _cd_escapes(args: List[str]) -> bool:
+    def _cd_escapes(args: list[str]) -> bool:
         if not args:
             return False
         target = args[0].strip().strip('"').strip("'")
@@ -487,7 +486,7 @@ def classify_command(
     command: str,
     *,
     network: str = "allowlist",
-    egress_allowlist: Optional[List[str]] = None,
+    egress_allowlist: list[str] | None = None,
 ) -> CommandVerdict:
     """Convenience wrapper: classify ``command`` with a one-off classifier."""
     return CommandClassifier(network=network, egress_allowlist=egress_allowlist).classify(command)

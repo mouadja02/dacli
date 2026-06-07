@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from connectors.base import OperationSpec, Risk, ToolResult
 from connectors.cli_base import CliConnector
@@ -93,7 +93,7 @@ class DbtConnector(CliConnector):
         self.binary = getattr(cfg, "dbt_binary", "dbt") or "dbt"
 
     # ------------------------------------------------------------------
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         select_param = {
             "type": "object",
             "properties": {
@@ -143,7 +143,7 @@ class DbtConnector(CliConnector):
             ),
         ]
 
-    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+    async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
         args = dict(args or {})
         if op == "introspect_dbt_manifest":
             return await self._introspect()
@@ -165,9 +165,9 @@ class DbtConnector(CliConnector):
         cfg = self._cfg()
         return (getattr(cfg, "project_dir", "") or ".") if cfg else "."
 
-    def _common_flags(self) -> List[str]:
+    def _common_flags(self) -> list[str]:
         cfg = self._cfg()
-        flags: List[str] = []
+        flags: list[str] = []
         if cfg and getattr(cfg, "project_dir", ""):
             flags += ["--project-dir", cfg.project_dir]
         if cfg and getattr(cfg, "profiles_dir", ""):
@@ -176,7 +176,7 @@ class DbtConnector(CliConnector):
             flags += ["--target", cfg.target]
         return flags
 
-    async def _run_command(self, command: str, select: Optional[str]) -> ToolResult:
+    async def _run_command(self, command: str, select: str | None) -> ToolResult:
         started = time.time()
         argv = [self.binary, command, *self._common_flags()]
         if select:
@@ -225,28 +225,28 @@ class DbtConnector(CliConnector):
     def _target_path(self, filename: str) -> Path:
         return Path(self._project_dir()) / "target" / filename
 
-    def _read_run_results(self) -> Optional[List[Dict[str, Any]]]:
+    def _read_run_results(self) -> list[dict[str, Any]] | None:
         try:
             raw = json.loads(self._target_path("run_results.json").read_text(encoding="utf-8"))
         except Exception:
             return None
-        out = []
-        for r in raw.get("results", []) or []:
-            out.append({
+        return [
+            {
                 "node": r.get("unique_id"),
                 "status": r.get("status"),
                 "message": r.get("message"),
-            })
-        return out
+            }
+            for r in raw.get("results", []) or []
+        ]
 
-    def _read_manifest(self) -> Optional[Dict[str, Any]]:
+    def _read_manifest(self) -> dict[str, Any] | None:
         try:
             return json.loads(self._target_path("manifest.json").read_text(encoding="utf-8"))
         except Exception:
             return None
 
     @staticmethod
-    def _effects_from_results(results: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    def _effects_from_results(results: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
         # A materialized model invalidates any cached fact about that object.
         if not results:
             return []

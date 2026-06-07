@@ -32,11 +32,11 @@ from sandbox.shells.zsh import ZshBackend
 
 __all__ = [
     "SENTINEL",
+    "PowerShellBackend",
     "RawExec",
     "ShellBackend",
-    "select_backend",
     "WindowsCmdBackend",
-    "PowerShellBackend",
     "WslBackend",
     "ZshBackend",
+    "select_backend",
 ]

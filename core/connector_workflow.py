@@ -12,7 +12,7 @@ from __future__ import annotations
 import importlib
 import subprocess
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
@@ -37,7 +37,7 @@ def _available_connectors() -> list:
     )
 
 
-def _match_ci(name: str, available: list) -> Optional[str]:
+def _match_ci(name: str, available: list) -> str | None:
     """Return the canonical connector id matching ``name`` case-insensitively."""
     for cid in available:
         if cid.lower() == name.lower():
@@ -45,7 +45,7 @@ def _match_ci(name: str, available: list) -> Optional[str]:
     return None
 
 
-def _resolve_name(name: Optional[str], console: Console) -> Optional[str]:
+def _resolve_name(name: str | None, console: Console) -> str | None:
     available = _available_connectors()
     if name:
         # Resolve case-insensitively to the canonical id (so `/import-connector S3`
@@ -74,11 +74,11 @@ def _resolve_name(name: Optional[str], console: Console) -> Optional[str]:
 
 
 async def import_connector(
-    name: Optional[str] = None,
+    name: str | None = None,
     console: Console = None,
     config_path: str = CONNECTORS_CONFIG_PATH,
     settings: Any = None,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """Validate and finalize a connector for local use.
 
     Runs the same structural validation as generation (manifest + import +
@@ -115,9 +115,9 @@ async def import_connector(
 
 
 async def push_connector(
-    name: Optional[str] = None,
+    name: str | None = None,
     console: Console = None,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """Git-commit and optionally push a connector.
 
     Steps:
@@ -181,7 +181,7 @@ async def push_connector(
 
 
 async def debug_connector(
-    name: Optional[str] = None,
+    name: str | None = None,
     console: Console = None,
     settings: Any = None,
     llm: Any = None,

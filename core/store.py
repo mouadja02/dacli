@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from core.atomicio import write_json_atomic
 from core.logging_setup import get_logger
@@ -29,7 +29,7 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _empty_bucket() -> Dict[str, Any]:
+def _empty_bucket() -> dict[str, Any]:
     return {
         "input": 0,
         "output": 0,
@@ -43,7 +43,7 @@ def _empty_bucket() -> Dict[str, Any]:
 def _redact(value: Any) -> Any:
     """Recursively replace secret-keyed values with ``***``."""
     if isinstance(value, dict):
-        out: Dict[str, Any] = {}
+        out: dict[str, Any] = {}
         for k, v in value.items():
             if isinstance(k, str) and k.lower() in _SECRET_KEYS and v not in (None, ""):
                 out[k] = "***"
@@ -62,13 +62,13 @@ class DacliStore:
         self.base_dir = Path(base_dir)
         self.path = self.base_dir / "dacli.json"
         self._install_method = install_method
-        self._data: Dict[str, Any] = self._default()
+        self._data: dict[str, Any] = self._default()
         self.load()
 
     # ------------------------------------------------------------------
     # persistence
     # ------------------------------------------------------------------
-    def _default(self) -> Dict[str, Any]:
+    def _default(self) -> dict[str, Any]:
         return {
             "version": 1,
             "numStartups": 0,
@@ -82,7 +82,7 @@ class DacliStore:
             "usage": {"totals": _empty_bucket(), "byModel": {}, "sessions": {}},
         }
 
-    def load(self) -> "DacliStore":
+    def load(self) -> DacliStore:
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
@@ -94,7 +94,7 @@ class DacliStore:
             log.debug("store load failed (%s); using defaults", self.path, exc_info=True)
         return self
 
-    def _merge_defaults(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _merge_defaults(self, data: dict[str, Any]) -> dict[str, Any]:
         base = self._default()
         base.update(data)
         base["secrets"] = data.get("secrets") or {}
@@ -174,7 +174,7 @@ class DacliStore:
             value = encrypt_value(value, base_dir=str(self.base_dir))
         self._data.setdefault("secrets", {}).setdefault(section, {})[field] = value
 
-    def get_secrets(self) -> Dict[str, Any]:
+    def get_secrets(self) -> dict[str, Any]:
         """Return decrypted secrets.
 
         Plaintext values (from pre-encryption stores) are transparently
@@ -189,7 +189,7 @@ class DacliStore:
         )
 
         raw = self._data.get("secrets", {})
-        decrypted: Dict[str, Any] = {}
+        decrypted: dict[str, Any] = {}
         migrated = False
         undecryptable: list = []
         for section, fields in raw.items():
@@ -224,7 +224,7 @@ class DacliStore:
         return decrypted
 
     def _accumulate(
-        self, bucket: Dict[str, Any], usage: TokenUsage, cost: float
+        self, bucket: dict[str, Any], usage: TokenUsage, cost: float
     ) -> None:
         bucket["input"] = bucket.get("input", 0) + usage.input
         bucket["output"] = bucket.get("output", 0) + usage.output
@@ -241,7 +241,7 @@ class DacliStore:
         model: str,
         usage: TokenUsage,
         cost: float,
-        first_prompt: Optional[str] = None,
+        first_prompt: str | None = None,
     ) -> None:
         """Fold one turn's usage into totals, by-model, and per-session buckets."""
         now = _now_iso()
@@ -263,7 +263,7 @@ class DacliStore:
     # ------------------------------------------------------------------
     # reads
     # ------------------------------------------------------------------
-    def usage_summary(self, session_id: Optional[str] = None) -> Dict[str, Any]:
+    def usage_summary(self, session_id: str | None = None) -> dict[str, Any]:
         u = self._data["usage"]
         return {
             "numStartups": self._data.get("numStartups", 0),
@@ -273,5 +273,5 @@ class DacliStore:
         }
 
     @property
-    def data(self) -> Dict[str, Any]:
+    def data(self) -> dict[str, Any]:
         return self._data

@@ -23,7 +23,8 @@ resize can't corrupt the scrollback.
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any
+from collections.abc import Iterable
 
 from rich import box
 from rich.console import Console, Group, RenderableType
@@ -38,6 +39,7 @@ from rich.text import Text
 
 from connectors.base import ToolResult
 from .theme import ThemeSpec, get_theme
+import contextlib
 
 __author__ = ""  # populated by caller if needed
 
@@ -86,9 +88,9 @@ class StreamView:
     as polished markdown so it stays in the scrollback.
     """
 
-    def __init__(self, ui: "DacliUI"):
+    def __init__(self, ui: DacliUI):
         self._ui = ui
-        self._live: Optional[Live] = None
+        self._live: Live | None = None
         self._buffer = ""
         self._start = 0.0
 
@@ -115,7 +117,7 @@ class StreamView:
         if self._live:
             self._live.refresh()
 
-    def end(self, content: Optional[str] = None) -> None:
+    def end(self, content: str | None = None) -> None:
         text = content if content is not None else self._buffer
         self._teardown()
         if text and text.strip():
@@ -126,10 +128,8 @@ class StreamView:
 
     def _teardown(self) -> None:
         if self._live:
-            try:
+            with contextlib.suppress(Exception):
                 self._live.stop()
-            except Exception:
-                pass
             self._live = None
         self._buffer = ""
 
@@ -161,10 +161,10 @@ class DacliUI:
     def __init__(
         self,
         settings: Any = None,
-        theme_name: Optional[str] = None,
+        theme_name: str | None = None,
         version: str = "",
         author: str = "",
-        console: Optional[Console] = None,
+        console: Console | None = None,
     ):
         self.settings = settings
         self.version = version
@@ -223,7 +223,7 @@ class DacliUI:
         self.console.print(Padding(body, (1, 2, 0, 2)))
 
     def welcome(
-        self, *, model: str, provider: str, connectors: List[str], cwd: str
+        self, *, model: str, provider: str, connectors: list[str], cwd: str
     ) -> None:
         """A compact 'session ready' card with the essentials + quick tips."""
         info = Text()
@@ -366,7 +366,7 @@ class DacliUI:
     # ------------------------------------------------------------------
     # Tool transcript
     # ------------------------------------------------------------------
-    def tool_start(self, tool_name: str, args: Dict[str, Any]) -> None:
+    def tool_start(self, tool_name: str, args: dict[str, Any]) -> None:
         header = Text(tool_name, style="tool")
         preview = _arg_preview(args)
         if preview:
@@ -407,7 +407,7 @@ class DacliUI:
         summary = Text()
         summary.append("✓ ", style="ok")
         data = result.data
-        body: Optional[RenderableType] = None
+        body: RenderableType | None = None
 
         if isinstance(data, list) and data and isinstance(data[0], dict):
             summary.append(
@@ -512,7 +512,7 @@ class DacliUI:
         self.console.print(table)
         self.console.print()
 
-    def sessions_table(self, sessions: List[Dict[str, Any]], limit: int = 10) -> None:
+    def sessions_table(self, sessions: list[dict[str, Any]], limit: int = 10) -> None:
         if not sessions:
             self.console.print("[muted]No sessions found.[/muted]\n")
             return
@@ -539,7 +539,7 @@ class DacliUI:
         self.console.print(table)
         self.console.print()
 
-    def history(self, messages: List[Any], limit: int = 20) -> None:
+    def history(self, messages: list[Any], limit: int = 20) -> None:
         for msg in messages[-limit:]:
             role = getattr(msg, "role", "?")
             content = getattr(msg, "content", "")
@@ -571,7 +571,7 @@ class DacliUI:
         *,
         provider: str,
         model: str,
-        connectors: List[str],
+        connectors: list[str],
         ctx_pct: int,
         session: str,
         test_mode: str = "",
@@ -637,9 +637,9 @@ def _cell(value: Any) -> str:
     return str(value)
 
 
-def _arg_preview(args: Dict[str, Any], max_len: int = 80) -> str:
+def _arg_preview(args: dict[str, Any], max_len: int = 80) -> str:
     """Compact ``key=value`` preview for a tool call (SQL shown separately)."""
-    parts: List[str] = []
+    parts: list[str] = []
     for key, value in (args or {}).items():
         if key in ("query", "sql"):
             continue
@@ -653,11 +653,11 @@ def _arg_preview(args: Dict[str, Any], max_len: int = 80) -> str:
     return preview
 
 
-def _rows_table(rows: List[Dict[str, Any]]) -> Table:
+def _rows_table(rows: list[dict[str, Any]]) -> Table:
     """Render row-dicts as a full table — every row, every column (data work)."""
     columns = list(rows[0].keys())
     for row in rows[1:]:
-        for key in row.keys():
+        for key in row:
             if key not in columns:
                 columns.append(key)
 

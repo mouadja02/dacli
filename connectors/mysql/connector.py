@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from connectors.base import OperationSpec, Risk, ToolResult
 from connectors.cli_base import CliConnector
@@ -36,14 +36,14 @@ def _norm(sql: str) -> str:
     return re.sub(r"\s+", " ", (sql or "").strip().rstrip(";").strip())
 
 
-def _split_rel(qualified: str) -> Dict[str, str]:
+def _split_rel(qualified: str) -> dict[str, str]:
     parts = [p.strip().strip("`") for p in qualified.split(".") if p.strip()]
     if len(parts) >= 2:
         return {"schema": parts[-2], "object": parts[-1]}
     return {"object": parts[-1] if parts else ""}
 
 
-def _drop_or_truncate_target(sql: str) -> Optional[Dict[str, str]]:
+def _drop_or_truncate_target(sql: str) -> dict[str, str] | None:
     text = _norm(sql)
     for rx in (_DROP_RE, _TRUNC_RE):
         m = rx.match(text)
@@ -96,7 +96,7 @@ class MySQLConnector(CliConnector):
         cfg = getattr(settings, "mysql", None)
         self.binary = getattr(cfg, "mysql_binary", "mysql") or "mysql"
 
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         sql_param = {
             "type": "object",
             "properties": {"query": {"type": "string", "description": "SQL statement (single statement)."}},
@@ -136,7 +136,7 @@ class MySQLConnector(CliConnector):
             ),
         ]
 
-    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+    async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
         args = dict(args or {})
         if op == "execute_mysql_query":
             return await self._query(args.get("query", ""))
@@ -154,9 +154,9 @@ class MySQLConnector(CliConnector):
         cfg = self._cfg()
         return getattr(cfg, "timeout", 300) if cfg else 300
 
-    def _conn_flags(self) -> List[str]:
+    def _conn_flags(self) -> list[str]:
         cfg = self._cfg()
-        flags: List[str] = []
+        flags: list[str] = []
         if cfg:
             if getattr(cfg, "host", ""):
                 flags += ["-h", str(cfg.host)]
@@ -168,7 +168,7 @@ class MySQLConnector(CliConnector):
                 flags += ["-D", str(cfg.database)]
         return flags
 
-    def _env(self) -> Dict[str, str]:
+    def _env(self) -> dict[str, str]:
         cfg = self._cfg()
         env = dict(os.environ)
         if cfg and getattr(cfg, "password", ""):
@@ -181,12 +181,12 @@ class MySQLConnector(CliConnector):
         return await self._run(argv, env=self._env(), timeout=self._timeout())
 
     @staticmethod
-    def _parse_tsv(text: str) -> List[Dict[str, Any]]:
+    def _parse_tsv(text: str) -> list[dict[str, Any]]:
         lines = [ln for ln in text.splitlines() if ln != ""]
         if not lines:
             return []
         header = lines[0].split("\t")
-        return [dict(zip(header, ln.split("\t"))) for ln in lines[1:]]
+        return [dict(zip(header, ln.split("\t"), strict=True)) for ln in lines[1:]]
 
     async def _query(self, sql: str) -> ToolResult:
         started = time.time()
@@ -209,7 +209,7 @@ class MySQLConnector(CliConnector):
                               started, query=sql[:200])
         return self._ok("explain_mysql_query", {"plan": res.stdout.strip()}, started, query=sql[:200])
 
-    async def _introspect(self, args: Dict[str, Any]) -> ToolResult:
+    async def _introspect(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         cfg = self._cfg()
         schema = (args.get("schema") or (getattr(cfg, "database", "") if cfg else "")).replace("'", "''")
@@ -236,7 +236,7 @@ class MySQLConnector(CliConnector):
                         scope=scope, catalog_effects=effects)
 
     @staticmethod
-    def _catalog_effects(sql: str) -> List[Dict[str, Any]]:
+    def _catalog_effects(sql: str) -> list[dict[str, Any]]:
         text = _norm(sql)
         m = _CREATE_RE.match(text)
         if m:
@@ -249,7 +249,7 @@ class MySQLConnector(CliConnector):
     # ------------------------------------------------------------------
     # Governance: rollback-path verification (DoD)
     # ------------------------------------------------------------------
-    async def verify_rollback(self, plan, args: Dict[str, Any]):
+    async def verify_rollback(self, plan, args: dict[str, Any]):
         primitive = getattr(plan, "primitive", "")
         if primitive == "transaction":
             return True, "InnoDB DML is transactional — BEGIN … ROLLBACK undoes this"

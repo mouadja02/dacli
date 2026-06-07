@@ -26,11 +26,11 @@ credential *names* or redacted markers only — see ``core.store._redact`` and
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Optional
 
 #: Root of the dacli logger tree. ``get_logger("core.store")`` returns the child
 #: ``dacli.core.store`` which inherits this logger's level and handler.
@@ -44,7 +44,7 @@ _configured = False
 _TRUTHY = {"1", "true", "yes", "on"}
 
 
-def _debug_requested(debug: Optional[bool]) -> bool:
+def _debug_requested(debug: bool | None) -> bool:
     """Resolve the debug switch: explicit arg wins, else ``DACLI_DEBUG`` env."""
     if debug is not None:
         return bool(debug)
@@ -52,7 +52,7 @@ def _debug_requested(debug: Optional[bool]) -> bool:
 
 
 def setup_logging(
-    debug: Optional[bool] = None,
+    debug: bool | None = None,
     base_dir: str = ".dacli",
     *,
     force: bool = False,
@@ -82,14 +82,12 @@ def setup_logging(
     # stack duplicate file handlers (which would double every line).
     for h in list(logger.handlers):
         logger.removeHandler(h)
-        try:
+        # Intentionally silent: this is the logging bootstrap itself, mid
+        # handler-swap — there is no sound sink to record into here (the very
+        # handlers we'd log through are being torn down). Not an app-level
+        # swallow; the P06 "swallow-and-record" rule doesn't apply.
+        with contextlib.suppress(Exception):
             h.close()
-        except Exception:
-            # Intentionally silent: this is the logging bootstrap itself, mid
-            # handler-swap — there is no sound sink to record into here (the very
-            # handlers we'd log through are being torn down). Not an app-level
-            # swallow; the P06 "swallow-and-record" rule doesn't apply.
-            pass
 
     handler: logging.Handler
     try:

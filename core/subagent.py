@@ -33,7 +33,8 @@ log = get_logger(__name__)
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any
+from collections.abc import Awaitable, Callable
 
 from core.blackboard import Blackboard
 
@@ -57,8 +58,8 @@ class Assignment:
 
     agent_id: str
     task: str
-    item: Optional[str] = None      # the specific object (e.g. a table name)
-    extra: Dict[str, Any] = field(default_factory=dict)
+    item: str | None = None      # the specific object (e.g. a table name)
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -66,10 +67,10 @@ class WorkerOutput:
     """What a worker returns for one assignment (before condensation)."""
 
     text: str = ""                   # raw findings (may be long — gets condensed)
-    facts: Dict[str, Any] = field(default_factory=dict)  # key -> value to assert
+    facts: dict[str, Any] = field(default_factory=dict)  # key -> value to assert
     confidence: float = 1.0
     success: bool = True
-    error: Optional[str] = None
+    error: str | None = None
     tokens: int = 0                  # tokens the worker itself spent (for budget tracking)
 
 
@@ -81,12 +82,12 @@ Worker = Callable[[Assignment], Awaitable[WorkerOutput]]
 class SubAgentResult:
     agent_id: str
     task: str
-    item: Optional[str]
+    item: str | None
     summary: str                     # condensed, token-bounded
-    facts: Dict[str, Any]
+    facts: dict[str, Any]
     confidence: float
     success: bool
-    error: Optional[str]
+    error: str | None
     summary_tokens: int
     worker_tokens: int = 0
 
@@ -96,10 +97,10 @@ class LeadReport:
     """The merged outcome the lead folds back into its own context."""
 
     task: str
-    results: List[SubAgentResult]
+    results: list[SubAgentResult]
     merged_summary: str
     contradictions_resolved: int
-    failures: List[str] = field(default_factory=list)
+    failures: list[str] = field(default_factory=list)
     merged_tokens: int = 0
     worker_tokens_total: int = 0
 
@@ -144,12 +145,12 @@ class Lead:
 
     def __init__(
         self,
-        blackboard: Optional[Blackboard] = None,
+        blackboard: Blackboard | None = None,
         *,
         max_subagents: int = 6,
         summary_tokens: int = 2000,
-        merged_tokens: Optional[int] = None,
-        on_event: Optional[Callable[[str], None]] = None,
+        merged_tokens: int | None = None,
+        on_event: Callable[[str], None] | None = None,
     ):
         self.blackboard = blackboard or Blackboard()
         self.max_subagents = max_subagents
@@ -169,7 +170,7 @@ class Lead:
     async def fan_out(
         self,
         task: str,
-        items: List[str],
+        items: list[str],
         worker: Worker,
     ) -> LeadReport:
         """Spawn one sub-agent per item (parallel, capped), then merge.
@@ -184,7 +185,7 @@ class Lead:
         sub = SubAgent(worker, summary_tokens=self.summary_tokens)
         semaphore = asyncio.Semaphore(self.max_subagents)
 
-        async def _run_one(index: int, item: str) -> Optional[SubAgentResult]:
+        async def _run_one(index: int, item: str) -> SubAgentResult | None:
             agent_id = f"sub-{index}:{item}"
             # De-duplication: claim the item before working it.
             if not self.blackboard.claim_task(item, agent_id):
@@ -201,7 +202,7 @@ class Lead:
         results = [r for r in spawned if r is not None]
         return self.merge(task, results)
 
-    def merge(self, task: str, results: List[SubAgentResult]) -> LeadReport:
+    def merge(self, task: str, results: list[SubAgentResult]) -> LeadReport:
         """Fold sub-agent results into the blackboard, resolving contradictions.
 
         The lead arbitrates a contradiction by **higher confidence wins** (ties
@@ -209,7 +210,7 @@ class Lead:
         so the trail shows the conflict *and* how it was settled.
         """
         resolved = 0
-        failures: List[str] = []
+        failures: list[str] = []
         for r in results:
             if not r.success:
                 failures.append(f"{r.agent_id}: {r.error or 'failed'}")
@@ -246,7 +247,7 @@ class Lead:
             worker_tokens_total=sum(r.worker_tokens for r in results),
         )
 
-    def _merge_summary(self, task: str, results: List[SubAgentResult]) -> str:
+    def _merge_summary(self, task: str, results: list[SubAgentResult]) -> str:
         """A single bounded digest of the fan-out — what enters the lead's context."""
         ok = [r for r in results if r.success]
         header = f"Merged {len(ok)}/{len(results)} sub-agent results for: {task}"

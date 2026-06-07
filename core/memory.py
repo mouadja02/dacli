@@ -21,7 +21,7 @@ import json
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from core.atomicio import write_json_atomic
 from core.logging_setup import get_logger
@@ -41,9 +41,9 @@ class ToolExecution:
     tool_name: str
     timestamp: str
     status: str
-    input_params: Dict[str, Any]
-    result: Optional[Any] = None
-    error: Optional[str] = None
+    input_params: dict[str, Any]
+    result: Any | None = None
+    error: str | None = None
     execution_time_ms: float = 0.0
 
 @dataclass
@@ -52,7 +52,7 @@ class Message:
     role: str # "user", "assistant", "system", "tool"
     content: str
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class AgentState:
@@ -70,13 +70,13 @@ class AgentState:
 
     # Work progress — a generic todo list (Claude-Code style), not pipeline phases.
     # Each item: {"content": str, "status": "pending"|"in_progress"|"completed"}.
-    todos: List[Dict[str, Any]] = field(default_factory=list)
+    todos: list[dict[str, Any]] = field(default_factory=list)
 
     # Generic discovery surface (not platform-specific)
-    discovered_files: Dict[str, Any] = field(default_factory=dict)
+    discovered_files: dict[str, Any] = field(default_factory=dict)
 
     # Error tracking
-    last_error: Optional[str] = None
+    last_error: str | None = None
     errors_count: int = 0
 
 class AgentMemory:
@@ -123,10 +123,10 @@ class AgentMemory:
         self.procedural = ProceduralMemory(self.store)
 
         # Current session data
-        self._session_id: Optional[str] = None
-        self._messages: List[Message] = []
-        self._tool_history: List[ToolExecution] = []
-        self._state: Optional[AgentState] = None
+        self._session_id: str | None = None
+        self._messages: list[Message] = []
+        self._tool_history: list[ToolExecution] = []
+        self._state: AgentState | None = None
 
     @property
     def session_id(self) -> str:
@@ -155,7 +155,7 @@ class AgentMemory:
     # ========================
     # Message Management
     # ========================
-    def add_message(self, role: str, content: str, metadata: Optional[Dict[str, Any]] = None):
+    def add_message(self, role: str, content: str, metadata: dict[str, Any] | None = None):
         # Add a message to the conversation history
         message = Message(role=role, content=content, timestamp=datetime.now().isoformat(), metadata=metadata or {})
         self._messages.append(message)
@@ -169,16 +169,16 @@ class AgentMemory:
         # Add an assistant message
         self.add_message(role="assistant", content=content)
 
-    def add_tool_result(self, tool_name: str, result: Any, error: Optional[str] = None) -> None:
+    def add_tool_result(self, tool_name: str, result: Any, error: str | None = None) -> None:
         # Add a tool result message
         self.add_message(role="tool", content=str(result), metadata={"tool_name": tool_name, "error": error})
 
-    def get_context_messages(self) -> List[Dict[str, str]]:
+    def get_context_messages(self) -> list[dict[str, str]]:
         # Get messages for LLM context within the memory window
         windowed = self._messages[-self.memory_window:]
         return [{"role": m.role, "content": m.content} for m in windowed]
 
-    def get_full_history(self) -> List[Message]:
+    def get_full_history(self) -> list[Message]:
         # Get all messages in the conversation
         return self._messages.copy()
 
@@ -190,7 +190,7 @@ class AgentMemory:
     # Tool Execution Tracking
     # ========================
 
-    def log_tool_execution(self, tool_name: str, input_params: Dict[str, Any], result: Optional[Any] = None, error: Optional[str] = None, execution_time_ms: float = 0.0) -> None:
+    def log_tool_execution(self, tool_name: str, input_params: dict[str, Any], result: Any | None = None, error: str | None = None, execution_time_ms: float = 0.0) -> None:
         # Log tool execution
         tool_execution = ToolExecution(
             tool_name=tool_name,
@@ -204,7 +204,7 @@ class AgentMemory:
         self._tool_history.append(tool_execution)
         self._save_state()
 
-    def get_tool_history(self, tool_name: Optional[str] = None) -> List[ToolExecution]:
+    def get_tool_history(self, tool_name: str | None = None) -> list[ToolExecution]:
         # Get tool execution history
         if tool_name:
             return [t for t in self._tool_history if t.tool_name == tool_name]
@@ -214,7 +214,7 @@ class AgentMemory:
     # State Management
     # ========================
 
-    def set_todos(self, todos: List[Dict[str, Any]]) -> None:
+    def set_todos(self, todos: list[dict[str, Any]]) -> None:
         """Replace the task todo list (Claude-Code style planning).
 
         Each todo is ``{"content": str, "status": "pending"|"in_progress"|
@@ -239,7 +239,7 @@ class AgentMemory:
         self,
         connector: str,
         object_type: str,
-        scope: Dict[str, Any],
+        scope: dict[str, Any],
         **kwargs: Any,
     ):
         """Record/refresh an introspected object in the catalog cache."""
@@ -248,13 +248,13 @@ class AgentMemory:
     def invalidate_catalog(
         self,
         connector: str,
-        scope: Dict[str, Any],
-        object_type: Optional[str] = None,
+        scope: dict[str, Any],
+        object_type: str | None = None,
     ):
         """Mark a catalog scope as no longer trustworthy (write-invalidation)."""
         return self.catalog.invalidate_scope(connector, scope, object_type=object_type)
 
-    def apply_catalog_effects(self, connector: str, effects: List[Dict[str, Any]]) -> None:
+    def apply_catalog_effects(self, connector: str, effects: list[dict[str, Any]]) -> None:
         """Apply structured catalog effects emitted by a connector op.
 
         Each effect: ``{"action": "create"|"invalidate", "object_type": str,
@@ -282,24 +282,24 @@ class AgentMemory:
         self,
         content: str,
         *,
-        scope: Optional[Dict[str, Any]] = None,
+        scope: dict[str, Any] | None = None,
         source: str = "inference",
-        confidence: Optional[float] = None,
-        tags: Optional[List[str]] = None,
+        confidence: float | None = None,
+        tags: list[str] | None = None,
     ) -> MemoryEntry:
         """Store a durable semantic fact (config, convention, learned constraint)."""
         return self.semantic.add(
             content, scope=scope, source=source, confidence=confidence, tags=tags
         )
 
-    def retrieve(self, query: str, top_k: int = 5) -> List[MemoryEntry]:
+    def retrieve(self, query: str, top_k: int = 5) -> list[MemoryEntry]:
         """Staleness-penalized retrieval across durable facts (hypotheses)."""
         return retrieve(query, self.store.active(), top_k=top_k)
 
     def capture_episode(
         self,
         goal: str,
-        steps: List[Dict[str, Any]],
+        steps: list[dict[str, Any]],
         outcome: str = "completed",
         **kwargs: Any,
     ) -> MemoryEntry:
@@ -309,25 +309,25 @@ class AgentMemory:
     # -- Backward-compatible post-condition wrappers (deferred from) --
     # These take already-extracted object names (the connector does the SQL
     # parsing) and write catalog entries instead of mutating list fields.
-    def add_created_schema(self, schema_name: str, connector: str = "snowflake", database: Optional[str] = None) -> None:
+    def add_created_schema(self, schema_name: str, connector: str = "snowflake", database: str | None = None) -> None:
         db, schema, _ = self._split_qualified(schema_name, database=database)
         self.record_catalog_object(connector, "schema", {"database": db, "schema": schema or schema_name}, source="ddl")
 
-    def add_created_table(self, table_name: str, connector: str = "snowflake", database: Optional[str] = None, schema: Optional[str] = None) -> None:
+    def add_created_table(self, table_name: str, connector: str = "snowflake", database: str | None = None, schema: str | None = None) -> None:
         db, sch, obj = self._split_qualified(table_name, database=database, schema=schema)
         self.record_catalog_object(connector, "table", {"database": db, "schema": sch, "object": obj}, source="ddl")
 
-    def add_created_file_format(self, file_format: str, connector: str = "snowflake", database: Optional[str] = None, schema: Optional[str] = None) -> None:
+    def add_created_file_format(self, file_format: str, connector: str = "snowflake", database: str | None = None, schema: str | None = None) -> None:
         db, sch, obj = self._split_qualified(file_format, database=database, schema=schema)
         self.record_catalog_object(connector, "file_format", {"database": db, "schema": sch, "object": obj}, source="ddl")
 
-    def add_loaded_table(self, table_name: str, row_count: int = 0, connector: str = "snowflake", database: Optional[str] = None, schema: Optional[str] = None) -> None:
+    def add_loaded_table(self, table_name: str, row_count: int = 0, connector: str = "snowflake", database: str | None = None, schema: str | None = None) -> None:
         # Replaces the old (buggy) dict-mutation; row count is a catalog estimate.
         db, sch, obj = self._split_qualified(table_name, database=database, schema=schema)
         self.record_catalog_object(connector, "table", {"database": db, "schema": sch, "object": obj}, source="copy_into", row_count_estimate=row_count)
 
     @staticmethod
-    def _split_qualified(name: str, database: Optional[str] = None, schema: Optional[str] = None):
+    def _split_qualified(name: str, database: str | None = None, schema: str | None = None):
         """Split a possibly-qualified ``DB.SCHEMA.OBJECT`` name into parts."""
         cleaned = (name or "").strip().rstrip(";").strip()
         parts = [p.strip().strip('"') for p in cleaned.split(".") if p.strip()]
@@ -364,13 +364,13 @@ class AgentMemory:
 
         write_json_atomic(history_file, history_data, indent=2)
 
-    def list_sessions(self) -> List[Dict[str, Any]]:
+    def list_sessions(self) -> list[dict[str, Any]]:
         """List all available sessions."""
         sessions = []
 
         for state_file in self.state_path.glob("state_*.json"):
             try:
-                with open(state_file, "r", encoding="utf-8") as f:
+                with open(state_file, encoding="utf-8") as f:
                     data = json.load(f)
 
                 todos = data.get("todos", []) or []
@@ -409,7 +409,7 @@ class AgentMemory:
 
         try:
             # Load state
-            with open(state_file, "r", encoding="utf-8") as f:
+            with open(state_file, encoding="utf-8") as f:
                 state_data = json.load(f)
 
             # Extract tool history
@@ -427,7 +427,7 @@ class AgentMemory:
 
             # Load history if exists
             if history_file.exists():
-                with open(history_file, "r", encoding="utf-8") as f:
+                with open(history_file, encoding="utf-8") as f:
                     history_data = json.load(f)
                 self._messages = [Message(**m) for m in history_data]
 
@@ -437,7 +437,7 @@ class AgentMemory:
             log.warning("error loading session %s", session_id, exc_info=True)
             return False
 
-    def _migrate_legacy_state(self, state_data: Dict[str, Any]) -> None:
+    def _migrate_legacy_state(self, state_data: dict[str, Any]) -> None:
         """Migrate Snowflake-specific legacy fields into catalog entries."""
         connector = "snowflake"
         for schema_name in state_data.get("schemas_created", []) or []:
@@ -449,7 +449,7 @@ class AgentMemory:
         for table, row_count in (state_data.get("loaded_tables", {}) or {}).items():
             self.add_loaded_table(table, row_count=row_count, connector=connector)
 
-    def get_progress_summary(self) -> Dict[str, Any]:
+    def get_progress_summary(self) -> dict[str, Any]:
         # Get a summary of current progress (counts derived from the catalog).
         tables = self.catalog.list_objects(object_type="table")
         loaded = [t for t in tables if t.row_count_estimate is not None]

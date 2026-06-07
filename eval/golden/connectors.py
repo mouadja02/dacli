@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import importlib
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import yaml
 
@@ -37,10 +37,10 @@ _CONNECTORS_ROOT = Path(__file__).resolve().parents[2] / "connectors"
 async def _run_op_with_postconditions(
     conn: Any,
     op_name: str,
-    args: Dict[str, Any],
+    args: dict[str, Any],
     task_id: str,
     *,
-    extra_postconditions: list = None,
+    extra_postconditions: list | None = None,
 ) -> TaskResult:
     """Invoke an op and run its (environment-anchored) post-conditions.
 
@@ -145,7 +145,7 @@ def _databricks_select() -> TaskResult:
 
 
 # (task_id, connector_id, description, factory, stakes)
-_EXECUTABLE: List[Tuple[str, str, str, Any, Stakes]] = [
+_EXECUTABLE: list[tuple[str, str, str, Any, Stakes]] = [
     ("s3.put", "s3", "put an object; head-object confirms it landed", _s3_put, Stakes.WRITE),
     ("s3.delete", "s3", "delete an object; head-object confirms it's gone", _s3_delete, Stakes.WRITE),
     ("gcs.put", "gcs", "put an object; ls confirms it landed", _gcs_put, Stakes.WRITE),
@@ -159,10 +159,10 @@ _EXECUTABLE: List[Tuple[str, str, str, Any, Stakes]] = [
 # ===========================================================================
 # structural (DoD) golden tasks — coverage for every discovered connector
 # ===========================================================================
-def _discover() -> List[Tuple[str, Dict[str, Any], Path]]:
-    out: List[Tuple[str, Dict[str, Any], Path]] = []
+def _discover() -> list[tuple[str, dict[str, Any], Path]]:
+    out: list[tuple[str, dict[str, Any], Path]] = []
     for manifest_path in sorted(_CONNECTORS_ROOT.glob("*/manifest.yaml")):
-        with open(manifest_path, "r", encoding="utf-8") as f:
+        with open(manifest_path, encoding="utf-8") as f:
             manifest = yaml.safe_load(f) or {}
         cid = manifest.get("id")
         class_path = manifest.get("class")
@@ -171,7 +171,7 @@ def _discover() -> List[Tuple[str, Dict[str, Any], Path]]:
     return out
 
 
-def _spec_task(cid: str, manifest: Dict[str, Any], cdir: Path) -> GoldenTask:
+def _spec_task(cid: str, manifest: dict[str, Any], cdir: Path) -> GoldenTask:
     import types as _types
 
     async def run() -> TaskResult:
@@ -194,8 +194,8 @@ def _spec_task(cid: str, manifest: Dict[str, Any], cdir: Path) -> GoldenTask:
     )
 
 
-def build_connector_suite() -> List[GoldenTask]:
-    tasks: List[GoldenTask] = []
+def build_connector_suite() -> list[GoldenTask]:
+    tasks: list[GoldenTask] = []
 
     # concrete, sim-backed tasks for the connectors we can simulate offline
     for task_id, cid, desc, factory, stakes in _EXECUTABLE:

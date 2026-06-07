@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from connectors.base import OperationSpec, Risk, ToolResult
 from connectors.cli_base import CliConnector
@@ -68,7 +68,7 @@ class DynamoDBConnector(CliConnector):
         cfg = getattr(settings, "dynamodb", None)
         self.binary = getattr(cfg, "aws_binary", "aws") or "aws"
 
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         table = {"type": "string", "description": "Table name."}
         key = {"type": "object", "description": "Primary key in DynamoDB JSON, e.g. {\"id\": {\"S\": \"123\"}}."}
         return [
@@ -134,7 +134,7 @@ class DynamoDBConnector(CliConnector):
             ),
         ]
 
-    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+    async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
         args = dict(args or {})
         if op == "scan_dynamodb_table":
             return await self._scan(args)
@@ -158,7 +158,7 @@ class DynamoDBConnector(CliConnector):
         cfg = self._cfg()
         return getattr(cfg, "timeout", 300) if cfg else 300
 
-    def _base(self, *sub: str) -> List[str]:
+    def _base(self, *sub: str) -> list[str]:
         cfg = self._cfg()
         argv = [self.binary, "dynamodb", *sub, "--output", "json"]
         if cfg and getattr(cfg, "region", ""):
@@ -168,13 +168,13 @@ class DynamoDBConnector(CliConnector):
         return argv
 
     @staticmethod
-    def _parse(text: str) -> Optional[Dict[str, Any]]:
+    def _parse(text: str) -> dict[str, Any] | None:
         try:
             return json.loads(text) if text.strip() else {}
         except json.JSONDecodeError:
             return None
 
-    async def _scan(self, args: Dict[str, Any]) -> ToolResult:
+    async def _scan(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         argv = self._base("scan", "--table-name", args.get("table", ""),
                           "--max-items", str(int(args.get("limit") or 25)))
@@ -185,7 +185,7 @@ class DynamoDBConnector(CliConnector):
         payload = self._parse(res.stdout) or {}
         return self._ok("scan_dynamodb_table", payload.get("Items", []), started)
 
-    async def _get(self, args: Dict[str, Any]) -> ToolResult:
+    async def _get(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         argv = self._base("get-item", "--table-name", args.get("table", ""),
                           "--key", json.dumps(args.get("key") or {}))
@@ -197,7 +197,7 @@ class DynamoDBConnector(CliConnector):
         item = payload.get("Item")
         return self._ok("get_dynamodb_item", {"exists": bool(item), "item": item}, started)
 
-    async def _key_attr_names(self, table: str) -> List[str]:
+    async def _key_attr_names(self, table: str) -> list[str]:
         argv = self._base("describe-table", "--table-name", table)
         res = await self._run(argv, timeout=self._timeout())
         if not res.ok:
@@ -206,7 +206,7 @@ class DynamoDBConnector(CliConnector):
         schema = (payload.get("Table", {}) or {}).get("KeySchema", []) or []
         return [k.get("AttributeName") for k in schema if k.get("AttributeName")]
 
-    async def _item_exists(self, table: str, key: Dict[str, Any]) -> bool:
+    async def _item_exists(self, table: str, key: dict[str, Any]) -> bool:
         argv = self._base("get-item", "--table-name", table, "--key", json.dumps(key))
         res = await self._run(argv, timeout=self._timeout())
         if not res.ok:
@@ -214,7 +214,7 @@ class DynamoDBConnector(CliConnector):
         payload = self._parse(res.stdout) or {}
         return bool(payload.get("Item"))
 
-    async def _put(self, args: Dict[str, Any]) -> ToolResult:
+    async def _put(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         table = args.get("table", "")
         item = args.get("item") or {}
@@ -230,7 +230,7 @@ class DynamoDBConnector(CliConnector):
                         catalog_effects=[{"action": "invalidate", "object_type": "table",
                                           "scope": {"object": table}}])
 
-    async def _delete_item(self, args: Dict[str, Any]) -> ToolResult:
+    async def _delete_item(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         table = args.get("table", "")
         key = args.get("key") or {}
@@ -244,7 +244,7 @@ class DynamoDBConnector(CliConnector):
                         catalog_effects=[{"action": "invalidate", "object_type": "table",
                                           "scope": {"object": table}}])
 
-    async def _delete_table(self, args: Dict[str, Any]) -> ToolResult:
+    async def _delete_table(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         table = args.get("table", "")
         argv = self._base("delete-table", "--table-name", table)
@@ -258,7 +258,7 @@ class DynamoDBConnector(CliConnector):
                         catalog_effects=[{"action": "invalidate", "object_type": "table",
                                           "scope": {"object": table}}])
 
-    async def _introspect(self, args: Dict[str, Any]) -> ToolResult:
+    async def _introspect(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         table = args.get("table", "")
         argv = self._base("describe-table", "--table-name", table)
@@ -283,7 +283,7 @@ class DynamoDBConnector(CliConnector):
     # ------------------------------------------------------------------
     # Governance: rollback-path verification (DoD)
     # ------------------------------------------------------------------
-    async def verify_rollback(self, plan, args: Dict[str, Any]):
+    async def verify_rollback(self, plan, args: dict[str, Any]):
         if getattr(plan, "primitive", "") != "dynamodb_pitr":
             return False, f"no verifiable rollback path for primitive '{plan.primitive}'"
         table = args.get("table", "")

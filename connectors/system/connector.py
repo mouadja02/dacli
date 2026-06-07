@@ -10,7 +10,8 @@ injected by the agent rather than discovered from a manifest. It is always
 enabled.
 """
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
+from collections.abc import Callable
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from core.verify import result_succeeded, data_has_keys
@@ -24,7 +25,7 @@ class SystemConnector(Connector):
         self,
         settings: Any = None,
         memory: Any = None,
-        on_user_input_needed: Optional[Callable[[str], str]] = None,
+        on_user_input_needed: Callable[[str], str] | None = None,
     ):
         super().__init__(settings)
         self._memory = memory
@@ -66,7 +67,7 @@ class SystemConnector(Connector):
     # ------------------------------------------------------------------
     # Connector contract
     # ------------------------------------------------------------------
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         return [
             OperationSpec(
                 name="request_user_input",
@@ -237,18 +238,18 @@ class SystemConnector(Connector):
             ),
         ]
 
-    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+    async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
         if op == "request_user_input":
             return self._request_user_input(args)
-        elif op == "update_plan":
+        if op == "update_plan":
             return self._update_plan(args)
-        elif op == "load_connector_tools":
+        if op == "load_connector_tools":
             return self._load_connector_tools(args)
-        elif op == "generate_connector":
+        if op == "generate_connector":
             return await self._generate_connector(args)
-        elif op == "fetch_result":
+        if op == "fetch_result":
             return self._fetch_result(args)
-        elif op == "fetch_scrollback":
+        if op == "fetch_scrollback":
             return self._fetch_scrollback(args)
         return ToolResult(
             tool_name=op,
@@ -262,7 +263,7 @@ class SystemConnector(Connector):
     # ------------------------------------------------------------------
     # Operations
     # ------------------------------------------------------------------
-    def _request_user_input(self, args: Dict[str, Any]) -> ToolResult:
+    def _request_user_input(self, args: dict[str, Any]) -> ToolResult:
         question = args.get("question", "")
         context = args.get("context", "")
 
@@ -275,14 +276,13 @@ class SystemConnector(Connector):
                 status=ToolStatus.SUCCESS,
                 data={"user_response": user_response}
             )
-        else:
-            return ToolResult(
-                tool_name="request_user_input",
-                status=ToolStatus.PENDING_APPROVAL,
-                data={"question": question, "context": context}
-            )
+        return ToolResult(
+            tool_name="request_user_input",
+            status=ToolStatus.PENDING_APPROVAL,
+            data={"question": question, "context": context}
+        )
 
-    def _load_connector_tools(self, args: Dict[str, Any]) -> ToolResult:
+    def _load_connector_tools(self, args: dict[str, Any]) -> ToolResult:
         # Progressive disclosure. The kernel reads
         # ``metadata['disclose']`` and adds the id to the turn's disclosed set,
         # so the connector's full schemas are packed on the next iteration.
@@ -296,7 +296,7 @@ class SystemConnector(Connector):
 
         # Validate against the registry when bound; echo the connector's
         # operations so the model knows what just became available.
-        op_names: List[str] = []
+        op_names: list[str] = []
         if self._registry is not None:
             if not self._registry.is_connector_enabled(connector_id):
                 available = [d["id"] for d in self._registry.get_tool_digest()]
@@ -323,7 +323,7 @@ class SystemConnector(Connector):
             metadata={"disclose": connector_id},
         )
 
-    async def _generate_connector(self, args: Dict[str, Any]) -> ToolResult:
+    async def _generate_connector(self, args: dict[str, Any]) -> ToolResult:
         # In-chat connector generation. Mirrors /new-connector minus the prompts,
         # via the shared, non-interactive generate_connector_files().
         name = (args.get("name") or "").strip()
@@ -424,7 +424,7 @@ class SystemConnector(Connector):
             },
         )
 
-    def _fetch_result(self, args: Dict[str, Any]) -> ToolResult:
+    def _fetch_result(self, args: dict[str, Any]) -> ToolResult:
         # Off-context spill read path. Returns rows from the on-disk
         # store written by the kernel's spill hook.
         if self._result_store is None:
@@ -454,7 +454,7 @@ class SystemConnector(Connector):
             metadata={k: v for k, v in payload.items() if k != "data"},
         )
 
-    def _fetch_scrollback(self, args: Dict[str, Any]) -> ToolResult:
+    def _fetch_scrollback(self, args: dict[str, Any]) -> ToolResult:
         # JIT read of a spilled terminal output by command_id. The full text
         # lives in the session workspace (and the human's TUI); only the model's
         # context copy was bounded.
@@ -484,10 +484,10 @@ class SystemConnector(Connector):
             metadata={k: v for k, v in payload.items() if k != "output"},
         )
 
-    def _update_plan(self, args: Dict[str, Any]) -> ToolResult:
+    def _update_plan(self, args: dict[str, Any]) -> ToolResult:
         # Generic todo-list planning (Claude-Code style); replaces the whole list.
         valid = {"pending", "in_progress", "completed"}
-        todos: List[Dict[str, Any]] = []
+        todos: list[dict[str, Any]] = []
         for item in args.get("todos") or []:
             if not isinstance(item, dict):
                 continue

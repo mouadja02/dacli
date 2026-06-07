@@ -33,7 +33,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from connectors.base import Risk
 
@@ -48,7 +48,7 @@ class Tier(str, Enum):
 
 
 # Severity order so we can take the *max* of several signals and "promote".
-_ORDER: List[Tier] = [Tier.SAFE, Tier.WRITE, Tier.RISKY, Tier.IRREVERSIBLE]
+_ORDER: list[Tier] = [Tier.SAFE, Tier.WRITE, Tier.RISKY, Tier.IRREVERSIBLE]
 
 
 def _rank(tier: Tier) -> int:
@@ -64,7 +64,7 @@ def _promote(tier: Tier, steps: int = 1) -> Tier:
 
 
 # The op-level Risk hint maps straight onto a tier as the floor.
-_RISK_TO_TIER: Dict[Risk, Tier] = {
+_RISK_TO_TIER: dict[Risk, Tier] = {
     Risk.SAFE: Tier.SAFE,
     Risk.WRITE: Tier.WRITE,
     Risk.RISKY: Tier.RISKY,
@@ -99,7 +99,7 @@ _WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _SQL_ARG_KEYS = ("query", "sql", "statement")
 
 
-def _looks_like_sql(args: Dict[str, Any]) -> Optional[str]:
+def _looks_like_sql(args: dict[str, Any]) -> str | None:
     for key in _SQL_ARG_KEYS:
         val = args.get(key)
         if isinstance(val, str) and val.strip():
@@ -113,11 +113,10 @@ def _strip_sql(sql: str) -> str:
     no_line = re.sub(r"--[^\n]*", " ", no_block)
     # Drop single- and double-quoted literals (so a literal 'DROP' is invisible).
     no_strings = re.sub(r"'(?:[^']|'')*'", " ", no_line)
-    no_strings = re.sub(r'"(?:[^"]|"")*"', " ", no_strings)
-    return no_strings
+    return re.sub(r'"(?:[^"]|"")*"', " ", no_strings)
 
 
-def classify_sql(sql: str) -> "SqlVerdict":
+def classify_sql(sql: str) -> SqlVerdict:
     """Return the tier + leading verb + every destructive keyword that fired."""
     cleaned = _strip_sql(sql or "").strip().rstrip(";").strip()
     if not cleaned:
@@ -131,7 +130,7 @@ def classify_sql(sql: str) -> "SqlVerdict":
     # Multiple top-level statements are hard to vouch for as one unit.
     multi_statement = ";" in cleaned
 
-    matched: List[str] = []
+    matched: list[str] = []
     fired = Tier.SAFE
     for tier, keywords in _SQL_KEYWORD_TIERS:
         for kw in keywords:
@@ -167,10 +166,10 @@ def _kw_tier(keyword: str) -> int:
 @dataclass
 class SqlVerdict:
     tier: Tier
-    leading_verb: Optional[str]
+    leading_verb: str | None
     ambiguous: bool
     reason: str
-    keywords: List[str] = field(default_factory=list)
+    keywords: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -182,14 +181,14 @@ DEFAULT_PROD_MARKERS = ["PROD", "PRODUCTION", "GOLD", "_PROD", "PRD"]
 
 
 def detect_prod(
-    args: Dict[str, Any],
+    args: dict[str, Any],
     *,
-    env_hint: Optional[str] = None,
-    markers: Optional[List[str]] = None,
-) -> Optional[str]:
+    env_hint: str | None = None,
+    markers: list[str] | None = None,
+) -> str | None:
     """Return the first prod marker found (in args or the env hint), else None."""
     marks = [m.upper() for m in (markers or DEFAULT_PROD_MARKERS)]
-    haystacks: List[str] = []
+    haystacks: list[str] = []
     if env_hint:
         haystacks.append(str(env_hint))
     for v in args.values():
@@ -218,17 +217,17 @@ class Classification:
     tier: Tier
     declared_risk: Risk
     is_prod: bool = False
-    prod_marker: Optional[str] = None
-    sql_verb: Optional[str] = None
+    prod_marker: str | None = None
+    sql_verb: str | None = None
     sql_ambiguous: bool = False
-    reasons: List[str] = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)
     # Shell tier (Era 2): the parsed command verb + its blast-radius signals
     # (writes/overwrites/deletes/egress/jail-escape), so the shell post-conditions
     # and the shell rollback planner can read what the command intended.
-    command_verb: Optional[str] = None
-    command_signals: Dict[str, Any] = field(default_factory=dict)
+    command_verb: str | None = None
+    command_signals: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "tool_name": self.tool_name,
             "tier": self.tier.value,
@@ -254,9 +253,9 @@ class ActionClassifier:
     def __init__(
         self,
         *,
-        prod_markers: Optional[List[str]] = None,
+        prod_markers: list[str] | None = None,
         network: str = "allowlist",
-        egress_allowlist: Optional[List[str]] = None,
+        egress_allowlist: list[str] | None = None,
     ):
         self._prod_markers = prod_markers or list(DEFAULT_PROD_MARKERS)
         self._network = network
@@ -265,14 +264,14 @@ class ActionClassifier:
     def classify(
         self,
         tool_name: str,
-        args: Dict[str, Any],
+        args: dict[str, Any],
         *,
         declared_risk: Risk = Risk.SAFE,
-        env_hint: Optional[str] = None,
-        command: Optional[str] = None,
+        env_hint: str | None = None,
+        command: str | None = None,
     ) -> Classification:
         args = args or {}
-        reasons: List[str] = []
+        reasons: list[str] = []
 
         # 1. Floor from the declared op risk.
         tier = _RISK_TO_TIER.get(declared_risk, Tier.RISKY)
@@ -280,7 +279,7 @@ class ActionClassifier:
 
         # 2. SQL parse (the actual statement is the truth for SQL ops).
         sql = _looks_like_sql(args)
-        sql_verb: Optional[str] = None
+        sql_verb: str | None = None
         sql_ambiguous = False
         if sql is not None:
             verdict = classify_sql(sql)
@@ -289,10 +288,7 @@ class ActionClassifier:
             # The SQL verb *replaces* the conservative op floor when it can be
             # parsed confidently (a real SELECT is safe even though the op that
             # carries it is declared RISKY); otherwise it can only promote.
-            if verdict.ambiguous:
-                tier = _max_tier(tier, verdict.tier)
-            else:
-                tier = verdict.tier
+            tier = _max_tier(tier, verdict.tier) if verdict.ambiguous else verdict.tier
             reasons.append(verdict.reason)
 
         # 2b. Shell command parse (the actual command is the truth for the shell
@@ -300,8 +296,8 @@ class ActionClassifier:
         # blast radius — `ls` is safe even though the run_shell_command op is
         # write-capable; `rm -rf` is irreversible. Unknown commands default-deny
         # to risky inside the command classifier.
-        command_verb: Optional[str] = None
-        command_signals: Dict[str, Any] = {}
+        command_verb: str | None = None
+        command_signals: dict[str, Any] = {}
         if command is not None:
             from governance.command_classifier import CommandClassifier
             cv = CommandClassifier(

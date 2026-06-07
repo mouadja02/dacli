@@ -20,7 +20,7 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 # ---------------------------------------------------------------------------
@@ -95,12 +95,12 @@ class MemoryEntry:
 
     content: str
     kind: str = MemoryKind.SEMANTIC.value
-    scope: Dict[str, Any] = field(default_factory=dict)
+    scope: dict[str, Any] = field(default_factory=dict)
 
     # Trust axes
     confidence: float = DEFAULT_CONFIDENCE
     last_verified: datetime = field(default_factory=_now)
-    valid_until: Optional[datetime] = None
+    valid_until: datetime | None = None
     verification_status: str = VerificationStatus.UNVERIFIED.value
 
     # Provenance
@@ -108,13 +108,13 @@ class MemoryEntry:
     memory_scope: str = MemoryScope.PROJECT.value
 
     # Durability / supersession (append-only links, never silent rewrites)
-    supersedes: Optional[str] = None     # id of the entry this one replaces
-    superseded_by: Optional[str] = None  # set on replay when something supersedes us
+    supersedes: str | None = None     # id of the entry this one replaces
+    superseded_by: str | None = None  # set on replay when something supersedes us
 
     # Identity / housekeeping
     id: str = field(default_factory=_new_id)
     created_at: datetime = field(default_factory=_now)
-    tags: List[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
 
     @property
     def is_active(self) -> bool:
@@ -124,7 +124,7 @@ class MemoryEntry:
             and self.verification_status != VerificationStatus.CONTRADICTED.value
         )
 
-    def to_record(self) -> Dict[str, Any]:
+    def to_record(self) -> dict[str, Any]:
         """Serialize for the JSONL log (datetimes -> ISO strings)."""
         data = asdict(self)
         data["last_verified"] = self.last_verified.isoformat()
@@ -133,7 +133,7 @@ class MemoryEntry:
         return data
 
     @classmethod
-    def from_record(cls, record: Dict[str, Any]) -> "MemoryEntry":
+    def from_record(cls, record: dict[str, Any]) -> MemoryEntry:
         record = dict(record)
         record["last_verified"] = datetime.fromisoformat(record["last_verified"])
         record["created_at"] = datetime.fromisoformat(record["created_at"])
@@ -159,14 +159,14 @@ class MemoryStore:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # id -> latest snapshot
-        self._entries: Dict[str, MemoryEntry] = {}
+        self._entries: dict[str, MemoryEntry] = {}
         self._load()
 
     # -- persistence --------------------------------------------------------
     def _load(self) -> None:
         if not self.path.exists():
             return
-        with open(self.path, "r", encoding="utf-8") as f:
+        with open(self.path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -204,13 +204,13 @@ class MemoryStore:
         content: str,
         *,
         kind: str = MemoryKind.SEMANTIC.value,
-        scope: Optional[Dict[str, Any]] = None,
+        scope: dict[str, Any] | None = None,
         source: str = "inference",
-        confidence: Optional[float] = None,
-        valid_until: Optional[datetime] = None,
+        confidence: float | None = None,
+        valid_until: datetime | None = None,
         memory_scope: str = MemoryScope.PROJECT.value,
-        tags: Optional[List[str]] = None,
-        supersedes: Optional[str] = None,
+        tags: list[str] | None = None,
+        supersedes: str | None = None,
     ) -> MemoryEntry:
         """Convenience constructor: confidence defaults from ``source`` prior."""
         entry = MemoryEntry(
@@ -236,16 +236,16 @@ class MemoryStore:
         return self.add(new_entry)
 
     # -- reads --------------------------------------------------------------
-    def get(self, entry_id: str) -> Optional[MemoryEntry]:
+    def get(self, entry_id: str) -> MemoryEntry | None:
         return self._entries.get(entry_id)
 
-    def active(self, kind: Optional[str] = None) -> List[MemoryEntry]:
+    def active(self, kind: str | None = None) -> list[MemoryEntry]:
         """All non-superseded, non-contradicted entries (optionally by kind)."""
         return [
             e for e in self._entries.values()
             if e.is_active and (kind is None or e.kind == kind)
         ]
 
-    def all_entries(self) -> List[MemoryEntry]:
+    def all_entries(self) -> list[MemoryEntry]:
         """Every entry including superseded ones (for audit / temporal queries)."""
         return list(self._entries.values())

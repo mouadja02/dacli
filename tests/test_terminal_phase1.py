@@ -315,7 +315,7 @@ class TerminalSessionTest(unittest.TestCase):
         shutil.rmtree(self.root, ignore_errors=True)
 
     def test_run_captures_output_and_exit(self):
-        session, sim = make_sim_session("s1", self.root)
+        session, _sim = make_sim_session("s1", self.root)
         (session.workspace.root / "f.txt").write_text("hello\n", encoding="utf-8")
         res = session.run("cat f.txt")
         self.assertEqual(res.exit_code, 0)
@@ -524,7 +524,8 @@ class ShellConnectorTest(unittest.TestCase):
         res = _run(self.conn.invoke("run_shell_command", {"command": "echo NEW > existing.txt"}))
         self.assertTrue(res.data["backups"])           # a copy-aside was taken
         backup_path = res.data["backups"][0]["backup"]
-        self.assertEqual(open(backup_path, encoding="utf-8").read(), "OLD")
+        with open(backup_path, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "OLD")
         self.assertIn("NEW", target.read_text(encoding="utf-8"))   # the overwrite happened
 
     def test_verify_rollback_hook(self):

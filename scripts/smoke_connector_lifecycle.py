@@ -8,7 +8,7 @@ no credentials, no live platform. It exercises the real code paths:
 * ``core.connector_generator.validate_connector`` (manifest + import + ops +
   post-conditions),
 * ``connectors.dispatcher.Dispatcher`` staging (health gate, ``test_mode`` tag,
-  catalog-effect suppression) via ``core.test_mode.TestMode``,
+  catalog-effect suppression) via ``core.test_mode.StagingMode``,
 * ``core.connector_workflow.import_connector`` (validate + enable).
 
 It writes a throwaway connector into ``connectors/<name>/`` (required for a real
@@ -26,7 +26,6 @@ from __future__ import annotations
 
 # This script bootstraps sys.path before importing the dacli package, so the
 # dacli imports intentionally come after that setup (E402 doesn't apply here).
-# ruff: noqa: E402
 
 import asyncio
 import sys
@@ -44,13 +43,14 @@ from rich.console import Console
 from config.settings import load_config
 from connectors.registry import ConnectorRegistry
 from connectors.dispatcher import Dispatcher
-from core.test_mode import TestMode
+from core.test_mode import StagingMode
 from core.connector_generator import (
     generate_connector_files,
     validate_connector,
     _CONNECTORS_DIR,
 )
 from core.connector_workflow import import_connector
+import contextlib
 
 CONNECTOR_NAME = "smoketest_conn"
 CLASS_NAME = "SmoketestConnConnector"
@@ -179,10 +179,8 @@ def _purge_modules() -> None:
 def _cleanup(tmp_yaml: Path) -> None:
     _purge_modules()
     shutil.rmtree(_CONNECTORS_DIR / CONNECTOR_NAME, ignore_errors=True)
-    try:
+    with contextlib.suppress(Exception):
         tmp_yaml.unlink(missing_ok=True)
-    except Exception:
-        pass
 
 
 async def main() -> int:
@@ -235,7 +233,7 @@ async def main() -> int:
         op = f"{CONNECTOR_NAME}_echo"
 
         # 3a. test mode OFF -> normal: no test tag, catalog effect applied.
-        tm_off = TestMode()
+        tm_off = StagingMode()
         mem_off = FakeMemory()
         disp_off = Dispatcher(registry, memory=mem_off, test_mode=tm_off)
         r_off = await disp_off.execute(op, {"message": "hi"})
@@ -248,7 +246,7 @@ async def main() -> int:
         ok("test mode OFF: normal success, catalog effect applied, no [TEST] tag")
 
         # 3b. test mode ON -> staged: health-gated, tagged, catalog suppressed.
-        tm_on = TestMode()
+        tm_on = StagingMode()
         tm_on.activate(connector_name=CONNECTOR_NAME)
         mem_on = FakeMemory()
         disp_on = Dispatcher(registry, memory=mem_on, test_mode=tm_on)
@@ -282,7 +280,7 @@ async def main() -> int:
     except AssertionError:
         console.print("\n[bold red]SMOKE FAILED[/bold red]")
         return 1
-    except Exception as exc:  # noqa: BLE001 - surface any unexpected error
+    except Exception as exc:
         console.print(f"\n[bold red]SMOKE ERROR:[/bold red] {exc!r}")
         import traceback
 

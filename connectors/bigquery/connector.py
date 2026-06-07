@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from core.logging_setup import get_logger
 
@@ -42,7 +42,7 @@ def _norm(sql: str) -> str:
     return re.sub(r"\s+", " ", (sql or "").strip().rstrip(";").strip())
 
 
-def _split_ref(ref: str) -> Dict[str, Optional[str]]:
+def _split_ref(ref: str) -> dict[str, str | None]:
     """Split ``project:dataset.table`` / ``dataset.table`` / ``table``."""
     project = None
     rest = ref.replace("`", "")
@@ -116,7 +116,7 @@ class BigQueryConnector(CliConnector):
         cfg = getattr(settings, "bigquery", None)
         self.binary = getattr(cfg, "bq_binary", "bq") or "bq"
 
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         sql_param = {
             "type": "object",
             "properties": {"query": {"type": "string", "description": "Standard-SQL statement (single statement)."}},
@@ -157,7 +157,7 @@ class BigQueryConnector(CliConnector):
             ),
         ]
 
-    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+    async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
         args = dict(args or {})
         if op == "execute_bigquery_query":
             return await self._query(args.get("query", ""))
@@ -171,7 +171,7 @@ class BigQueryConnector(CliConnector):
     def _cfg(self):
         return getattr(self.settings, "bigquery", None)
 
-    def _base_argv(self) -> List[str]:
+    def _base_argv(self) -> list[str]:
         cfg = self._cfg()
         argv = [self.binary, "--format=json"]
         if cfg and getattr(cfg, "project", ""):
@@ -215,7 +215,7 @@ class BigQueryConnector(CliConnector):
             data["error"] = (res.stderr or res.stdout)[-1000:]
         return self._ok("bigquery_dry_run", data, started, query=sql[:200])
 
-    async def _introspect(self, args: Dict[str, Any]) -> ToolResult:
+    async def _introspect(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         cfg = self._cfg()
         project = args.get("project") or (getattr(cfg, "project", "") if cfg else "")
@@ -246,7 +246,7 @@ class BigQueryConnector(CliConnector):
                         scope=scope, catalog_effects=effects)
 
     @staticmethod
-    def _catalog_effects(sql: str) -> List[Dict[str, Any]]:
+    def _catalog_effects(sql: str) -> list[dict[str, Any]]:
         text = _norm(sql)
         m = _CREATE_OBJ_RE.match(text)
         if m:
@@ -263,7 +263,7 @@ class BigQueryConnector(CliConnector):
     # ------------------------------------------------------------------
     # Governance: rollback-path verification (DoD)
     # ------------------------------------------------------------------
-    async def verify_rollback(self, plan, args: Dict[str, Any]):
+    async def verify_rollback(self, plan, args: dict[str, Any]):
         primitive = getattr(plan, "primitive", "")
         if primitive == "transaction":
             return True, "DML wrapped in BEGIN TRANSACTION … ROLLBACK"

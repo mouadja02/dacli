@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Awaitable, Callable, Dict, List, Optional
+from collections.abc import Awaitable, Callable
 
 
 class Stakes(str, Enum):
@@ -55,7 +55,7 @@ class TaskResult:
     steps_total: int = 1
     #: 1-based index of the first failing step; ``None`` when the task passed.
     #: This is what makes *earlier-failure recurrence* detectable.
-    failed_step: Optional[int] = None
+    failed_step: int | None = None
     error: str = ""
     detail: str = ""
     # process metrics (harness-benchmarking Tier-2): more tokens ≠ better.
@@ -68,7 +68,7 @@ class TaskResult:
     governance_interrupt: bool = False
     unguarded_execution: bool = False
 
-    def to_dict(self) -> Dict[str, object]:
+    def to_dict(self) -> dict[str, object]:
         return {
             "task_id": self.task_id,
             "success": self.success,
@@ -85,7 +85,7 @@ class TaskResult:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, object]) -> "TaskResult":
+    def from_dict(cls, d: dict[str, object]) -> TaskResult:
         return cls(
             task_id=str(d.get("task_id", "")),
             success=bool(d.get("success", False)),
@@ -118,8 +118,8 @@ class GoldenTask:
     run: Callable[[], Awaitable[TaskResult]]
     stakes: Stakes = Stakes.READ_ONLY
     #: explicit override of the per-stakes default k (None → use the default).
-    k: Optional[int] = None
-    tags: List[str] = field(default_factory=list)
+    k: int | None = None
+    tags: list[str] = field(default_factory=list)
 
     def rollouts(self) -> int:
         return self.k if self.k is not None else default_k_for(self.stakes)

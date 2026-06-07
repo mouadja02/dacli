@@ -1,6 +1,5 @@
 import asyncio
 import click
-from typing import Optional
 
 from pathlib import Path
 from rich.markdown import Markdown
@@ -112,7 +111,7 @@ def build_completion_keybindings() -> KeyBindings:
 # -----------------------------------------
 #  UI components
 # -----------------------------------------
-def print_status(memory: AgentMemory, target: Optional[DacliUI] = None):
+def print_status(memory: AgentMemory, target: DacliUI | None = None):
     # Print current agent status through the active themed UI.
     out = target or ui
     con = out.console
@@ -198,8 +197,8 @@ def _fmt_cost(c) -> str:
 
 def print_usage(
     store: DacliStore,
-    session_id: Optional[str] = None,
-    target: Optional[DacliUI] = None,
+    session_id: str | None = None,
+    target: DacliUI | None = None,
     pricing=None,
 ):
     # Token/cost usage through the themed UI: all-time totals, by model, this session.
@@ -301,12 +300,11 @@ def _init_dacli_md(settings: Settings) -> None:
     from memory.priors import generate_dacli_md, DACLI_PRIORS_FILE
 
     target = Path(DACLI_PRIORS_FILE.name)
-    if target.exists():
-        if not Confirm.ask(
-            f"[warning]{target} already exists. Overwrite?[/warning]", default=False
-        ):
-            console.print("[dim]Cancelled — DACLI.md left unchanged.[/dim]")
-            return
+    if target.exists() and not Confirm.ask(
+        f"[warning]{target} already exists. Overwrite?[/warning]", default=False
+    ):
+        console.print("[dim]Cancelled — DACLI.md left unchanged.[/dim]")
+        return
 
     content = generate_dacli_md(settings)
     target.write_text(content, encoding="utf-8")
@@ -401,7 +399,7 @@ def setup(config, profile):
         asyncio.run(_run_setup_wizard(config_path, settings))
 
 
-async def _run_setup_wizard(config_path: str, settings: Settings) -> dict:
+async def _run_setup_wizard(_config_path: str, settings: Settings) -> dict:
     """Run the setup wizard and save results."""
     registry = ConnectorRegistry(settings, config_path=CONNECTORS_CONFIG_PATH)
     wizard = SetupWizard(settings, registry, CONNECTORS_CONFIG_PATH)
@@ -416,12 +414,11 @@ def init(config):
     # Initialize a new config.yaml file.
     target_path = Path(config) if config else Path("config.yaml")
 
-    if target_path.exists():
-        if not Confirm.ask(
-            f"[warning]{target_path} already exists. Overwrite?[/warning]"
-        ):
-            console.print("Cancelled.")
-            return
+    if target_path.exists() and not Confirm.ask(
+        f"[warning]{target_path} already exists. Overwrite?[/warning]"
+    ):
+        console.print("Cancelled.")
+        return
 
     # Create default config
     from config.settings import Settings
@@ -728,15 +725,15 @@ def _load_settings_for_headless(config, *, offline):
             raise
         # Only the sub-settings with required fields need an explicit block; the
         # rest default. These placeholders are never used to reach a network.
-        return Settings(
-            llm={"provider": "scripted", "model": "scripted",
-                 "api_key": "scripted", "base_url": "https://api.test.local"},
-            github={"token": "x"},
-            snowflake={"account": "a", "user": "u", "password": "p",
-                       "warehouse": "w", "role": "r", "database": "d"},
-            pinecone={"api_key": "k", "index_name": "i", "environment": "e"},
-            embeddings={"provider": "openai", "api_key": "k", "model": "m"},
-        )
+        return Settings.model_validate({
+            "llm": {"provider": "scripted", "model": "scripted",
+                    "api_key": "scripted", "base_url": "https://api.test.local"},
+            "github": {"token": "x"},
+            "snowflake": {"account": "a", "user": "u", "password": "p",
+                          "warehouse": "w", "role": "r", "database": "d"},
+            "pinecone": {"api_key": "k", "index_name": "i", "environment": "e"},
+            "embeddings": {"provider": "openai", "api_key": "k", "model": "m"},
+        })
 
 
 async def _run_headless_cli(
@@ -872,6 +869,8 @@ async def _validate_connections(settings: Settings):
         label = f"{info['icon']} {info['name']}"
         with console.status(f"[bold green]Testing {info['name']} connection..."):
             connector = registry.get_connector(connector_id)
+            if connector is None:
+                continue
             try:
                 result = await connector.health()
                 if result.success:
@@ -886,23 +885,22 @@ async def _validate_connections(settings: Settings):
 
 def _enabled_connector_names(registry) -> list:
     # Short connector names for the welcome card / status bar.
-    names = []
     catalog = registry.get_catalog()
-    for connector_id in catalog:
-        if registry.is_connector_enabled(connector_id):
-            names.append(connector_id)
-    return names
+    return [
+        connector_id for connector_id in catalog
+        if registry.is_connector_enabled(connector_id)
+    ]
 
 
 def _ctx_pct(memory) -> int:
     # Context-window fill: how full the rolling message window is (0-100).
     window = max(getattr(memory, "memory_window", 0) or 1, 1)
     used = min(len(memory.get_full_history()), window)
-    return int(round(used / window * 100))
+    return round(used / window * 100)
 
 
 async def _run_chat(
-    config_path: Optional[str], session_id: Optional[str], force_setup: bool = False
+    config_path: str | None, session_id: str | None, force_setup: bool = False
 ):
     # Run the interactive chat session.
     # Load configuration first so the UI is themed from the user's settings.
@@ -1089,7 +1087,7 @@ async def _run_chat(
                     if cmd in ("/exit", "/quit"):
                         break
 
-                    elif cmd == "/help":
+                    if cmd == "/help":
                         chat_ui.help(CLI_COMMANDS)
 
                     elif cmd == "/init":

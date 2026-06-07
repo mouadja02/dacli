@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from core.atomicio import write_json_atomic
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 MODELS_DEV_URL = "https://models.dev/api.json"
 CACHE_TTL_SECONDS = 24 * 60 * 60  # refresh pricing at most once a day
@@ -40,7 +40,7 @@ class TokenUsage:
     cache_read: int = 0
     cache_creation: int = 0
 
-    def add(self, other: "TokenUsage") -> None:
+    def add(self, other: TokenUsage) -> None:
         self.input += other.input
         self.output += other.output
         self.cache_read += other.cache_read
@@ -50,7 +50,7 @@ class TokenUsage:
     def total(self) -> int:
         return self.input + self.output + self.cache_read + self.cache_creation
 
-    def as_dict(self) -> Dict[str, int]:
+    def as_dict(self) -> dict[str, int]:
         return {
             "input": self.input,
             "output": self.output,
@@ -59,7 +59,7 @@ class TokenUsage:
         }
 
     @classmethod
-    def from_dict(cls, d: Optional[Dict[str, Any]]) -> "TokenUsage":
+    def from_dict(cls, d: dict[str, Any] | None) -> TokenUsage:
         d = d or {}
         return cls(
             input=int(d.get("input", 0) or 0),
@@ -175,7 +175,7 @@ def _score(query_norm: str, candidate_id: str) -> float:
     return max(full, base, contain)
 
 
-def _find_model(payload: Any, provider: str, model: str) -> Optional[Tuple[dict, dict, str, str, str, float]]:
+def _find_model(payload: Any, provider: str, model: str) -> tuple[dict, dict, str, str, str, float] | None:
     """Locate the best (provider_entry, model_entry, ...) for provider+model.
 
     Returns ``(provider_entry, model_entry, resolved_provider_id, resolved_model_id,
@@ -227,7 +227,7 @@ def _find_model(payload: Any, provider: str, model: str) -> Optional[Tuple[dict,
     return None
 
 
-def pricing_from_payload(payload: Any, provider: str, model: str) -> Optional[ModelPricing]:
+def pricing_from_payload(payload: Any, provider: str, model: str) -> ModelPricing | None:
     """Build :class:`ModelPricing` from an in-memory api.json payload (pure).
 
     Falls back to a similarity search when an exact id isn't in the catalog, so
@@ -259,7 +259,7 @@ def _cache_path(cache_dir: str) -> Path:
     return Path(cache_dir) / "models_cache.json"
 
 
-def _load_cache(cache_dir: str) -> Tuple[float, Any]:
+def _load_cache(cache_dir: str) -> tuple[float, Any]:
     try:
         data = json.loads(_cache_path(cache_dir).read_text(encoding="utf-8"))
         return float(data.get("fetched_at", 0)), data.get("payload")
@@ -299,7 +299,7 @@ def fetch_pricing(
     model: str,
     cache_dir: str = ".dacli",
     force_refresh: bool = False,
-) -> Optional[ModelPricing]:
+) -> ModelPricing | None:
     """Resolve pricing for provider+model, or ``None`` if unavailable/offline."""
     payload = fetch_api_json(cache_dir, force_refresh=force_refresh)
     return pricing_from_payload(payload, provider, model)

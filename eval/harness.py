@@ -13,7 +13,6 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from eval.passk import PassKResult, run_pass_k, suite_pass_k
 from eval.types import GoldenTask
@@ -29,7 +28,7 @@ class SuiteReport:
 
     suite: str
     timestamp: str = field(default_factory=_now_iso)
-    results: List[PassKResult] = field(default_factory=list)
+    results: list[PassKResult] = field(default_factory=list)
 
     # ------------------------------------------------------------------
     @property
@@ -46,13 +45,13 @@ class SuiteReport:
     def total_unguarded_executions(self) -> int:
         return sum(r.unguarded_executions for r in self.results)
 
-    def by_connector(self) -> Dict[str, List[PassKResult]]:
-        groups: Dict[str, List[PassKResult]] = {}
+    def by_connector(self) -> dict[str, list[PassKResult]]:
+        groups: dict[str, list[PassKResult]] = {}
         for r in self.results:
             groups.setdefault(r.connector, []).append(r)
         return groups
 
-    def get(self, task_id: str) -> Optional[PassKResult]:
+    def get(self, task_id: str) -> PassKResult | None:
         return next((r for r in self.results if r.task_id == task_id), None)
 
     def to_dict(self) -> dict:
@@ -66,7 +65,7 @@ class SuiteReport:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "SuiteReport":
+    def from_dict(cls, d: dict) -> SuiteReport:
         return cls(
             suite=str(d.get("suite", "")),
             timestamp=str(d.get("timestamp", "")),
@@ -85,11 +84,11 @@ class RunHistory:
         with open(self.path, "a", encoding="utf-8") as f:
             f.write(json.dumps(report.to_dict(), default=str) + "\n")
 
-    def all(self) -> List[SuiteReport]:
+    def all(self) -> list[SuiteReport]:
         if not self.path.exists():
             return []
-        out: List[SuiteReport] = []
-        with open(self.path, "r", encoding="utf-8") as f:
+        out: list[SuiteReport] = []
+        with open(self.path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -100,13 +99,13 @@ class RunHistory:
                     continue
         return out
 
-    def latest(self, suite: Optional[str] = None) -> Optional[SuiteReport]:
+    def latest(self, suite: str | None = None) -> SuiteReport | None:
         reports = self.all()
         if suite is not None:
             reports = [r for r in reports if r.suite == suite]
         return reports[-1] if reports else None
 
-    def previous(self, suite: Optional[str] = None) -> Optional[SuiteReport]:
+    def previous(self, suite: str | None = None) -> SuiteReport | None:
         """The second-most-recent report (the baseline a new run regresses against)."""
         reports = self.all()
         if suite is not None:
@@ -139,13 +138,13 @@ class EvalHarness:
     async def run_suite(
         self,
         suite_name: str,
-        tasks: List[GoldenTask],
+        tasks: list[GoldenTask],
         *,
         persist: bool = True,
     ) -> SuiteReport:
-        results: List[PassKResult] = []
-        for task in tasks:
-            results.append(await run_pass_k(task, self._scaled_k(task)))
+        results: list[PassKResult] = [
+            await run_pass_k(task, self._scaled_k(task)) for task in tasks
+        ]
         report = SuiteReport(suite=suite_name, results=results)
         if persist:
             self.history.append(report)
