@@ -12,9 +12,9 @@ import types
 
 from rich.console import Console
 
-from connectors.base import ToolResult, ToolStatus
-from reasoning.llm import LLMClient
-from tui import DacliUI, get_theme, THEMES, DEFAULT_THEME
+from dacli.connectors.base import ToolResult, ToolStatus
+from dacli.reasoning.llm import LLMClient
+from dacli.tui import DacliUI, get_theme, THEMES, DEFAULT_THEME
 
 
 def _recording_ui() -> DacliUI:
@@ -33,7 +33,7 @@ def test_get_theme_falls_back_to_default():
 
 
 def test_every_theme_defines_all_style_keys():
-    from tui.theme import STYLE_KEYS
+    from dacli.tui.theme import STYLE_KEYS
     for spec in THEMES.values():
         for key in STYLE_KEYS:
             assert key in spec.styles, f"{spec.name} missing style '{key}'"

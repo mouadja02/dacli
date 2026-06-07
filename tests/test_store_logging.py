@@ -8,9 +8,9 @@ import os
 import tempfile
 import unittest
 
-import core.store as store_mod
-from core.store import DacliStore
-from core.logging_setup import setup_logging
+import dacli.core.store as store_mod
+from dacli.core.store import DacliStore
+from dacli.core.logging_setup import setup_logging
 
 
 class StoreLoggingTest(unittest.TestCase):

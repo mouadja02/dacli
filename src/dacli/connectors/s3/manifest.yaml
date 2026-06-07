@@ -1,0 +1,13 @@
+id: s3
+name: Amazon S3
+description: List, read, upload, and delete S3 objects with versioned rollback
+icon: "🪣"
+class: dacli.connectors.s3.connector.S3Connector
+required_config: [bucket]
+enabled: false
+default_scope: read_only
+golden_task:
+  name: Upload an object and confirm it landed
+  op: put_s3_object
+  description: Upload content to a key, then confirm via head-object that the key exists.
+  expectation: the s3_object_present post-condition passes.

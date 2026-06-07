@@ -23,12 +23,12 @@ import tempfile
 import unittest
 from types import SimpleNamespace
 
-from context.spill import ResultStore
-from sandbox.docker_runtime import DockerSandboxRuntime
-from sandbox.factory import build_sandbox_runtime
-from sandbox.policy import SandboxPolicy
-from sandbox.runtime import SandboxRuntime
-from sandbox.sdk import ConnectorSDK
+from dacli.context.spill import ResultStore
+from dacli.sandbox.docker_runtime import DockerSandboxRuntime
+from dacli.sandbox.factory import build_sandbox_runtime
+from dacli.sandbox.policy import SandboxPolicy
+from dacli.sandbox.runtime import SandboxRuntime
+from dacli.sandbox.sdk import ConnectorSDK
 
 
 def _run(coro):
@@ -36,7 +36,7 @@ def _run(coro):
 
 
 async def _noop_execute(tool, args):
-    from connectors.base import ToolResult, ToolStatus
+    from dacli.connectors.base import ToolResult, ToolStatus
     return ToolResult(tool_name=tool, status=ToolStatus.SUCCESS, data=[])
 
 

@@ -1,0 +1,25 @@
+# Reference manifest. Copy to connectors/<id>/manifest.yaml and edit.
+# (Named manifest_template.yaml so the registry — which scans */manifest.yaml —
+#  never picks it up.)
+
+id: mytool                       # MUST match the connector class `name`
+name: My Tool                    # Human-readable display name
+description: One-line summary of what this connector does
+icon: "🔧"
+class: dacli.connectors.mytool.connector.MyToolConnector  # dacli.connectors.<id>.connector.<Class>
+enabled: false                   # generated connectors start disabled
+default_scope: read_only
+
+# Drives the /connect credential prompts. Mark secrets `secret: true` so they are
+# entered hidden and stored encrypted; non-secret fields may carry a `default`.
+config_fields:
+  - name: api_key
+    type: str
+    required: true
+    secret: true
+    description: API key / token for the platform
+  - name: base_url
+    type: str
+    required: false
+    default: "https://api.example.com"
+    description: API base URL

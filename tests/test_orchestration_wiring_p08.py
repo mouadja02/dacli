@@ -23,7 +23,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from core.kernel import AgentResponse
+from dacli.core.kernel import AgentResponse
 import contextlib
 
 _TEMP_DIRS = []
@@ -42,7 +42,7 @@ def _settings(orchestration=None):
     """Hermetic settings with placeholder creds + isolated state (mirrors
     tests/test_headless._settings_for_test). ``orchestration`` overrides the
     orchestration sub-block when given."""
-    from config.settings import Settings
+    from dacli.config.settings import Settings
 
     kwargs = {
         "llm": {"provider": "scripted", "model": "scripted",
@@ -75,7 +75,7 @@ class _Sentinel:
 
 
 def _agent(settings):
-    from core.agent import DACLI
+    from dacli.core.agent import DACLI
     return DACLI(settings=settings, llm=_Sentinel())
 
 
@@ -83,12 +83,12 @@ class LeanDefaultStartupTest(unittest.TestCase):
     """Acceptance: a default startup builds none of the six subsystems."""
 
     def setUp(self):
-        self._pricing = mock.patch("core.agent.fetch_pricing", return_value=None)
+        self._pricing = mock.patch("dacli.core.agent.fetch_pricing", return_value=None)
         self._pricing.start()
         self.addCleanup(self._pricing.stop)
 
     def test_default_settings_disable_orchestration(self):
-        from config.settings import OrchestrationSettings
+        from dacli.config.settings import OrchestrationSettings
         self.assertFalse(OrchestrationSettings().enabled)
 
     def test_no_orchestration_subsystems_built_by_default(self):
@@ -126,7 +126,7 @@ class OrchestratedRoutingE2ETest(unittest.TestCase):
     and TierRouter.route(); simple turns stay on the kernel loop."""
 
     def setUp(self):
-        self._pricing = mock.patch("core.agent.fetch_pricing", return_value=None)
+        self._pricing = mock.patch("dacli.core.agent.fetch_pricing", return_value=None)
         self._pricing.start()
         self.addCleanup(self._pricing.stop)
 

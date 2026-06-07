@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from sandbox.runtime import MAX_SANDBOX_RUNS, _sweep_run_dirs
+from dacli.sandbox.runtime import MAX_SANDBOX_RUNS, _sweep_run_dirs
 
 
 class SandboxRetentionTest(unittest.TestCase):

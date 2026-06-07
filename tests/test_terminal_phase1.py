@@ -17,30 +17,30 @@ import tempfile
 import unittest
 from types import SimpleNamespace
 
-from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
-from connectors.shell.connector import ShellConnector
+from dacli.connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
+from dacli.connectors.shell.connector import ShellConnector
 
-from context.sources.terminal import ScrollbackStore, ScrollbackSource, bound_output
+from dacli.context.sources.terminal import ScrollbackStore, ScrollbackSource, bound_output
 
-from core.router import TierRouter, Tier as RTier
-from core.verify import (
+from dacli.core.router import TierRouter, Tier as RTier
+from dacli.core.verify import (
     VerificationContext, run_postconditions,
     shell_exit_zero, shell_writes_observed, shell_deletes_observed,
 )
 
-from governance import (
+from dacli.governance import (
     Governor, ActionClassifier, PolicyEngine, PermissionRegistry, Scope,
     RollbackStrategist, AuditLedger,
 )
-from governance.classifier import Tier
-from governance.command_classifier import classify_command
-from governance.rollback import RollbackPlan
+from dacli.governance.classifier import Tier
+from dacli.governance.command_classifier import classify_command
+from dacli.governance.rollback import RollbackPlan
 
-from sandbox.shells.base import select_backend, RawExec
-from sandbox.terminal import TerminalSession
-from sandbox.workspace import SessionWorkspace, WorkspaceJailError
+from dacli.sandbox.shells.base import select_backend, RawExec
+from dacli.sandbox.terminal import TerminalSession
+from dacli.sandbox.workspace import SessionWorkspace, WorkspaceJailError
 
-from eval.sim.shell import make_sim_session
+from dacli.eval.sim.shell import make_sim_session
 
 
 def _run(coro):
@@ -647,8 +647,8 @@ class GovernorShellTest(unittest.TestCase):
 class AgentWiringTest(unittest.TestCase):
     def _agent(self, enabled: bool):
         from unittest import mock
-        from config.settings import Settings
-        from core.agent import DACLI
+        from dacli.config.settings import Settings
+        from dacli.core.agent import DACLI
 
         root = _tmp()
         # Minimal valid config: only the sub-settings with required fields need a
@@ -666,7 +666,7 @@ class AgentWiringTest(unittest.TestCase):
         settings.agent.history_path = os.path.join(root, "history.json")
         settings.terminal.enabled = enabled
         settings.terminal.workspace_root = os.path.join(root, "sessions")
-        with mock.patch("core.agent.fetch_pricing", return_value=None):
+        with mock.patch("dacli.core.agent.fetch_pricing", return_value=None):
             agent = DACLI(settings, connectors_config_path=os.path.join(root, "connectors.yaml"))
         return agent, root
 

@@ -8,7 +8,7 @@ free platform connector. It deliberately lives under ``tests/`` rather than
 
 from typing import Any
 
-from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
+from dacli.connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 
 
 class EchoConnector(Connector):

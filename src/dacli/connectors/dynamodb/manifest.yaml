@@ -1,0 +1,13 @@
+id: dynamodb
+name: DynamoDB
+description: Scan/get/put/delete DynamoDB items with point-in-time-recovery rollback
+icon: "⚡"
+class: dacli.connectors.dynamodb.connector.DynamoDBConnector
+required_config: [region]
+enabled: false
+default_scope: risky
+golden_task:
+  name: Put an item and confirm it landed
+  op: put_dynamodb_item
+  description: Put an item, then confirm via get-item (using the table's key schema) that it exists.
+  expectation: the dynamo_item_present post-condition passes.

@@ -1,0 +1,13 @@
+id: airflow
+name: Apache Airflow
+description: Operate and debug Airflow DAGs — trigger, monitor, pause, and inspect runs
+icon: "🌀"
+class: dacli.connectors.airflow.connector.AirflowConnector
+required_config: [base_url]
+enabled: false
+default_scope: read_only
+golden_task:
+  name: Trigger a DAG and confirm success
+  op: trigger_airflow_dag
+  description: Trigger a DAG run, poll to a terminal state, and confirm the run reached success.
+  expectation: the airflow_run_succeeded post-condition passes.

@@ -8,25 +8,25 @@ import asyncio
 import tempfile
 import unittest
 
-from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
-from connectors.registry import ConnectorRegistry
-from connectors.dispatcher import Dispatcher
+from dacli.connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
+from dacli.connectors.registry import ConnectorRegistry
+from dacli.connectors.dispatcher import Dispatcher
 
-from core.verify import (
+from dacli.core.verify import (
     VerificationContext, Verifier, PipelineVerifier,
     require_postconditions, MissingPostConditionError, run_postconditions,
     result_succeeded,
 )
-from core.router import TierRouter, RoutingAuditLog, Tier
-from connectors.snowflake.connector import (
+from dacli.core.router import TierRouter, RoutingAuditLog, Tier
+from dacli.connectors.snowflake.connector import (
     parse_create_table, create_table_matches_intent,
 )
-from skills.registry import SkillRegistry
-from skills.spec import Skill, SkillSpec, SkillContext
-from skills.diagram_mermaid.skill import (
+from dacli.skills.registry import SkillRegistry
+from dacli.skills.spec import Skill, SkillSpec, SkillContext
+from dacli.skills.diagram_mermaid.skill import (
     MermaidSkill, entities_exist_in_catalog, mermaid_parses,
 )
-from memory.catalog import CatalogCache
+from dacli.memory.catalog import CatalogCache
 
 
 def _run(coro):

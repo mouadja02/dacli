@@ -1,3 +1,51 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dacli"
+version = "0.1.0"
+description = "Your autonomous data engineering CLI agent"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Mouad Jaouhari", email = "github@mj-dev.net" }]
+keywords = ["data engineering", "autonomous agent", "data engineering CLI"]
+# NOTE: dependency selection/pinning is P11's job. Until then the runtime deps
+# live in requirements.txt; keep this a placeholder so P11 fills and pins it.
+dependencies = []
+classifiers = [
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.urls]
+Homepage = "https://github.com/mouadja02/dacli"
+
+[project.scripts]
+dacli = "dacli.scripts.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+# Non-Python runtime assets that must ship in the wheel. The `dacli` package now
+# exists (src layout), so these patterns resolve — unlike the old setup.py which
+# pointed `package_data` at a `dacli` package that didn't exist under the flat layout.
+dacli = [
+    "prompts/*.md",
+    "prompts/fragments/*.md",
+    "connectors/**/manifest.yaml",
+    "connectors/**/SKILL.md",
+    "connectors/templates/*",
+    "skills/**/SKILL.md",
+    "config/*.yaml",
+]
+
 [tool.ruff]
 target-version = "py310"
 extend-exclude = ["build", ".venv", ".claude"]

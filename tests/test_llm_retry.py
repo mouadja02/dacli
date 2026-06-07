@@ -10,7 +10,7 @@ import types
 import unittest
 from unittest import mock
 
-from reasoning.llm import LLMClient
+from dacli.reasoning.llm import LLMClient
 
 
 def _run(coro):
@@ -51,9 +51,9 @@ class WithRetryTest(unittest.TestCase):
             self._slept.append(delay)
 
         self._sleep_patch = mock.patch(
-            "reasoning.llm.asyncio.sleep", side_effect=_fake_sleep
+            "dacli.reasoning.llm.asyncio.sleep", side_effect=_fake_sleep
         )
-        self._rand_patch = mock.patch("reasoning.llm.random.random", return_value=0.0)
+        self._rand_patch = mock.patch("dacli.reasoning.llm.random.random", return_value=0.0)
         self._sleep_patch.start()
         self._rand_patch.start()
 
@@ -150,7 +150,7 @@ class WithRetryTest(unittest.TestCase):
 
 class RetryConfigTest(unittest.TestCase):
     def test_llm_settings_expose_retry_defaults(self):
-        from config.settings import LLMSettings
+        from dacli.config.settings import LLMSettings
 
         s = LLMSettings(
             provider="openai", model="m", api_key="k", base_url="https://x"

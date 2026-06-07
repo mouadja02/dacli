@@ -13,10 +13,10 @@ import os
 import tempfile
 import unittest
 
-from connectors.registry import ConnectorRegistry
-from connectors.dispatcher import Dispatcher
-from connectors.system.connector import SystemConnector
-from core.kernel import Kernel
+from dacli.connectors.registry import ConnectorRegistry
+from dacli.connectors.dispatcher import Dispatcher
+from dacli.connectors.system.connector import SystemConnector
+from dacli.core.kernel import Kernel
 from tests.golden_echo import EchoConnector
 
 

@@ -5,9 +5,9 @@ from types import SimpleNamespace as NS
 
 from prompt_toolkit.document import Document
 
-from memory.priors import generate_dacli_md
-from scripts.cli import SlashCommandCompleter
-from config import CLI_COMMANDS
+from dacli.memory.priors import generate_dacli_md
+from dacli.scripts.cli import SlashCommandCompleter
+from dacli.config import CLI_COMMANDS
 
 
 def _settings(**overrides):

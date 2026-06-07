@@ -12,8 +12,8 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet
 
-from core import crypto
-from core.crypto import (
+from dacli.core import crypto
+from dacli.core.crypto import (
     CredentialDecryptionError,
     decrypt_value,
     encrypt_value,
