@@ -58,7 +58,7 @@ def load_system_prompt(custom_path: Optional[str] = None) -> str:
             else:
                 raise FileNotFoundError(f"System prompt not found at {custom_path}")
         except Exception as e:
-            raise FileNotFoundError(f"Error loading system prompt from {custom_path}: {e}")
+            raise FileNotFoundError(f"Error loading system prompt from {custom_path}: {e}") from e
 
     # Check default location
     prompt_content = ""
@@ -66,7 +66,7 @@ def load_system_prompt(custom_path: Optional[str] = None) -> str:
         try:
             prompt_content = SYSTEM_PROMPT_FILE.read_text(encoding="utf-8")
         except Exception as e:
-            raise FileNotFoundError(f"Error loading system prompt from {SYSTEM_PROMPT_FILE}: {e}")
+            raise FileNotFoundError(f"Error loading system prompt from {SYSTEM_PROMPT_FILE}: {e}") from e
     else:
         raise FileNotFoundError(f"Default system prompt not found at {SYSTEM_PROMPT_FILE}")
 

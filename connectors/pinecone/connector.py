@@ -83,7 +83,7 @@ class PineconeConnector(Connector):
             self._index = pc.Index(pinecone_settings.index_name)
         except Exception as e:
             self._is_connected = False
-            raise ConnectionError(f"Failed to connect to Pinecone: {str(e)}")
+            raise ConnectionError(f"Failed to connect to Pinecone: {str(e)}") from e
 
         try:
             embedding_settings = self.settings.embeddings
@@ -100,7 +100,7 @@ class PineconeConnector(Connector):
 
         except Exception as e:
             self._is_connected = False
-            raise ConnectionError(f"Failed to connect to Pinecone: {str(e)}")
+            raise ConnectionError(f"Failed to connect to Pinecone: {str(e)}") from e
 
         self._is_connected = True
         return True

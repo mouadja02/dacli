@@ -143,7 +143,7 @@ class FactoryTest(unittest.TestCase):
         self.assertIsInstance(rt, SandboxRuntime)
 
     def test_auto_picks_an_available_backend(self):
-        rt, backend = build_sandbox_runtime(_settings("auto", self.tmp), _noop_execute)
+        _rt, backend = build_sandbox_runtime(_settings("auto", self.tmp), _noop_execute)
         self.assertIn(backend, ("docker", "subprocess"))
         # auto must agree with what Docker reports as available on this host.
         self.assertEqual(backend == "docker", _DOCKER)

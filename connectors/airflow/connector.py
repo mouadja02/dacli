@@ -224,7 +224,7 @@ class AirflowConnector(HttpConnector):
         cfg = self._cfg()
         interval = getattr(cfg, "poll_interval", 5) if cfg else 5
         max_attempts = max(1, self._timeout() // max(interval, 1))
-        for attempt in range(max_attempts):
+        for _attempt in range(max_attempts):
             if state in _TERMINAL:
                 break
             run = await self._request("GET", f"/api/v1/dags/{dag_id}/dagRuns/{run_id}")

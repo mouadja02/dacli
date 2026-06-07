@@ -4,7 +4,7 @@ import time
 import io
 import zipfile
 import httpx
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from config.settings import Settings
@@ -115,7 +115,7 @@ class GithubConnector(Connector):
 
     name = "github"
 
-    AVAILABLE_OPERATIONS = ["read_file", "create_or_update_file", "delete_file", "list_directory",
+    AVAILABLE_OPERATIONS: ClassVar[List[str]] = ["read_file", "create_or_update_file", "delete_file", "list_directory",
                             "create_or_update_workflow", "trigger_workflow", "list_workflow_runs",
                             "get_workflow_run", "get_workflow_run_jobs"]
 
@@ -385,8 +385,7 @@ class GithubConnector(Connector):
             return True
         except Exception as e:
             self._is_connected = False
-            raise ConnectionError(f"Failed to connect to GitHub: {str(e)}")
-        return False
+            raise ConnectionError(f"Failed to connect to GitHub: {str(e)}") from e
 
     async def health(self) -> ToolResult:
         # Validate the GitHub connection
@@ -734,7 +733,7 @@ class GithubConnector(Connector):
 
         # Find the run we just triggered (by timestamp)
         run_id = None
-        for attempt in range(6):  # Try for 30 seconds
+        for _attempt in range(6):  # Try for 30 seconds
             response = await self._client.get(
                 f"/repos/{self._gh.owner}/{self._gh.repo}/actions/workflows/{workflow_id}/runs",
                 params={"per_page": 5}

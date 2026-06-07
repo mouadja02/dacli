@@ -4,7 +4,7 @@
 # iterates over whatever connectors the ConnectorRegistry discovered and writes
 # the user's selections to config/connectors.yaml.
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Tuple
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -93,7 +93,7 @@ You can always re-run this wizard later by using: `dacli --setup`
         table.add_column("Description")
         table.add_column("Operations", justify="center")
 
-        for idx, (connector_id, info) in enumerate(self.catalog.items(), 1):
+        for idx, (_connector_id, info) in enumerate(self.catalog.items(), 1):
             table.add_row(
                 str(idx),
                 f"{info['icon']} {info['name']}",
@@ -131,7 +131,7 @@ You can always re-run this wizard later by using: `dacli --setup`
             ops_table.add_column("Category", style="dim")
 
             operations = list(info['operations'].items())
-            for idx, (op_name, op_info) in enumerate(operations, 1):
+            for idx, (_op_name, op_info) in enumerate(operations, 1):
                 ops_table.add_row(
                     str(idx),
                     op_info['name'],
@@ -160,8 +160,8 @@ You can always re-run this wizard later by using: `dacli --setup`
 
     # Secrets to collect per connector id: (settings section, field, label).
     # The LLM key is always required (not tied to an optional connector).
-    _ALWAYS_SECRETS = [("llm", "api_key", "LLM API key")]
-    _SECRET_FIELDS = {
+    _ALWAYS_SECRETS: ClassVar[List[Tuple[str, str, str]]] = [("llm", "api_key", "LLM API key")]
+    _SECRET_FIELDS: ClassVar[Dict[str, List[Tuple[str, str, str]]]] = {
         "snowflake": [("snowflake", "password", "Snowflake password")],
         "github": [("github", "token", "GitHub personal access token")],
         "pinecone": [

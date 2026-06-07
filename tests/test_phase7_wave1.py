@@ -186,7 +186,7 @@ class BigQueryConnectorTest(unittest.TestCase):
             return CliResult(1, "", "Not found", argv)  # bq show → missing
         conn = self._conn(responder)
         plan = types.SimpleNamespace(primitive="bq_time_travel_snapshot")
-        ok, detail = _run(conn.verify_rollback(plan, {"query": "DROP TABLE ds.gone"}))
+        ok, _detail = _run(conn.verify_rollback(plan, {"query": "DROP TABLE ds.gone"}))
         self.assertFalse(ok)
 
 

@@ -8,7 +8,7 @@ no credentials, no live platform. It exercises the real code paths:
 * ``core.connector_generator.validate_connector`` (manifest + import + ops +
   post-conditions),
 * ``connectors.dispatcher.Dispatcher`` staging (health gate, ``test_mode`` tag,
-  catalog-effect suppression) via ``core.test_mode.TestMode``,
+  catalog-effect suppression) via ``core.test_mode.StagingMode``,
 * ``core.connector_workflow.import_connector`` (validate + enable).
 
 It writes a throwaway connector into ``connectors/<name>/`` (required for a real
@@ -44,7 +44,7 @@ from rich.console import Console
 from config.settings import load_config
 from connectors.registry import ConnectorRegistry
 from connectors.dispatcher import Dispatcher
-from core.test_mode import TestMode
+from core.test_mode import StagingMode
 from core.connector_generator import (
     generate_connector_files,
     validate_connector,
@@ -235,7 +235,7 @@ async def main() -> int:
         op = f"{CONNECTOR_NAME}_echo"
 
         # 3a. test mode OFF -> normal: no test tag, catalog effect applied.
-        tm_off = TestMode()
+        tm_off = StagingMode()
         mem_off = FakeMemory()
         disp_off = Dispatcher(registry, memory=mem_off, test_mode=tm_off)
         r_off = await disp_off.execute(op, {"message": "hi"})
@@ -248,7 +248,7 @@ async def main() -> int:
         ok("test mode OFF: normal success, catalog effect applied, no [TEST] tag")
 
         # 3b. test mode ON -> staged: health-gated, tagged, catalog suppressed.
-        tm_on = TestMode()
+        tm_on = StagingMode()
         tm_on.activate(connector_name=CONNECTOR_NAME)
         mem_on = FakeMemory()
         disp_on = Dispatcher(registry, memory=mem_on, test_mode=tm_on)

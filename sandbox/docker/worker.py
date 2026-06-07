@@ -119,7 +119,7 @@ def _install_egress_guard(network: str, allowlist, bridge_host: str) -> None:
             host = address[0]
             port = address[1] if len(address) > 1 else None
         except Exception:
-            raise PermissionError("sandbox egress blocked: malformed address")
+            raise PermissionError("sandbox egress blocked: malformed address") from None
         if _ok(str(host)):
             return _orig_connect(self, address)
         raise PermissionError(

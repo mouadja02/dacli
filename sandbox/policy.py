@@ -83,7 +83,7 @@ def install_egress_guard(network: str, allowlist: List[str], bridge_port: int) -
             host = address[0]
             port = address[1] if len(address) > 1 else None
         except Exception:
-            raise PermissionError("sandbox egress blocked: malformed address")
+            raise PermissionError("sandbox egress blocked: malformed address") from None
         # The governance bridge on loopback is always permitted.
         if _is_loopback(str(host)) and (bridge_port == 0 or port == bridge_port or network != "off"):
             return _orig_connect(self, address)

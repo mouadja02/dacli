@@ -148,7 +148,7 @@ class GoldenTranscriptTest(unittest.TestCase):
         # The kernel must hand the registry-built tool defs to the LLM, including
         # the injected echo connector and the built-in system tools.
         memory = FakeMemory()
-        kernel, _, registry = build_spine(GOLDEN_SCRIPT, memory)
+        _kernel, _, registry = build_spine(GOLDEN_SCRIPT, memory)
         names = {d["function"]["name"] for d in registry.get_tool_definitions()}
         self.assertIn("echo_say", names)
         self.assertIn("request_user_input", names)

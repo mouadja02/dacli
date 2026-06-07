@@ -49,7 +49,7 @@ class Dispatcher:
         self._memory = memory
         self._on_tool_start = on_tool_start
         self._on_tool_end = on_tool_end
-        #: optional :class:`core.test_mode.TestMode`. When active and the resolved
+        #: optional :class:`core.test_mode.StagingMode`. When active and the resolved
         # connector is the one under test, the call runs in *staging mode*:
         # health-gated, exception-captured with full diagnostics, and with
         # catalog/state side effects suppressed so an untrusted (e.g. freshly

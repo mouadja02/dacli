@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Any, Optional, Set
 
 
-class TestMode:
+class StagingMode:
     """Global test mode state.
 
     When active, :class:`connectors.dispatcher.Dispatcher` runs the
@@ -104,4 +104,4 @@ class TestMode:
         return f"[{label}]"
 
 
-test_mode = TestMode()
+test_mode = StagingMode()

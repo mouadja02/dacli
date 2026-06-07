@@ -158,7 +158,8 @@ class SimShell:
             if not os.path.exists(p):
                 return f"cat: {f}: No such file or directory", 1
             try:
-                out.append(open(p, "r", encoding="utf-8").read().rstrip("\n"))
+                with open(p, encoding="utf-8") as fh:
+                    out.append(fh.read().rstrip("\n"))
             except Exception as e:
                 return f"cat: {e}", 1
         return "\n".join(out), 0

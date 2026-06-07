@@ -329,7 +329,7 @@ class KernelNewPathTest(unittest.TestCase):
             ("", [_tc("c2", "echo_say", {"text": "hi"})]),
             ("done", []),
         ]
-        kernel, llm, memory = self._spine(script, "perform the requested operation")
+        kernel, llm, _memory = self._spine(script, "perform the requested operation")
         resp = asyncio.run(kernel.orchestrate("perform the requested operation"))
 
         self.assertEqual(resp.content, "done")
@@ -342,7 +342,7 @@ class KernelNewPathTest(unittest.TestCase):
 
     def test_assembler_seeds_from_full_history_not_a_window(self):
         script = [("answer", [])]
-        kernel, llm, memory = self._spine(script, "just answer")
+        kernel, llm, _memory = self._spine(script, "just answer")
         asyncio.run(kernel.orchestrate("just answer"))
         # The single generation saw the assembled context; system prompt carries
         # the connectors digest rather than the legacy static prompt.

@@ -184,7 +184,7 @@ class DatabricksConnector(CliConnector):
         if data_array is None:
             return None
         if names:
-            return [dict(zip(names, row)) for row in data_array]
+            return [dict(zip(names, row, strict=True)) for row in data_array]
         return data_array
 
     @staticmethod

@@ -186,7 +186,7 @@ class MySQLConnector(CliConnector):
         if not lines:
             return []
         header = lines[0].split("\t")
-        return [dict(zip(header, ln.split("\t"))) for ln in lines[1:]]
+        return [dict(zip(header, ln.split("\t"), strict=True)) for ln in lines[1:]]
 
     async def _query(self, sql: str) -> ToolResult:
         started = time.time()

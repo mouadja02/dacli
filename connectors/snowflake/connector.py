@@ -386,8 +386,7 @@ class SnowflakeConnector(Connector):
             return True
         except Exception as e:
             self._is_connected = False
-            raise ConnectionError(f"Failed to connect to Snowflake: {str(e)}")
-        return False
+            raise ConnectionError(f"Failed to connect to Snowflake: {str(e)}") from e
 
     # ------------------------------------------------------------------
     # Governance: rollback-path verification
@@ -415,7 +414,7 @@ class SnowflakeConnector(Connector):
             cols = [d[0].upper() for d in self._cursor.description]
             value = None
             for row in rows:
-                rec = dict(zip(cols, row))
+                rec = dict(zip(cols, row, strict=True))
                 value = rec.get("VALUE") or rec.get("value")
                 break
             retention = int(value) if value is not None and str(value).isdigit() else 0
@@ -447,7 +446,7 @@ class SnowflakeConnector(Connector):
             self._cursor.execute("SELECT CURRENT_WAREHOUSE() AS WAREHOUSE,CURRENT_DATABASE() AS DATABASE,CURRENT_SCHEMA() AS SCHEMA,CURRENT_ROLE() AS ROLE,CURRENT_USER() AS USER;")
             result = self._cursor.fetchone()
             columns = [desc[0] for desc in self._cursor.description]
-            context = dict(zip(columns, result))
+            context = dict(zip(columns, result, strict=True))
 
             execution_time = (time.time() - start_time) * 1000
             return ToolResult(
@@ -504,7 +503,7 @@ class SnowflakeConnector(Connector):
             self._cursor.execute(sql)
             rows = self._cursor.fetchall()
             columns = [desc[0] for desc in self._cursor.description]
-            records = [dict(zip(columns, row)) for row in rows]
+            records = [dict(zip(columns, row, strict=True)) for row in rows]
             exists = len(records) > 0
 
             cols = None
@@ -571,7 +570,7 @@ class SnowflakeConnector(Connector):
                 columns = [desc[0] for desc in self._cursor.description]
 
                 # Convert to list of dicts
-                results = [dict(zip(columns, row)) for row in rows]
+                results = [dict(zip(columns, row, strict=True)) for row in rows]
 
                 total_rows = self._cursor.rowcount if self._cursor.rowcount >= 0 else len(results)
 

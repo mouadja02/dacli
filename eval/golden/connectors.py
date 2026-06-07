@@ -40,7 +40,7 @@ async def _run_op_with_postconditions(
     args: Dict[str, Any],
     task_id: str,
     *,
-    extra_postconditions: list = None,
+    extra_postconditions: list | None = None,
 ) -> TaskResult:
     """Invoke an op and run its (environment-anchored) post-conditions.
 
