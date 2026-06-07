@@ -34,10 +34,10 @@ class CacheFirstTest(unittest.TestCase):
 
 class OfflineFallbackTest(unittest.TestCase):
     def test_offline_no_cache_returns_none_without_raising(self):
-        with TemporaryDirectory() as tmp:
-            with mock.patch("httpx.get", side_effect=OSError("offline")):
-                # This is the exact call startup makes (agent.py).
-                result = pricing.fetch_pricing("openai", "gpt-4o", cache_dir=tmp)
+        with TemporaryDirectory() as tmp, \
+                mock.patch("httpx.get", side_effect=OSError("offline")):
+            # This is the exact call startup makes (agent.py).
+            result = pricing.fetch_pricing("openai", "gpt-4o", cache_dir=tmp)
         self.assertIsNone(result)
 
     def test_offline_falls_back_to_stale_cache(self):
@@ -58,9 +58,9 @@ class ShortTimeoutTest(unittest.TestCase):
             captured["timeout"] = kwargs.get("timeout")
             raise OSError("offline")  # short-circuit; we only inspect the timeout
 
-        with TemporaryDirectory() as tmp:
-            with mock.patch("httpx.get", side_effect=fake_get):
-                pricing.fetch_api_json(cache_dir=tmp)
+        with TemporaryDirectory() as tmp, \
+                mock.patch("httpx.get", side_effect=fake_get):
+            pricing.fetch_api_json(cache_dir=tmp)
 
         self.assertIsNotNone(captured.get("timeout"))
         self.assertLessEqual(captured["timeout"], 5.0)

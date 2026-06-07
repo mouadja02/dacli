@@ -48,18 +48,18 @@ class ConnectDegradesCleanlyTest(unittest.TestCase):
         import dacli.connectors.snowflake.connector as mod
 
         conn = mod.SnowflakeConnector(settings=mock.MagicMock())
-        with mock.patch.dict(sys.modules, {"snowflake": None, "snowflake.connector": None}):
-            with self.assertRaises(ConnectionError) as ctx:
-                asyncio.run(conn.connect())
+        with mock.patch.dict(sys.modules, {"snowflake": None, "snowflake.connector": None}), \
+                self.assertRaises(ConnectionError) as ctx:
+            asyncio.run(conn.connect())
         self.assertIn("dacli[snowflake]", str(ctx.exception))
 
     def test_pinecone_connect_without_sdk_gives_install_hint(self):
         import dacli.connectors.pinecone.connector as mod
 
         conn = mod.PineconeConnector(settings=mock.MagicMock())
-        with mock.patch.dict(sys.modules, {"pinecone": None}):
-            with self.assertRaises(ConnectionError) as ctx:
-                asyncio.run(conn.connect())
+        with mock.patch.dict(sys.modules, {"pinecone": None}), \
+                self.assertRaises(ConnectionError) as ctx:
+            asyncio.run(conn.connect())
         self.assertIn("dacli[pinecone]", str(ctx.exception))
 
 

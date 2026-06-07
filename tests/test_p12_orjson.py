@@ -8,7 +8,6 @@ the spill write goes through a bytes-aware atomic writer and stays crash-safe.
 
 import json
 import unittest
-from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
