@@ -1,33 +1,31 @@
-# Core dependencies
-click
-rich
-prompt-toolkit
-pyyaml
-pydantic
-python-dotenv
-httpx
-pandas
-cryptography
+# dacli no longer keeps a hand-maintained dependency list here — that was a second
+# source of truth that drifted from the code (unpinned, plus pandas/boto3/PyGithub
+# that nothing imported). The single truth now lives in pyproject.toml (P10/P11).
+#
+#   pip install -e .            # base runtime (lean: no heavy connector SDKs)
+#   pip install -e ".[all]"     # + every Python-SDK connector (snowflake, pinecone, google)
+#   pip install -e ".[dev]"     # + test/lint tooling (pytest, ruff, vulture)
+#
+# For a byte-for-byte reproducible environment (CI), install the pinned closure:
+#
+#   pip install -r requirements.lock
+#
+# This file is kept only as an editable-install pointer for tools/habits that
+# expect a requirements.txt.
+-e .
 
-# LLM providers
-openai
-anthropic
-google-generativeai
-
-# Connectors
-snowflake-connector-python
-pinecone
-
-# Wave 1 connectors are CLI-first — they shell out to the platform's
-# first-class CLI rather than adding Python SDK deps. Install the CLIs you use:
+# ---------------------------------------------------------------------------
+# Connector install notes (no Python SDK required — install the platform CLI)
+# ---------------------------------------------------------------------------
+# Wave 1/2 connectors are CLI-first — they shell out to the platform's first-class
+# CLI rather than adding a Python SDK dep. Install the CLIs you actually use:
 #   dbt        -> dbt-core + the relevant adapter (e.g. dbt-snowflake)
 #   bigquery   -> google-cloud-sdk (provides `bq` and `gcloud`)
 #   databricks -> databricks CLI
 #   s3         -> awscli (`aws`)
 #   gcs        -> google-cloud-sdk (`gcloud storage`)
-
-# Era 2 — governed terminal (OPTIONAL). The shell tier runs everywhere over
-# stdlib pipes with a reliable exit code (sentinel-based). Install a PTY backend
-# only if you want a faithful TTY (ANSI colors, interactive prompts):
-#   pywinpty ; sys_platform == "win32"
-#   ptyprocess ; sys_platform != "win32"
+#
+# Era 2 — governed terminal (OPTIONAL). The shell tier runs everywhere over stdlib
+# pipes with a reliable exit code (sentinel-based). For a faithful TTY (ANSI
+# colours, interactive prompts) install the PTY extra:
+#   pip install -e ".[pty]"   # pywinpty on Windows, ptyprocess on POSIX

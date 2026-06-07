@@ -21,8 +21,11 @@ class PineconeConnector(Connector):
 
     def __init__(self, settings: Settings):
         super().__init__(settings)
-        self._index = None
-        self._embeddings = None
+        # Typed Any: the SDK is lazy-imported (optional extra) and ships no stubs,
+        # so the concrete Index/OpenAI types aren't visible at module scope.
+        self._index: Any = None
+        self._embeddings_client: Any = None
+        self._embeddings_model: Any = None
 
     # ------------------------------------------------------------------
     # Connector contract
@@ -75,9 +78,16 @@ class PineconeConnector(Connector):
     # Lifecycle
     # ------------------------------------------------------------------
     async def connect(self) -> bool:
+        # SDK is lazy-imported (it's an optional extra). A missing install gets an
+        # actionable hint rather than an opaque "No module named 'pinecone'".
         try:
             import pinecone
-
+        except ImportError as e:
+            raise ConnectionError(
+                "The Pinecone SDK is not installed. Install it with: "
+                "pip install 'dacli[pinecone]'"
+            ) from e
+        try:
             pinecone_settings = self.settings.pinecone
             pc = pinecone.Pinecone(api_key=pinecone_settings.api_key)
             self._index = pc.Index(pinecone_settings.index_name)

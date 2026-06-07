@@ -10,9 +10,33 @@ readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Mouad Jaouhari", email = "github@mj-dev.net" }]
 keywords = ["data engineering", "autonomous agent", "data engineering CLI"]
-# NOTE: dependency selection/pinning is P11's job. Until then the runtime deps
-# live in requirements.txt; keep this a placeholder so P11 fills and pins it.
-dependencies = []
+# Base runtime deps: only what `import dacli` + a bare `dacli` launch genuinely
+# need. Heavy/optional connector SDKs live in [project.optional-dependencies]
+# below so a default install stays lean (P11). Volatile deps carry an UPPER bound
+# too — an unpinned major bump of openai/anthropic/pydantic is a latent outage
+# (reliability-first); the floors are realistic minimums verified against the
+# working .venv, not the latest pins (those live in requirements.lock).
+dependencies = [
+    # LLM providers — the two mainstream SDKs; the agent is inert without one, so
+    # they are base (google is optional, see [google] extra).
+    "anthropic>=0.40,<1",
+    "openai>=1.40,<3",
+    # CLI / TUI surface.
+    "click>=8,<9",
+    "rich>=13,<16",                 # .venv has 15.x; <14 (the naive guess) would exclude it
+    "prompt-toolkit>=3,<4",
+    # Config + validation.
+    "pydantic>=2.5,<3",
+    "pyyaml>=6,<7",
+    "python-dotenv>=1,<2",
+    # HTTP (github connector, http_base, pricing) + secret encryption.
+    "httpx>=0.27,<1",
+    "cryptography>=42,<49",
+    # Token accounting runs in the per-turn budget hot path (context/tokenizer.py).
+    # It degrades to a chars/4 heuristic if absent, but accurate counts are core
+    # enough to ship by default.
+    "tiktoken>=0.7,<1",
+]
 classifiers = [
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
@@ -22,6 +46,32 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+
+[project.optional-dependencies]
+# Heavy connector SDKs. Each connector lazy-imports its SDK inside connect(), so a
+# missing extra yields a clean "install dacli[<name>]" message at connect time —
+# never an import crash at registry build (P11 / 06.5).
+#
+# NOTE on which connectors are NOT here: s3, gcs, dynamodb, dbt, bigquery,
+# databricks, mysql, postgres, mongodb are CLI-first (they shell out to `aws`,
+# `gcloud`, `bq`, `dbt`, `mysql`, ... ) and github speaks the REST API over httpx
+# (base). None of them need a Python SDK, so there is intentionally no aws/github
+# extra — boto3 and PyGithub were declared-but-never-imported and were dropped.
+snowflake = ["snowflake-connector-python>=3.5,<5"]   # .venv has 4.x; <4 would exclude it
+pinecone  = ["pinecone>=4,<10"]                       # .venv has 9.x; package renamed from pinecone-client
+# Google provider. The legacy `google-generativeai` dep is kept/pinned as-is here;
+# reconciling it against the new `google-genai` API the code imports is P02's call,
+# not P11's. The provider is lazy-imported, so this extra is genuinely optional.
+google    = ["google-generativeai>=0.8,<0.9"]
+# Faithful TTY for the governed terminal (Era 2). Optional: the shell tier works
+# everywhere over stdlib pipes; install only for ANSI/interactive fidelity.
+pty       = [
+    "pywinpty>=2,<3 ; sys_platform == 'win32'",
+    "ptyprocess>=0.7,<1 ; sys_platform != 'win32'",
+]
+dev       = ["pytest>=8,<10", "ruff>=0.15,<0.16", "vulture>=2,<3"]
+# Convenience aggregate: every Python-SDK connector at once.
+all       = ["dacli[snowflake,pinecone,google]"]
 
 [project.urls]
 Homepage = "https://github.com/mouadja02/dacli"
