@@ -28,7 +28,8 @@ import asyncio
 import shutil
 import time
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence
+from typing import Any
+from collections.abc import Awaitable, Callable, Sequence
 
 from connectors.base import Connector, ToolResult, ToolStatus
 
@@ -40,7 +41,7 @@ class CliResult:
     rc: int
     stdout: str = ""
     stderr: str = ""
-    argv: List[str] = field(default_factory=list)
+    argv: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -54,10 +55,10 @@ CliRunner = Callable[..., Any]
 async def default_runner(
     argv: Sequence[str],
     *,
-    cwd: Optional[str] = None,
-    env: Optional[Dict[str, str]] = None,
-    timeout: Optional[float] = None,
-    stdin: Optional[str] = None,
+    cwd: str | None = None,
+    env: dict[str, str] | None = None,
+    timeout: float | None = None,
+    stdin: str | None = None,
 ) -> CliResult:
     """Execute ``argv`` as a subprocess and capture rc/stdout/stderr.
 
@@ -98,7 +99,7 @@ class CliConnector(Connector):
     #: The CLI executable this connector relies on (e.g. "bq", "aws").
     binary: str = ""
 
-    def __init__(self, settings: Any, runner: Optional[CliRunner] = None):
+    def __init__(self, settings: Any, runner: CliRunner | None = None):
         super().__init__(settings)
         # Tests inject a runner; production uses the real subprocess runner.
         self._runner: CliRunner = runner or default_runner
@@ -110,10 +111,10 @@ class CliConnector(Connector):
         self,
         argv: Sequence[str],
         *,
-        cwd: Optional[str] = None,
-        env: Optional[Dict[str, str]] = None,
-        timeout: Optional[float] = None,
-        stdin: Optional[str] = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        timeout: float | None = None,
+        stdin: str | None = None,
     ) -> CliResult:
         outcome = self._runner(argv, cwd=cwd, env=env, timeout=timeout, stdin=stdin)
         if asyncio.iscoroutine(outcome) or isinstance(outcome, Awaitable):

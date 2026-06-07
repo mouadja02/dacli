@@ -10,13 +10,13 @@ start as the **top layer of context** (owns full context assembly;
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any
 
 # Project-root priors file.
 DACLI_PRIORS_FILE = Path("DACLI.md")
 
 
-def find_priors_file(start: Optional[Path] = None) -> Optional[Path]:
+def find_priors_file(start: Path | None = None) -> Path | None:
     """Locate ``DACLI.md`` by walking up from ``start`` to the filesystem root."""
     current = (start or Path.cwd()).resolve()
     for directory in [current, *current.parents]:
@@ -26,7 +26,7 @@ def find_priors_file(start: Optional[Path] = None) -> Optional[Path]:
     return None
 
 
-def load_priors(path: Optional[str] = None) -> str:
+def load_priors(path: str | None = None) -> str:
     """Return the priors markdown, or an empty string if none exists."""
     target = Path(path) if path else find_priors_file()
     if target and target.exists():
@@ -40,13 +40,13 @@ def load_priors(path: Optional[str] = None) -> str:
 # ---------------------------------------------------------------------------
 # Draft generation (the `/init` command)
 # ---------------------------------------------------------------------------
-def _connection_profiles(settings: Any) -> List[str]:
+def _connection_profiles(settings: Any) -> list[str]:
     """Build the Connection Profiles section from **non-secret** config only.
 
     Reads structural fields (database, schema, warehouse, role, repo, index)
     and never touches passwords, API keys, tokens, or account/user identifiers.
     """
-    blocks: List[str] = []
+    blocks: list[str] = []
 
     sf = getattr(settings, "snowflake", None)
     if sf and getattr(sf, "database", ""):

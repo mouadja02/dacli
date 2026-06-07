@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Callable, Dict, Optional
+from collections.abc import Callable
 
 from config.settings import Settings
 from core.logging_setup import get_logger, is_debug
@@ -48,19 +48,19 @@ class DACLI:
     def __init__(
         self,
         settings: Settings,
-        memory: Optional[AgentMemory] = None,
-        system_prompt: Optional[str] = None,
-        on_status_update: Optional[Callable[[str], None]] = None,
-        on_tool_start: Optional[Callable[[str, Dict], None]] = None,
-        on_tool_end: Optional[Callable[[str, ToolResult], None]] = None,
-        on_user_input_needed: Optional[Callable[[str], str]] = None,
-        on_approval: Optional[Callable[[object], bool]] = None,
-        on_stream_start: Optional[Callable[[], None]] = None,
-        on_text: Optional[Callable[[str], None]] = None,
-        on_stream_end: Optional[Callable[[str], None]] = None,
+        memory: AgentMemory | None = None,
+        system_prompt: str | None = None,
+        on_status_update: Callable[[str], None] | None = None,
+        on_tool_start: Callable[[str, dict], None] | None = None,
+        on_tool_end: Callable[[str, ToolResult], None] | None = None,
+        on_user_input_needed: Callable[[str], str] | None = None,
+        on_approval: Callable[[object], bool] | None = None,
+        on_stream_start: Callable[[], None] | None = None,
+        on_text: Callable[[str], None] | None = None,
+        on_stream_end: Callable[[str], None] | None = None,
         connectors_config_path: str = CONNECTORS_CONFIG_PATH,
-        store: Optional[DacliStore] = None,
-        llm: Optional[object] = None,
+        store: DacliStore | None = None,
+        llm: object | None = None,
     ):
         self.settings = settings
         self.memory = memory or AgentMemory(
@@ -253,7 +253,7 @@ class DACLI:
             _state_dir = str(Path(settings.agent.state_path).parent)
             self._build_orchestration(settings, _state_dir)
 
-    def _usage_sink(self, usage_dict: Dict[str, int], user_message: str) -> None:
+    def _usage_sink(self, usage_dict: dict[str, int], user_message: str) -> None:
         # Price one LLM call's token usage and fold it into the persistent store.
         # Best-effort: usage tracking must never break the control loop.
         usage = TokenUsage.from_dict(usage_dict)
@@ -272,7 +272,7 @@ class DACLI:
         except Exception:
             log.debug("usage persist failed", exc_info=True)  # swallow but record
 
-    def _build_governor(self, settings: Settings, on_approval) -> Optional[Governor]:
+    def _build_governor(self, settings: Settings, on_approval) -> Governor | None:
         gov = getattr(settings, "governance", None)
         if gov is not None and not gov.enabled:
             return None  # explicitly disabled (trusted offline run)
@@ -332,7 +332,7 @@ class DACLI:
             use_shadow=bool(getattr(gov, "shadow_execution", True)) if gov else True,
         )
 
-    def _resolve_environment(self, connector_id: str, args: Dict, connector) -> Optional[str]:
+    def _resolve_environment(self, connector_id: str, args: dict, connector) -> str | None:
         # Best-effort environment label for the policy engine: the connection's
         # own target (e.g. the Snowflake database / GitHub branch). A prod-looking
         # target maps to 'prod', otherwise the literal target name is returned so
@@ -364,7 +364,7 @@ class DACLI:
             await self.llm.initialize()
             successfully_initialized.append("LLM")
         except Exception as e:
-            self._emit_status(f"Failed to initialize LLM: {str(e)}")
+            self._emit_status(f"Failed to initialize LLM: {e!s}")
             failed_initializations.append("LLM")
 
         catalog = self.registry.get_catalog()
@@ -378,7 +378,7 @@ class DACLI:
                 await connector.connect()
                 successfully_initialized.append(display)
             except Exception as e:
-                self._emit_status(f"Failed to initialize {display}: {str(e)}")
+                self._emit_status(f"Failed to initialize {display}: {e!s}")
                 failed_initializations.append(display)
 
         skipped = [
@@ -676,6 +676,6 @@ class DACLI:
         # Defensive: anything else stringifies into a plain response.
         return AgentResponse(content=str(result), tool_calls=[])
 
-    def get_progress(self) -> Dict:
+    def get_progress(self) -> dict:
         # Get current progress summary
         return self.memory.get_progress_summary()

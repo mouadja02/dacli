@@ -4,7 +4,7 @@ import time
 import io
 import zipfile
 import httpx
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from config.settings import Settings
@@ -115,13 +115,13 @@ class GithubConnector(Connector):
 
     name = "github"
 
-    AVAILABLE_OPERATIONS: ClassVar[List[str]] = ["read_file", "create_or_update_file", "delete_file", "list_directory",
+    AVAILABLE_OPERATIONS: ClassVar[list[str]] = ["read_file", "create_or_update_file", "delete_file", "list_directory",
                             "create_or_update_workflow", "trigger_workflow", "list_workflow_runs",
                             "get_workflow_run", "get_workflow_run_jobs"]
 
     def __init__(self, settings: Settings):
         super().__init__(settings)
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
     @property
     def _gh(self):
@@ -131,7 +131,7 @@ class GithubConnector(Connector):
     # ------------------------------------------------------------------
     # Connector contract
     # ------------------------------------------------------------------
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         return [
             OperationSpec(
                 name="list_github_directory",
@@ -306,7 +306,7 @@ class GithubConnector(Connector):
     # ------------------------------------------------------------------
     # Governance: rollback-path verification (DoD)
     # ------------------------------------------------------------------
-    async def verify_rollback(self, plan, args: Dict[str, Any]):
+    async def verify_rollback(self, plan, args: dict[str, Any]):
         """Prove a native git undo path exists before an irreversible action.
 
         ``delete_github_file`` is irreversible; it is only recoverable if the
@@ -328,37 +328,37 @@ class GithubConnector(Connector):
             return False, f"no blob SHA for '{path}' — deletion not provably reversible"
         return False, f"no verifiable rollback path for primitive '{primitive}'"
 
-    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+    async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
         # Translate the LLM-facing operation + args onto the internal handlers.
         args = dict(args or {})
         if op == "list_github_directory":
             return await self._execute("list_directory", path=args.get("path", ""))
-        elif op == "read_github_file":
+        if op == "read_github_file":
             return await self._execute("read_file", path=args.get("path", ""))
-        elif op == "push_github_file":
+        if op == "push_github_file":
             return await self._execute(
                 "create_or_update_file",
                 path=args.get("path", ""),
                 content=args.get("content", ""),
                 message=args.get("message", ""),
             )
-        elif op == "delete_github_file":
+        if op == "delete_github_file":
             return await self._execute(
                 "delete_file",
                 path=args.get("path", ""),
                 message=args.get("message", ""),
             )
-        elif op == "trigger_github_workflow":
+        if op == "trigger_github_workflow":
             return await self._execute("trigger_workflow", name=args.get("workflow_id", ""))
-        elif op == "list_github_workflow_runs":
+        if op == "list_github_workflow_runs":
             kwargs = {}
             if "limit" in args:
                 # Preserve the historical limit -> per_page remap.
                 kwargs["per_page"] = args["limit"]
             return await self._execute("list_workflow_runs", **kwargs)
-        elif op == "get_github_workflow_run":
+        if op == "get_github_workflow_run":
             return await self._execute("get_workflow_run", run_id=args.get("run_id"))
-        elif op == "get_github_workflow_run_jobs":
+        if op == "get_github_workflow_run_jobs":
             return await self._execute("get_workflow_run_jobs", run_id=args.get("run_id"))
         return ToolResult(
             tool_name=op,
@@ -385,7 +385,7 @@ class GithubConnector(Connector):
             return True
         except Exception as e:
             self._is_connected = False
-            raise ConnectionError(f"Failed to connect to GitHub: {str(e)}") from e
+            raise ConnectionError(f"Failed to connect to GitHub: {e!s}") from e
 
     async def health(self) -> ToolResult:
         # Validate the GitHub connection
@@ -471,7 +471,7 @@ class GithubConnector(Connector):
     # ================================================================
     # File Operations
     # ================================================================
-    async def _parse_directory_entries(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    async def _parse_directory_entries(self, data: list[dict[str, Any]]) -> list[dict[str, Any]]:
         # Helper to parse directory listing
         return [{
             "name": item.get("name"),
@@ -480,7 +480,7 @@ class GithubConnector(Connector):
             "size": item.get("size", 0)
         } for item in data]
 
-    async def _get_file_sha(self, path: str, branch: str) -> Optional[str]:
+    async def _get_file_sha(self, path: str, branch: str) -> str | None:
         # Helper to get file SHA if it exists
         try:
             # We use a direct client call to avoid recursion or overhead of full _op_read_file
@@ -491,7 +491,7 @@ class GithubConnector(Connector):
             response = await self._client.get(url)
             if response.status_code == 200:
                 return response.json().get("sha")
-            elif response.status_code != 404:
+            if response.status_code != 404:
                 log.debug(
                     "failed to get SHA for %s on %s (status %s)",
                     path, branch, response.status_code,
@@ -500,7 +500,7 @@ class GithubConnector(Connector):
             log.debug("error fetching SHA for %s", path, exc_info=True)
         return None
 
-    async def _op_read_file(self, path: str = "", **kwargs) -> Dict[str, Any]:
+    async def _op_read_file(self, path: str = "", **kwargs) -> dict[str, Any]:
         # Read a file from the repository
         branch = self._gh.branch
         response = await self._client.get(f"/repos/{self._gh.owner}/{self._gh.repo}/contents/{path}?ref={branch}")
@@ -529,7 +529,7 @@ class GithubConnector(Connector):
             "size": data.get("size", 0)
         }
 
-    async def _op_create_or_update_file(self, path: str, content: str = "", message: str = "", **kwargs) -> Dict[str, Any]:
+    async def _op_create_or_update_file(self, path: str, content: str = "", message: str = "", **kwargs) -> dict[str, Any]:
         # Create or update a file in the repository
         branch = self._gh.branch
 
@@ -562,7 +562,7 @@ class GithubConnector(Connector):
             "action": "updated" if sha else "created",
         }
 
-    async def _op_delete_file(self, path: str = "", message: str = "", **kwargs) -> Dict[str, Any]:
+    async def _op_delete_file(self, path: str = "", message: str = "", **kwargs) -> dict[str, Any]:
         # Delete a file from the repository
         branch = self._gh.branch
         sha = kwargs.get("sha")
@@ -570,7 +570,7 @@ class GithubConnector(Connector):
             sha = await self._get_file_sha(path, branch)
 
         if not sha:
-            return {"error": "File not found: {}".format(path)}
+            return {"error": f"File not found: {path}"}
 
         url = f"/repos/{self._gh.owner}/{self._gh.repo}/contents/{path}?ref={branch}"
         body = {
@@ -590,7 +590,7 @@ class GithubConnector(Connector):
             "commit_sha": data["commit"]["sha"]
         }
 
-    async def _op_list_directory(self, path: str = "", **kwargs) -> Dict[str, Any]:
+    async def _op_list_directory(self, path: str = "", **kwargs) -> dict[str, Any]:
         # List contents of a directory
         branch = self._gh.branch
         response = await self._client.get(f"/repos/{self._gh.owner}/{self._gh.repo}/contents/{path}?ref={branch}")
@@ -614,7 +614,7 @@ class GithubConnector(Connector):
     # ================================================================
     # Workflow Operations
     # ================================================================
-    async def _op_create_or_update_workflow(self, name: str = "", content: str = "", message: str = "", **kwargs) -> Dict[str, Any]:
+    async def _op_create_or_update_workflow(self, name: str = "", content: str = "", message: str = "", **kwargs) -> dict[str, Any]:
         # Create or update a workflow in the repository
         path = name
         if not path.startswith(".github/workflows/"):
@@ -639,7 +639,7 @@ class GithubConnector(Connector):
 
         return result
 
-    async def _op_list_workflow_runs(self, name: str = "", **kwargs) -> Dict[str, Any]:
+    async def _op_list_workflow_runs(self, name: str = "", **kwargs) -> dict[str, Any]:
         # List recent workflow runs
         per_page = kwargs.get("per_page", 5)
         branch = self._gh.branch
@@ -664,7 +664,7 @@ class GithubConnector(Connector):
 
         return {"total_count": data.get("total_count", 0), "runs": runs}
 
-    async def _op_get_workflow_run(self, run_id: int = 0, **kwargs) -> Dict[str, Any]:
+    async def _op_get_workflow_run(self, run_id: int = 0, **kwargs) -> dict[str, Any]:
         # Get status of a specific workflow run
         response = await self._client.get(
             f"/repos/{self._gh.owner}/{self._gh.repo}/actions/runs/{run_id}"
@@ -686,7 +686,7 @@ class GithubConnector(Connector):
             "run_attempt": run.get("run_attempt", 1),
         }
 
-    async def _op_trigger_workflow(self, name: str = "", **kwargs) -> Dict[str, Any]:
+    async def _op_trigger_workflow(self, name: str = "", **kwargs) -> dict[str, Any]:
         # Check if there is no workflow run in progress
         response = await self._client.get(
             f"/repos/{self._gh.owner}/{self._gh.repo}/actions/runs?status=in_progress"
@@ -791,19 +791,18 @@ class GithubConnector(Connector):
                         "html_url": data.get("html_url"),
                         "duration_seconds": duration
                     }
-                else:
-                    # Workflow failed - get detailed error information
-                    error_details = await self._get_workflow_errors_with_logs(run_id)
+                # Workflow failed - get detailed error information
+                error_details = await self._get_workflow_errors_with_logs(run_id)
 
-                    return {
-                        "success": False,
-                        "conclusion": conclusion,
-                        "status": status,
-                        "run_id": run_id,
-                        "html_url": data.get("html_url"),
-                        "duration_seconds": duration,
-                        "error_details": error_details
-                    }
+                return {
+                    "success": False,
+                    "conclusion": conclusion,
+                    "status": status,
+                    "run_id": run_id,
+                    "html_url": data.get("html_url"),
+                    "duration_seconds": duration,
+                    "error_details": error_details
+                }
 
             await asyncio.sleep(poll_interval)
 
@@ -815,7 +814,7 @@ class GithubConnector(Connector):
             "timeout_seconds": timeout
         }
 
-    async def _op_get_workflow_run_jobs(self, run_id: int = 0, **kwargs) -> Dict[str, Any]:
+    async def _op_get_workflow_run_jobs(self, run_id: int = 0, **kwargs) -> dict[str, Any]:
         # Get jobs and step-level details for a workflow run
         response = await self._client.get(
             f"/repos/{self._gh.owner}/{self._gh.repo}/actions/runs/{run_id}/jobs"
@@ -860,7 +859,7 @@ class GithubConnector(Connector):
     # -----------------------------------------------------------
     #     Functions to get the workflow logs and parse errors
     # -----------------------------------------------------------
-    async def _fetch_job_raw_log(self, job_id: int) -> Optional[str]:
+    async def _fetch_job_raw_log(self, job_id: int) -> str | None:
         # Fetch the raw log for a specific job
         try:
             response = await self._client.get(
@@ -873,7 +872,7 @@ class GithubConnector(Connector):
             log.debug("failed to fetch job log for job %s", job_id, exc_info=True)
         return None
 
-    async def _get_workflow_logs(self, run_id: int) -> Dict[str, Any]:
+    async def _get_workflow_logs(self, run_id: int) -> dict[str, Any]:
         # Download and extract workflow logs
         response = await self._client.get(
             f"/repos/{self._gh.owner}/{self._gh.repo}/actions/runs/{run_id}/logs",
@@ -890,7 +889,7 @@ class GithubConnector(Connector):
                     with zip_file.open(file_name) as log_file:
                         logs[file_name] = log_file.read().decode('utf-8')
         except Exception as e:
-            return {"error": f"Failed to extract logs: {str(e)}"}
+            return {"error": f"Failed to extract logs: {e!s}"}
 
         return logs
 
@@ -937,7 +936,7 @@ class GithubConnector(Connector):
 
         return errors
 
-    async def _get_workflow_errors_with_logs(self, run_id: int) -> Dict[str, Any]:
+    async def _get_workflow_errors_with_logs(self, run_id: int) -> dict[str, Any]:
         # Get detailed error information including logs
 
         # Get jobs info
@@ -990,7 +989,7 @@ class GithubConnector(Connector):
 
         return result
 
-    async def get_workflow_errors(self, run_id: int) -> Dict[str, Any]:
+    async def get_workflow_errors(self, run_id: int) -> dict[str, Any]:
         # Get basic error information (fallback when logs unavailable)
         response = await self._client.get(
             f"/repos/{self._gh.owner}/{self._gh.repo}/actions/runs/{run_id}"

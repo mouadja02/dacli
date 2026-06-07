@@ -23,7 +23,7 @@ import json
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from core.atomicio import write_json_atomic
 
@@ -57,11 +57,11 @@ class ResultStore:
         write_json_atomic(self._path(handle), payload, default=str)
         return handle
 
-    def read(self, handle: str, start: int = 0, count: Optional[int] = None) -> Dict[str, Any]:
+    def read(self, handle: str, start: int = 0, count: int | None = None) -> dict[str, Any]:
         path = self._path(handle)
         if not path.exists():
             return {"error": f"Unknown result handle '{handle}'."}
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             payload = json.load(f)
         data = payload.get("data")
         if isinstance(data, list):
@@ -78,13 +78,13 @@ class ResultStore:
         return {"tool_name": payload.get("tool_name"), "data": data}
 
 
-def _columns(rows: List[Any]) -> List[str]:
+def _columns(rows: list[Any]) -> list[str]:
     if rows and isinstance(rows[0], dict):
         return list(rows[0].keys())
     return []
 
 
-def _null_columns(rows: List[Dict[str, Any]], columns: List[str]) -> List[str]:
+def _null_columns(rows: list[dict[str, Any]], columns: list[str]) -> list[str]:
     """Columns containing any null/empty value — a cheap anomaly hint."""
     flagged = []
     for col in columns:

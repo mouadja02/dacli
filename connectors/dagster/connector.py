@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from connectors.base import OperationSpec, Risk, ToolResult
 from connectors.http_base import HttpConnector
@@ -70,14 +70,14 @@ class DagsterConnector(HttpConnector):
         cfg = self._cfg()
         return getattr(cfg, "timeout", 600) if cfg else 600
 
-    def _default_headers(self) -> Dict[str, str]:
+    def _default_headers(self) -> dict[str, str]:
         cfg = self._cfg()
         headers = {"Content-Type": "application/json"}
         if cfg and getattr(cfg, "token", ""):
             headers["Dagster-Cloud-Api-Token"] = cfg.token
         return headers
 
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         return [
             OperationSpec(
                 name="list_dagster_assets",
@@ -122,7 +122,7 @@ class DagsterConnector(HttpConnector):
             ),
         ]
 
-    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+    async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
         args = dict(args or {})
         if op == "list_dagster_assets":
             return await self._list_assets()
@@ -135,8 +135,8 @@ class DagsterConnector(HttpConnector):
         return self._unknown_op(op)
 
     # ------------------------------------------------------------------
-    async def _graphql(self, query: str, variables: Optional[Dict[str, Any]] = None
-                       ) -> Tuple[bool, Dict[str, Any], str]:
+    async def _graphql(self, query: str, variables: dict[str, Any] | None = None
+                       ) -> tuple[bool, dict[str, Any], str]:
         res = await self._request("POST", "/graphql",
                                   json={"query": query, "variables": variables or {}})
         if not res.ok:
@@ -163,7 +163,7 @@ class DagsterConnector(HttpConnector):
         run = data.get("runOrError", {}) or {}
         return self._ok("get_dagster_run", {"run_id": run_id, "status": run.get("status")}, started)
 
-    async def _materialization(self, args: Dict[str, Any]) -> ToolResult:
+    async def _materialization(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         ok, data, err = await self._graphql(_ASSET_MAT_Q,
                                             {"assetKey": {"path": args.get("asset_key") or []}})
@@ -176,7 +176,7 @@ class DagsterConnector(HttpConnector):
                         {"asset_key": args.get("asset_key"), "materialized": bool(mats),
                          "latest_timestamp": latest}, started)
 
-    async def _launch(self, args: Dict[str, Any]) -> ToolResult:
+    async def _launch(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         execution_params = {
             "selector": {

@@ -23,12 +23,14 @@ from eval.golden.spine import build_spine_suite
 from eval.golden.terminal import build_terminal_suite
 
 
-def build_golden_suite() -> List[GoldenTask]:
+def build_golden_suite() -> list[GoldenTask]:
     """The full sim suite CI runs on each PR: connectors + spine + shell tier."""
     return build_connector_suite() + build_spine_suite() + build_terminal_suite()
 
 
 __all__ = [
-    "build_golden_suite", "build_connector_suite", "build_spine_suite",
+    "build_connector_suite",
+    "build_golden_suite",
+    "build_spine_suite",
     "build_terminal_suite",
 ]

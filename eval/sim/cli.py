@@ -10,17 +10,17 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
-from typing import Callable, List, Optional
+from collections.abc import Callable
 
 from connectors.cli_base import CliResult
 
 # A responder maps an argv to a canned CliResult (pure, deterministic).
-Responder = Callable[[List[str]], CliResult]
+Responder = Callable[[list[str]], CliResult]
 
 
 @dataclass
 class Call:
-    argv: List[str]
+    argv: list[str]
 
 
 class SimCli:
@@ -38,14 +38,14 @@ class SimCli:
         responder: Responder,
         *,
         failure_rate: float = 0.0,
-        seed: Optional[int] = None,
-        inject_error: Optional[str] = None,
+        seed: int | None = None,
+        inject_error: str | None = None,
     ):
         self._responder = responder
         self._failure_rate = failure_rate
         self._rng = random.Random(seed)
         self._inject_error = inject_error
-        self.calls: List[Call] = []
+        self.calls: list[Call] = []
 
     async def __call__(self, argv, *args, **kwargs) -> CliResult:
         argv = list(argv)

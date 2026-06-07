@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class ToolStatus(Enum):
@@ -30,17 +30,17 @@ class ToolResult:
     tool_name: str
     status: ToolStatus
     data: Any = None
-    error: Optional[str] = None
+    error: str | None = None
     execution_time_ms: float = 0.0
     timestamp: datetime = field(default_factory=datetime.now)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def success(self) -> bool:
         # Check if the tool execution was succesful
         return self.status == ToolStatus.SUCCESS
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         # Convert the result to dictionary for serialization
         return {
             "tool_name": self.tool_name,
@@ -59,12 +59,10 @@ class ToolResult:
                 if len(self.data) == 0:
                     return f"[{self.tool_name}] Executed successfully. No results returned"
                 return f"[{self.tool_name}] Executed successfully. Returned {len(self.data)} rows:\n{self._format_data()}"
-            elif self.data:
+            if self.data:
                 return f"[{self.tool_name}] Executed successfully:\n{self._format_data()}"
-            else:
-                return f"[{self.tool_name}] Executed successfully."
-        else:
-            return f"[{self.tool_name}] failed with error: {self.error}"
+            return f"[{self.tool_name}] Executed successfully."
+        return f"[{self.tool_name}] failed with error: {self.error}"
 
     def _format_data(self) -> str:
         # Format data for the LLM context. Data work: send the FULL result set —
@@ -98,21 +96,21 @@ class OperationSpec:
     """
     name: str
     description: str
-    parameters: Dict[str, Any]
+    parameters: dict[str, Any]
     capability: str
     risk: Risk = Risk.SAFE
     # Optional presentation metadata for the setup wizard. Falls back to
     # ``name`` / ``description`` when absent.
-    display_name: Optional[str] = None
-    category: Optional[str] = None
+    display_name: str | None = None
+    category: str | None = None
     # Mandatory post-conditions. Each is a ``core.verify.PostCondition``
     # run after the op executes; the result is rejected if any fail. Typed as
     # ``Any`` to keep this module dependency-free (no import of core.verify).
     # The connector registry enforces "at least one" when ``enforce_postconditions``
     # is on — fluent success is not proof the intended state change is correct.
-    postconditions: List[Any] = field(default_factory=list)
+    postconditions: list[Any] = field(default_factory=list)
 
-    def to_tool_definition(self) -> Dict[str, Any]:
+    def to_tool_definition(self) -> dict[str, Any]:
         """Render as an OpenAI-style function tool definition."""
         return {
             "type": "function",
@@ -149,12 +147,12 @@ class Connector(ABC):
         self._is_connected = value
 
     @abstractmethod
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         """Return the operations this connector exposes."""
         raise NotImplementedError
 
     @abstractmethod
-    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+    async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
         """Execute operation ``op`` with ``args`` and return a ToolResult."""
         raise NotImplementedError
 

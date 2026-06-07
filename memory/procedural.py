@@ -7,7 +7,7 @@ retrieval path so the rest of the harness can already consume runbooks.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from memory.store import MemoryEntry, MemoryKind, MemoryScope, MemoryStore
 from memory.retrieval import retrieve
@@ -22,10 +22,10 @@ class ProceduralMemory:
         name: str,
         steps: str,
         *,
-        scope: Optional[Dict[str, Any]] = None,
+        scope: dict[str, Any] | None = None,
         source: str = "distillation",
         confidence: float = 0.85,
-        derived_from: Optional[List[str]] = None,
+        derived_from: list[str] | None = None,
     ) -> MemoryEntry:
         content = f"RUNBOOK: {name}\n{steps}"
         tags = ["runbook", name]
@@ -41,8 +41,8 @@ class ProceduralMemory:
             memory_scope=MemoryScope.PROJECT.value,
         )
 
-    def all(self) -> List[MemoryEntry]:
+    def all(self) -> list[MemoryEntry]:
         return self._store.active(kind=MemoryKind.PROCEDURAL.value)
 
-    def search(self, query: str, top_k: int = 3) -> List[MemoryEntry]:
+    def search(self, query: str, top_k: int = 3) -> list[MemoryEntry]:
         return retrieve(query, self.all(), top_k=top_k)

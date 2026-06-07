@@ -9,4 +9,4 @@ their own checks; the registry refuses to load one that declares none.
 from skills.spec import Skill, SkillSpec, SkillContext
 from skills.registry import SkillRegistry
 
-__all__ = ["Skill", "SkillSpec", "SkillContext", "SkillRegistry"]
+__all__ = ["Skill", "SkillContext", "SkillRegistry", "SkillSpec"]

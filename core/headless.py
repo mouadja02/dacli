@@ -12,7 +12,7 @@ import json
 import os
 import tempfile
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from core.logging_setup import get_logger
 
@@ -34,13 +34,13 @@ class TurnRecord:
 
     input: str
     content: str = ""
-    error: Optional[str] = None
+    error: str | None = None
     needs_user_input: bool = False
     iterations: int = 0
-    tool_calls: List[Dict[str, Any]] = field(default_factory=list)
-    governance: List[Dict[str, Any]] = field(default_factory=list)
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    governance: list[dict[str, Any]] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "input": self.input,
             "content": self.content,
@@ -57,10 +57,10 @@ class HeadlessResult:
     """The aggregated result of a headless run (one or more turns)."""
 
     session_id: str
-    turns: List[TurnRecord] = field(default_factory=list)
-    usage: Dict[str, Any] = field(default_factory=dict)
+    turns: list[TurnRecord] = field(default_factory=list)
+    usage: dict[str, Any] = field(default_factory=dict)
     audit_path: str = ""
-    scenario_error: Optional[str] = None
+    scenario_error: str | None = None
 
     @property
     def exit_code(self) -> int:
@@ -79,7 +79,7 @@ class HeadlessResult:
     def ok(self) -> bool:
         return self.exit_code == EXIT_OK
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "ok": self.ok,
             "exit_code": self.exit_code,
@@ -116,7 +116,7 @@ def _write_minimal_connectors_config(settings: Any) -> str:
     return path
 
 
-def _session_usage(agent: Any, session_id: str) -> Dict[str, Any]:
+def _session_usage(agent: Any, session_id: str) -> dict[str, Any]:
     try:
         sess = agent.store.usage_summary(session_id).get("session") or {}
     except Exception:
@@ -135,14 +135,14 @@ class _CannedInputExhausted(RuntimeError):
 
 async def run_headless(
     *,
-    inputs: List[str],
+    inputs: list[str],
     settings: Any,
-    llm: Optional[object] = None,
+    llm: object | None = None,
     approve: Any = "deny",
-    canned_inputs: Optional[List[str]] = None,
-    session_id: Optional[str] = None,
+    canned_inputs: list[str] | None = None,
+    session_id: str | None = None,
     no_connectors: bool = True,
-    max_iterations: Optional[int] = None,
+    max_iterations: int | None = None,
 ) -> HeadlessResult:
     """Drive the agent over ``inputs`` with no interactive I/O.
 
@@ -161,7 +161,7 @@ async def run_headless(
             log.debug("could not apply max_iterations override", exc_info=True)
 
     cfg_path = CONNECTORS_CONFIG_PATH
-    tmp_cfg: Optional[str] = None
+    tmp_cfg: str | None = None
     if no_connectors:
         tmp_cfg = _write_minimal_connectors_config(settings)
         cfg_path = tmp_cfg
@@ -177,9 +177,9 @@ async def run_headless(
 
     # Per-turn tool-call capture. on_tool_start records name+args; on_tool_end
     # fills status+error (governance blocks fire on_tool_end with DENIED/BLOCKED).
-    current_calls: List[Dict[str, Any]] = []
+    current_calls: list[dict[str, Any]] = []
 
-    def on_tool_start(name: str, args: Dict[str, Any]) -> None:
+    def on_tool_start(name: str, args: dict[str, Any]) -> None:
         current_calls.append({"name": name, "args": args, "status": None, "error": None})
 
     def on_tool_end(name: str, result: Any) -> None:
@@ -209,7 +209,7 @@ async def run_headless(
     # (logged with a traceback first), so a debug headless run can surface a real
     # bug instead of flattening it — the try/except around process_message below
     # is what catches it back into turn.error in that case.
-    pending_scenario_error: List[str] = []
+    pending_scenario_error: list[str] = []
 
     def on_user_input_needed(question: str) -> str:
         if not canned:
@@ -240,7 +240,7 @@ async def run_headless(
             turn = TurnRecord(input=msg)
             try:
                 resp = await agent.process_message(msg)
-            except Exception as exc:  # noqa: BLE001 - defensive; kernel rarely raises
+            except Exception as exc:
                 turn.error = repr(exc)
                 resp = None
 

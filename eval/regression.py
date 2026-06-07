@@ -17,7 +17,6 @@ explicitly rather than a single rolling number.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 from eval.harness import SuiteReport
 
@@ -31,19 +30,19 @@ class TaskRegression:
     task_id: str
     kind: str           # "new_failure" | "earlier_failure" | "cost_drift" | "latency_drift" | "unguarded"
     detail: str
-    before: Optional[float] = None
-    after: Optional[float] = None
+    before: float | None = None
+    after: float | None = None
 
 
 @dataclass
 class RegressionReport:
     suite: str
-    new_failures: List[TaskRegression] = field(default_factory=list)
-    earlier_failures: List[TaskRegression] = field(default_factory=list)
-    fixed: List[str] = field(default_factory=list)
-    cost_drift: List[TaskRegression] = field(default_factory=list)
-    latency_drift: List[TaskRegression] = field(default_factory=list)
-    unguarded: List[TaskRegression] = field(default_factory=list)
+    new_failures: list[TaskRegression] = field(default_factory=list)
+    earlier_failures: list[TaskRegression] = field(default_factory=list)
+    fixed: list[str] = field(default_factory=list)
+    cost_drift: list[TaskRegression] = field(default_factory=list)
+    latency_drift: list[TaskRegression] = field(default_factory=list)
+    unguarded: list[TaskRegression] = field(default_factory=list)
     prev_pass_k: float = 0.0
     curr_pass_k: float = 0.0
 
@@ -72,7 +71,7 @@ class RegressionReport:
         return ", ".join(bits)
 
     def to_dict(self) -> dict:
-        def _rows(rs: List[TaskRegression]):
+        def _rows(rs: list[TaskRegression]):
             return [{"task_id": r.task_id, "kind": r.kind, "detail": r.detail,
                      "before": r.before, "after": r.after} for r in rs]
         return {

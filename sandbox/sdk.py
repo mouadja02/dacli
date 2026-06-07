@@ -22,11 +22,12 @@ import csv
 import json
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
+from collections.abc import Callable
 
 
 # The governed entry point: dispatcher.execute(tool_name, args) -> ToolResult.
-ExecuteFn = Callable[[str, Dict[str, Any]], Any]
+ExecuteFn = Callable[[str, dict[str, Any]], Any]
 
 
 class ConnectorSDK:
@@ -56,7 +57,7 @@ class ConnectorSDK:
     # ------------------------------------------------------------------
     # discovery
     # ------------------------------------------------------------------
-    def available_tools(self) -> List[Dict[str, Any]]:
+    def available_tools(self) -> list[dict[str, Any]]:
         if self._registry is None:
             return []
         try:
@@ -67,7 +68,7 @@ class ConnectorSDK:
     # ------------------------------------------------------------------
     # the one governed call
     # ------------------------------------------------------------------
-    async def run(self, tool_name: str, args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def run(self, tool_name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         """Run a connector operation through the governor and bound the result.
 
         Returns a JSON-serializable summary (never the raw connection / creds):
@@ -79,7 +80,7 @@ class ConnectorSDK:
         error = getattr(result, "error", None)
         data = getattr(result, "data", None)
 
-        summary: Dict[str, Any] = {"tool": tool_name, "status": status}
+        summary: dict[str, Any] = {"tool": tool_name, "status": status}
         if error:
             summary["error"] = error
         # A governance block/denial surfaces here so sandbox code sees the refusal
@@ -104,7 +105,7 @@ class ConnectorSDK:
     # ------------------------------------------------------------------
     # spilled-result access (load a `res_*` handle's rows into code)
     # ------------------------------------------------------------------
-    def fetch_result(self, handle: str, *, start: int = 0, count: Optional[int] = None) -> List[Any]:
+    def fetch_result(self, handle: str, *, start: int = 0, count: int | None = None) -> list[Any]:
         """Load rows from a previously spilled tool result by its ``res_*`` handle.
 
         This is the in-code counterpart of the ``fetch_result`` tool: when a
@@ -130,14 +131,14 @@ class ConnectorSDK:
         data = payload.get("data") if isinstance(payload, dict) else payload
         return data if data is not None else []
 
-    def fetch_rows(self, handle: str, *, start: int = 0, count: Optional[int] = None) -> List[Any]:
+    def fetch_rows(self, handle: str, *, start: int = 0, count: int | None = None) -> list[Any]:
         """Alias of :meth:`fetch_result` (reads a spilled result's rows)."""
         return self.fetch_result(handle, start=start, count=count)
 
     # ------------------------------------------------------------------
     # workspace I/O (off-context by construction)
     # ------------------------------------------------------------------
-    def _spill(self, tool_name: str, rows: List[Any]) -> Path:
+    def _spill(self, tool_name: str, rows: list[Any]) -> Path:
         stamp = f"{int(time.time()*1000)}"
         safe = "".join(c for c in tool_name if c.isalnum() or c in "_-")[:40]
         path = self.workdir / f"{safe}_{stamp}.jsonl"
@@ -146,7 +147,7 @@ class ConnectorSDK:
                 f.write(json.dumps(row, default=str) + "\n")
         return path
 
-    def save_rows(self, name: str, rows: List[Dict[str, Any]], *, fmt: str = "jsonl") -> str:
+    def save_rows(self, name: str, rows: list[dict[str, Any]], *, fmt: str = "jsonl") -> str:
         """Persist rows to the run workspace; returns the path (stays on disk)."""
         path = self.workdir / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -161,12 +162,12 @@ class ConnectorSDK:
                     f.write(json.dumps(row, default=str) + "\n")
         return str(path)
 
-    def read_rows(self, name: str, *, limit: Optional[int] = None) -> List[Any]:
+    def read_rows(self, name: str, *, limit: int | None = None) -> list[Any]:
         path = self.workdir / name
-        out: List[Any] = []
+        out: list[Any] = []
         if not path.exists():
             return out
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             for i, line in enumerate(f):
                 if limit is not None and i >= limit:
                     break
@@ -176,6 +177,6 @@ class ConnectorSDK:
         return out
 
     @staticmethod
-    def summarize(rows: List[Any], n: int = 20) -> Dict[str, Any]:
+    def summarize(rows: list[Any], n: int = 20) -> dict[str, Any]:
         """Build a bounded summary of a large row set for return to context."""
         return {"row_count": len(rows), "sample": rows[:n]}

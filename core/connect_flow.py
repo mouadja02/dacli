@@ -13,7 +13,7 @@ The flow:
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
@@ -31,7 +31,7 @@ from connectors.registry import (
 from core.store import DacliStore
 
 
-def _pick_connector(console: Console, registry: ConnectorRegistry) -> Optional[str]:
+def _pick_connector(console: Console, registry: ConnectorRegistry) -> str | None:
     catalog = registry.get_catalog()
     ids = registry.get_connector_ids()
     if not ids:
@@ -88,7 +88,7 @@ def _pick_connector(console: Console, registry: ConnectorRegistry) -> Optional[s
 
 def _prompt_field(
     console: Console, connector_name: str, field: ConfigField
-) -> Optional[str]:
+) -> str | None:
     label = field.name.replace("_", " ").title()
     hint = f" ({field.description})" if field.description else ""
 
@@ -105,33 +105,30 @@ def _prompt_field(
                     password=True,
                 )
             return val or None
-        else:
-            val = Prompt.ask(
-                f"  {label}{hint} [dim](optional, press Enter to skip)[/dim]",
-                password=True,
-                default="",
-            )
-            return val or None
-    else:
-        if field.required:
-            default = str(field.default) if field.default else ""
+        val = Prompt.ask(
+            f"  {label}{hint} [dim](optional, press Enter to skip)[/dim]",
+            password=True,
+            default="",
+        )
+        return val or None
+    if field.required:
+        default = str(field.default) if field.default else ""
+        val = Prompt.ask(
+            f"  [bold]{label}[/bold]{hint} [red](required)[/red]",
+            default=default,
+        )
+        if not val and not default:
+            console.print(f"  [red]{label} is required.[/red]")
             val = Prompt.ask(
                 f"  [bold]{label}[/bold]{hint} [red](required)[/red]",
-                default=default,
             )
-            if not val and not default:
-                console.print(f"  [red]{label} is required.[/red]")
-                val = Prompt.ask(
-                    f"  [bold]{label}[/bold]{hint} [red](required)[/red]",
-                )
-            return val or None
-        else:
-            default = str(field.default) if field.default else ""
-            val = Prompt.ask(
-                f"  {label}{hint} [dim](optional)[/dim]",
-                default=default,
-            )
-            return val or None
+        return val or None
+    default = str(field.default) if field.default else ""
+    val = Prompt.ask(
+        f"  {label}{hint} [dim](optional)[/dim]",
+        default=default,
+    )
+    return val or None
 
 
 async def run_connect_flow(
@@ -139,9 +136,9 @@ async def run_connect_flow(
     registry: ConnectorRegistry,
     settings: Any,
     store: DacliStore,
-    connector_id: Optional[str] = None,
+    connector_id: str | None = None,
     config_path: str = CONNECTORS_CONFIG_PATH,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """Run the interactive /connect flow.
 
     Returns ``(success, message)``.
@@ -173,7 +170,7 @@ async def run_connect_flow(
     if not fields:
         return False, f"No config fields found for '{connector_id}'."
 
-    collected: Dict[str, str] = {}
+    collected: dict[str, str] = {}
     required_fields = [f for f in fields if f.required]
     optional_fields = [f for f in fields if not f.required]
 

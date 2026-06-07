@@ -10,17 +10,16 @@ not guessed*: the router's ``min_confidence``, the memory staleness horizon
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 
 from eval.harness import SuiteReport
 
 
 @dataclass
 class CalibrationRecommendation:
-    router_min_confidence: Optional[float] = None
-    memory_staleness_horizon_days: Optional[float] = None
-    governance_overrides: Dict[str, str] = field(default_factory=dict)
-    rationale: List[str] = field(default_factory=list)
+    router_min_confidence: float | None = None
+    memory_staleness_horizon_days: float | None = None
+    governance_overrides: dict[str, str] = field(default_factory=dict)
+    rationale: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {

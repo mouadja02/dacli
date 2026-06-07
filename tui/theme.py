@@ -13,7 +13,6 @@ to ``dark``.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List
 
 from rich.theme import Theme
 
@@ -32,9 +31,9 @@ class ThemeSpec:
     """A named theme: Rich styles + the two raw-color hooks the UI needs."""
 
     name: str
-    styles: Dict[str, str]
+    styles: dict[str, str]
     # Per-line colors for the ASCII wordmark (cycled top-to-bottom).
-    banner_gradient: List[str]
+    banner_gradient: list[str]
     # prompt-toolkit bottom-bar colors: (foreground, background).
     toolbar_fg: str
     toolbar_bg: str
@@ -42,7 +41,7 @@ class ThemeSpec:
     banner_palettes: tuple = ()
 
     @property
-    def banner_gradients(self) -> List[str]:
+    def banner_gradients(self) -> list[str]:
         """Pick a palette for this session (rotates on each run)."""
         if not self.banner_palettes:
             return self.banner_gradient
@@ -215,7 +214,7 @@ _MONO = ThemeSpec(
     toolbar_bg="#303030",
 )
 
-THEMES: Dict[str, ThemeSpec] = {t.name: t for t in (_DARK, _LIGHT, _OCEAN, _MONO)}
+THEMES: dict[str, ThemeSpec] = {t.name: t for t in (_DARK, _LIGHT, _OCEAN, _MONO)}
 DEFAULT_THEME = "dark"
 
 

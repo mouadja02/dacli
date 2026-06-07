@@ -30,7 +30,6 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Optional
 
 #: Root of the dacli logger tree. ``get_logger("core.store")`` returns the child
 #: ``dacli.core.store`` which inherits this logger's level and handler.
@@ -44,7 +43,7 @@ _configured = False
 _TRUTHY = {"1", "true", "yes", "on"}
 
 
-def _debug_requested(debug: Optional[bool]) -> bool:
+def _debug_requested(debug: bool | None) -> bool:
     """Resolve the debug switch: explicit arg wins, else ``DACLI_DEBUG`` env."""
     if debug is not None:
         return bool(debug)
@@ -52,7 +51,7 @@ def _debug_requested(debug: Optional[bool]) -> bool:
 
 
 def setup_logging(
-    debug: Optional[bool] = None,
+    debug: bool | None = None,
     base_dir: str = ".dacli",
     *,
     force: bool = False,

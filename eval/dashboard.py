@@ -12,7 +12,6 @@ alike; :meth:`to_dict` gives the machine-readable form.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List
 
 from eval.harness import SuiteReport
 from eval.passk import PassKResult
@@ -33,7 +32,7 @@ class ConnectorRow:
     avg_latency_ms: float
 
     @classmethod
-    def from_results(cls, connector: str, results: List[PassKResult]) -> "ConnectorRow":
+    def from_results(cls, connector: str, results: list[PassKResult]) -> ConnectorRow:
         n = len(results) or 1
         return cls(
             connector=connector,
@@ -66,11 +65,11 @@ class ConnectorRow:
 @dataclass
 class Dashboard:
     suite: str
-    rows: List[ConnectorRow]
+    rows: list[ConnectorRow]
     overall: ConnectorRow
 
     @classmethod
-    def from_report(cls, report: SuiteReport) -> "Dashboard":
+    def from_report(cls, report: SuiteReport) -> Dashboard:
         rows = [
             ConnectorRow.from_results(cid, results)
             for cid, results in sorted(report.by_connector().items())

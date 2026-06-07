@@ -24,12 +24,12 @@ import os
 import tempfile
 
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
-__all__ = ["write_text_atomic", "write_json_atomic"]
+__all__ = ["write_json_atomic", "write_text_atomic"]
 
 
-def write_text_atomic(path: Union[str, Path], text: str, encoding: str = "utf-8") -> None:
+def write_text_atomic(path: str | Path, text: str, encoding: str = "utf-8") -> None:
     """Atomically write *text* to *path*, leaving the prior file intact on failure.
 
     Writes to a sibling temp file, ``fsync``s it, then ``os.replace``s it over
@@ -51,7 +51,7 @@ def write_text_atomic(path: Union[str, Path], text: str, encoding: str = "utf-8"
             os.unlink(tmp)
 
 
-def write_json_atomic(path: Union[str, Path], obj: Any, **kwargs: Any) -> None:
+def write_json_atomic(path: str | Path, obj: Any, **kwargs: Any) -> None:
     """Atomically serialise *obj* to JSON at *path*.
 
     ``kwargs`` are forwarded to :func:`json.dumps` (e.g. ``indent=2``,

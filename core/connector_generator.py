@@ -19,7 +19,7 @@ import importlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
@@ -200,11 +200,11 @@ class GeneratedConnector:
     manifest: str
     connector_py: str
     init_py: str
-    path: Optional[Path] = None
+    path: Path | None = None
 
 
-def _extract_files(llm_response: str) -> Dict[str, str]:
-    files: Dict[str, str] = {}
+def _extract_files(llm_response: str) -> dict[str, str]:
+    files: dict[str, str] = {}
     pattern = r"###\s*FILE:\s*(\S+)\s*\n([\s\S]*?)(?=###\s*FILE:|\Z)"
     for match in re.finditer(pattern, llm_response):
         filename = match.group(1).strip()
@@ -216,7 +216,7 @@ def _extract_files(llm_response: str) -> Dict[str, str]:
     return files
 
 
-def validate_connector(name: str, settings: Any) -> Tuple[bool, str]:
+def validate_connector(name: str, settings: Any) -> tuple[bool, str]:
     """Structurally validate the connector at ``connectors/<name>/``.
 
     The single validator shared by generation, ``/import-connector``, and the
@@ -379,7 +379,7 @@ class ConnectorGenerator:
         generated.path = connector_dir
         return connector_dir
 
-    def validate(self, generated: GeneratedConnector) -> Tuple[bool, str]:
+    def validate(self, generated: GeneratedConnector) -> tuple[bool, str]:
         """Structurally validate a generated connector (see :func:`validate_connector`)."""
         return validate_connector(generated.name, self.settings)
 
@@ -431,7 +431,7 @@ async def run_new_connector_flow(
     registry: ConnectorRegistry,
     store: DacliStore,
     config_path: str = CONNECTORS_CONFIG_PATH,
-) -> Optional[str]:
+) -> str | None:
     """Interactive flow for /new-connector. Returns the connector name or None."""
     console.print(
         Panel(

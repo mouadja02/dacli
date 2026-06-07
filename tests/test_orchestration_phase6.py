@@ -7,7 +7,6 @@ Each test class maps to an exit criterion in the roadmap, section 7. Run:
 import asyncio
 import tempfile
 import unittest
-from typing import List
 
 from core.planner import Planner, TaskDAG, Subtask, NodeStatus, CyclicPlanError
 from core.loop import (
@@ -86,7 +85,7 @@ class SelfCorrectionTest(unittest.TestCase):
         return result.success, (result.error or "ok")
 
     def test_failed_dbt_test_triggers_informed_retry_then_passes(self):
-        seen_feedback: List[str] = []
+        seen_feedback: list[str] = []
 
         async def executor(node, ctx: StepContext) -> StepResult:
             # Only the "validate" node's dbt test fails (once); the load succeeds.
@@ -260,7 +259,7 @@ class ResumableGateTest(unittest.TestCase):
         return result.success, "ok"
 
     def test_irreversible_node_pauses_then_resumes_without_redo(self):
-        ran: List[str] = []
+        ran: list[str] = []
 
         async def executor(node, ctx: StepContext) -> StepResult:
             ran.append(node.id)

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 from connectors.base import OperationSpec, Risk, ToolResult
 from core.logging_setup import get_logger
@@ -63,7 +63,7 @@ class S3Connector(CliConnector):
         cfg = getattr(settings, "s3", None)
         self.binary = getattr(cfg, "aws_binary", "aws") or "aws"
 
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         key_param = {
             "type": "object",
             "properties": {
@@ -121,7 +121,7 @@ class S3Connector(CliConnector):
             ),
         ]
 
-    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+    async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
         args = dict(args or {})
         if op == "list_s3_objects":
             return await self._list(args)
@@ -137,13 +137,13 @@ class S3Connector(CliConnector):
     def _cfg(self):
         return getattr(self.settings, "s3", None)
 
-    def _bucket(self, args: Dict[str, Any]) -> str:
+    def _bucket(self, args: dict[str, Any]) -> str:
         cfg = self._cfg()
         return args.get("bucket") or (getattr(cfg, "bucket", "") if cfg else "")
 
-    def _global_flags(self) -> List[str]:
+    def _global_flags(self) -> list[str]:
         cfg = self._cfg()
-        flags: List[str] = []
+        flags: list[str] = []
         if cfg and getattr(cfg, "profile", ""):
             flags += ["--profile", cfg.profile]
         if cfg and getattr(cfg, "region", ""):
@@ -160,7 +160,7 @@ class S3Connector(CliConnector):
         res = await self._run(argv, timeout=self._timeout())
         return res.ok
 
-    async def _list(self, args: Dict[str, Any]) -> ToolResult:
+    async def _list(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         bucket = self._bucket(args)
         cfg = self._cfg()
@@ -175,7 +175,7 @@ class S3Connector(CliConnector):
         if not res.ok:
             return self._fail("list_s3_objects",
                               f"list failed (rc={res.rc}): {(res.stderr or res.stdout)[-1000:]}", started)
-        objects: List[Dict[str, Any]] = []
+        objects: list[dict[str, Any]] = []
         try:
             payload = json.loads(res.stdout) if res.stdout.strip() else {}
             for c in payload.get("Contents", []) or []:
@@ -186,7 +186,7 @@ class S3Connector(CliConnector):
                         {"bucket": bucket, "prefix": prefix, "objects": objects, "count": len(objects)},
                         started)
 
-    async def _read(self, args: Dict[str, Any]) -> ToolResult:
+    async def _read(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         bucket, key = self._bucket(args), args.get("key", "")
         argv = [self.binary, *self._global_flags(), "s3", "cp", f"s3://{bucket}/{key}", "-"]
@@ -196,7 +196,7 @@ class S3Connector(CliConnector):
                               f"read failed (rc={res.rc}): {(res.stderr or res.stdout)[-1000:]}", started, key=key)
         return self._ok("read_s3_object", {"bucket": bucket, "key": key, "content": res.stdout}, started, key=key)
 
-    async def _put(self, args: Dict[str, Any]) -> ToolResult:
+    async def _put(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         bucket, key = self._bucket(args), args.get("key", "")
         content = args.get("content", "")
@@ -208,7 +208,7 @@ class S3Connector(CliConnector):
         exists = await self._head(bucket, key)
         return self._ok("put_s3_object", {"bucket": bucket, "key": key, "exists": exists}, started, key=key)
 
-    async def _delete(self, args: Dict[str, Any]) -> ToolResult:
+    async def _delete(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         bucket, key = self._bucket(args), args.get("key", "")
         argv = [self.binary, *self._global_flags(), "s3api", "delete-object",
@@ -224,7 +224,7 @@ class S3Connector(CliConnector):
     # ------------------------------------------------------------------
     # Governance: rollback-path verification (DoD)
     # ------------------------------------------------------------------
-    async def verify_rollback(self, plan, args: Dict[str, Any]):
+    async def verify_rollback(self, plan, args: dict[str, Any]):
         if getattr(plan, "primitive", "") != "versioned_copy_aside":
             return False, f"no verifiable rollback path for primitive '{plan.primitive}'"
         bucket = self._bucket(args)

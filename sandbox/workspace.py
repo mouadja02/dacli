@@ -13,7 +13,6 @@ from __future__ import annotations
 import os
 import shutil
 from pathlib import Path
-from typing import List, Optional
 
 
 class WorkspaceJailError(PermissionError):
@@ -33,7 +32,7 @@ class SessionWorkspace:
         session_id: str,
         *,
         workspace_root: str = ".dacli/sessions",
-        mounts: Optional[List[str]] = None,
+        mounts: list[str] | None = None,
     ):
         self.session_id = session_id or "default"
         self.session_dir = Path(workspace_root) / self.session_id
@@ -80,7 +79,7 @@ class SessionWorkspace:
     # ------------------------------------------------------------------
     # rollback support (copy-aside before an overwrite)
     # ------------------------------------------------------------------
-    def backup(self, target: os.PathLike | str) -> Optional[Path]:
+    def backup(self, target: os.PathLike | str) -> Path | None:
         """Copy ``target`` aside into the backups dir; return the backup path.
 
         Returns ``None`` when there is nothing to back up (the target does not

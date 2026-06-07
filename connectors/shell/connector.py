@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from core.verify import shell_deletes_observed, shell_exit_zero, shell_writes_observed
@@ -59,7 +59,7 @@ class ShellConnector(Connector):
     # ------------------------------------------------------------------
     # Connector contract
     # ------------------------------------------------------------------
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         return [
             OperationSpec(
                 name="run_shell_command",
@@ -103,7 +103,7 @@ class ShellConnector(Connector):
             ),
         ]
 
-    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+    async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
         if op == "run_shell_command":
             return self._run(args)
         return ToolResult(
@@ -123,7 +123,7 @@ class ShellConnector(Connector):
     # ------------------------------------------------------------------
     # the one operation
     # ------------------------------------------------------------------
-    def _run(self, args: Dict[str, Any]) -> ToolResult:
+    def _run(self, args: dict[str, Any]) -> ToolResult:
         command = (args.get("command") or args.get("cmd") or "").strip()
         if not command:
             return ToolResult(tool_name="run_shell_command", status=ToolStatus.ERROR,
@@ -162,7 +162,7 @@ class ShellConnector(Connector):
         from context.sources.terminal import bound_output
         bounded = bound_output(result.output, self._max_output_chars)
 
-        data: Dict[str, Any] = {
+        data: dict[str, Any] = {
             "command": command,
             "command_id": result.command_id,
             "scrollback_handle": handle,
@@ -199,7 +199,7 @@ class ShellConnector(Connector):
     def _workspace(self) -> Any:
         return getattr(self._session, "workspace", None)
 
-    def _resolve_target(self, target: str) -> Optional[str]:
+    def _resolve_target(self, target: str) -> str | None:
         cwd = getattr(self._session, "cwd", None) or "."
         path = target if os.path.isabs(target) else os.path.join(cwd, target)
         ws = self._workspace()
@@ -207,11 +207,11 @@ class ShellConnector(Connector):
             return None  # outside the jail — never touch it
         return path
 
-    def _copy_aside(self, targets: List[str]) -> List[Dict[str, str]]:
+    def _copy_aside(self, targets: list[str]) -> list[dict[str, str]]:
         ws = self._workspace()
         if ws is None:
             return []
-        backups: List[Dict[str, str]] = []
+        backups: list[dict[str, str]] = []
         for tgt in targets:
             path = self._resolve_target(tgt)
             if not path or not os.path.exists(path):
@@ -224,7 +224,7 @@ class ShellConnector(Connector):
                 backups.append({"target": tgt, "backup": str(dest)})
         return backups
 
-    def verify_rollback(self, plan: Any, args: Dict[str, Any]) -> Tuple[bool, str]:
+    def verify_rollback(self, plan: Any, args: dict[str, Any]) -> tuple[bool, str]:
         """Prove to the Governor that this command's undo path actually exists.
 
         Called only when policy ``requires_verified_rollback``. Feasibility, not

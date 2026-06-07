@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable, List, Optional, Sequence
+from collections.abc import Callable, Sequence
 
 from memory.store import MemoryEntry
 
@@ -61,7 +61,7 @@ def lexical_relevance(query: str, entry: MemoryEntry) -> float:
 
 def staleness_penalty(
     entry: MemoryEntry,
-    now: Optional[datetime] = None,
+    now: datetime | None = None,
     horizon_days: float = STALENESS_HORIZON_DAYS,
 ) -> float:
     """``min(age_days / horizon, MAX)`` — independent of semantic score."""
@@ -83,16 +83,16 @@ def rank(
     query: str,
     entries: Sequence[MemoryEntry],
     *,
-    now: Optional[datetime] = None,
-    relevance_fn: Optional[Callable[[str, MemoryEntry], float]] = None,
+    now: datetime | None = None,
+    relevance_fn: Callable[[str, MemoryEntry], float] | None = None,
     horizon_days: float = STALENESS_HORIZON_DAYS,
     include_superseded: bool = False,
-) -> List[ScoredEntry]:
+) -> list[ScoredEntry]:
     """Rank entries by ``relevance × (1 - staleness) × confidence``."""
     now = now or datetime.now()
     relevance_fn = relevance_fn or lexical_relevance
 
-    scored: List[ScoredEntry] = []
+    scored: list[ScoredEntry] = []
     for entry in entries:
         if not include_superseded and not entry.is_active:
             continue
@@ -118,8 +118,8 @@ def retrieve(
     entries: Sequence[MemoryEntry],
     *,
     top_k: int = 5,
-    now: Optional[datetime] = None,
-    relevance_fn: Optional[Callable[[str, MemoryEntry], float]] = None,
-) -> List[MemoryEntry]:
+    now: datetime | None = None,
+    relevance_fn: Callable[[str, MemoryEntry], float] | None = None,
+) -> list[MemoryEntry]:
     """Return the top-k entries as **hypotheses** (re-verify before acting)."""
     return [s.entry for s in rank(query, entries, now=now, relevance_fn=relevance_fn)[:top_k]]

@@ -8,7 +8,7 @@ ranking.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from memory.store import MemoryEntry, MemoryKind, MemoryScope, MemoryStore
 from memory.retrieval import retrieve
@@ -22,10 +22,10 @@ class SemanticMemory:
         self,
         content: str,
         *,
-        scope: Optional[Dict[str, Any]] = None,
+        scope: dict[str, Any] | None = None,
         source: str = "inference",
-        confidence: Optional[float] = None,
-        tags: Optional[List[str]] = None,
+        confidence: float | None = None,
+        tags: list[str] | None = None,
         memory_scope: str = MemoryScope.PROJECT.value,
     ) -> MemoryEntry:
         return self._store.remember(
@@ -38,8 +38,8 @@ class SemanticMemory:
             memory_scope=memory_scope,
         )
 
-    def all(self) -> List[MemoryEntry]:
+    def all(self) -> list[MemoryEntry]:
         return self._store.active(kind=MemoryKind.SEMANTIC.value)
 
-    def search(self, query: str, top_k: int = 5) -> List[MemoryEntry]:
+    def search(self, query: str, top_k: int = 5) -> list[MemoryEntry]:
         return retrieve(query, self.all(), top_k=top_k)

@@ -15,7 +15,7 @@ rather than failing — counting is advisory for budgeting, never correctness.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 # Default encoding when a model isn't recognised. o200k_base is GPT-4o / o-series
 # and a reasonable stand-in for Claude (no public exact tokenizer offline).
@@ -28,17 +28,17 @@ class TokenCounter(Protocol):
 
     def count(self, text: str) -> int: ...
 
-    def count_messages(self, messages: List[Dict[str, Any]]) -> int: ...
+    def count_messages(self, messages: list[dict[str, Any]]) -> int: ...
 
 
-def _message_text(message: Dict[str, Any]) -> str:
+def _message_text(message: dict[str, Any]) -> str:
     """Flatten a chat message to the text we charge tokens for.
 
     Covers plain ``content`` strings, ``tool_calls`` (name + arguments), and the
     OpenAI list-of-parts content shape. A small per-message overhead is added by
     the counter, not here.
     """
-    parts: List[str] = []
+    parts: list[str] = []
     content = message.get("content")
     if isinstance(content, str):
         parts.append(content)
@@ -67,7 +67,7 @@ class _BaseCounter:
     def count(self, text: str) -> int:  # pragma: no cover - overridden
         raise NotImplementedError
 
-    def count_messages(self, messages: List[Dict[str, Any]]) -> int:
+    def count_messages(self, messages: list[dict[str, Any]]) -> int:
         total = 0
         for message in messages:
             total += self.count(_message_text(message)) + self.PER_MESSAGE_OVERHEAD
@@ -86,7 +86,7 @@ class HeuristicCounter(_BaseCounter):
 class TiktokenCounter(_BaseCounter):
     """tiktoken-backed counter; encoding chosen from provider/model."""
 
-    def __init__(self, model: Optional[str] = None, provider: Optional[str] = None):
+    def __init__(self, model: str | None = None, provider: str | None = None):
         import tiktoken  # local import so the module loads without the dep
 
         self._model = model
@@ -122,7 +122,7 @@ def make_counter(settings: Any = None) -> TokenCounter:
         return HeuristicCounter()
 
 
-def anthropic_count_tokens(client: Any, model: str, messages: List[Dict[str, Any]]) -> int:
+def anthropic_count_tokens(client: Any, model: str, messages: list[dict[str, Any]]) -> int:
     """Optional one-shot calibration against Anthropic's server-side counter.
 
     NOT for the packing hot path — it makes a network call. Useful for offline

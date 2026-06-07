@@ -10,7 +10,8 @@ special-casing in the kernel.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
+from collections.abc import Callable
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from skills.registry import SkillRegistry
@@ -24,7 +25,7 @@ class SkillConnector(Connector):
     def __init__(
         self,
         registry: SkillRegistry,
-        context_provider: Optional[Callable[[], SkillContext]] = None,
+        context_provider: Callable[[], SkillContext] | None = None,
     ):
         super().__init__(settings=None)
         self._skills = registry
@@ -34,8 +35,8 @@ class SkillConnector(Connector):
     def bind_context_provider(self, provider: Callable[[], SkillContext]) -> None:
         self._context_provider = provider
 
-    def operations(self) -> List[OperationSpec]:
-        specs: List[OperationSpec] = []
+    def operations(self) -> list[OperationSpec]:
+        specs: list[OperationSpec] = []
         for skill in self._skills.all():
             if not self._skills.is_enabled(skill.spec.name):
                 continue
@@ -53,7 +54,7 @@ class SkillConnector(Connector):
             ))
         return specs
 
-    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+    async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
         skill = self._skills.get(op)
         if skill is None:
             return ToolResult(

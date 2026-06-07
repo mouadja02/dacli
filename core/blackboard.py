@@ -32,7 +32,7 @@ import threading
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from core.atomicio import write_json_atomic
 
@@ -64,8 +64,8 @@ class Contradiction:
     existing: Assertion
     incoming: Assertion
     resolved: bool = False
-    resolution: Optional[str] = None
-    resolver: Optional[str] = None
+    resolution: str | None = None
+    resolver: str | None = None
     timestamp: str = field(default_factory=_now)
 
     def to_dict(self) -> dict:
@@ -98,15 +98,15 @@ class Blackboard:
     def __init__(
         self,
         *,
-        path: Optional[str] = None,
-        values_equal: Optional[Any] = None,
+        path: str | None = None,
+        values_equal: Any | None = None,
     ):
         self._lock = threading.RLock()
-        self._assertions: Dict[str, List[Assertion]] = {}
-        self._decisions: List[Dict[str, Any]] = []
-        self._open_questions: List[Dict[str, Any]] = []
-        self._contradictions: List[Contradiction] = []
-        self._claims: Dict[str, TaskClaim] = {}
+        self._assertions: dict[str, list[Assertion]] = {}
+        self._decisions: list[dict[str, Any]] = []
+        self._open_questions: list[dict[str, Any]] = []
+        self._contradictions: list[Contradiction] = []
+        self._claims: dict[str, TaskClaim] = {}
         self._path = Path(path) if path else None
         if self._path is not None:
             self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -131,7 +131,7 @@ class Blackboard:
         agent: str,
         *,
         confidence: float = 1.0,
-    ) -> Optional[Contradiction]:
+    ) -> Contradiction | None:
         """Record an agent's claim about ``key``.
 
         Returns a :class:`Contradiction` (also logged) when the active assertion
@@ -166,14 +166,14 @@ class Blackboard:
             self._persist()
             return contradiction
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         """The current accepted value for ``key`` (latest non-superseded)."""
         with self._lock:
             history = self._assertions.get(key, [])
             active = next((a for a in reversed(history) if not a.superseded), None)
             return active.value if active else None
 
-    def assertions(self, key: Optional[str] = None) -> List[Assertion]:
+    def assertions(self, key: str | None = None) -> list[Assertion]:
         with self._lock:
             if key is not None:
                 return list(self._assertions.get(key, []))
@@ -182,7 +182,7 @@ class Blackboard:
     # ------------------------------------------------------------------
     # Contradiction resolution (the lead arbitrates)
     # ------------------------------------------------------------------
-    def contradictions(self, *, unresolved_only: bool = False) -> List[Contradiction]:
+    def contradictions(self, *, unresolved_only: bool = False) -> list[Contradiction]:
         with self._lock:
             if unresolved_only:
                 return [c for c in self._contradictions if not c.resolved]
@@ -225,7 +225,7 @@ class Blackboard:
             self._persist()
             return True
 
-    def claimant(self, task_id: str) -> Optional[str]:
+    def claimant(self, task_id: str) -> str | None:
         with self._lock:
             claim = self._claims.get(task_id)
             return claim.agent if claim else None
@@ -238,7 +238,7 @@ class Blackboard:
             self._decisions.append({"what": what, "agent": agent, "ts": _now(), **extra})
             self._persist()
 
-    def decisions(self) -> List[Dict[str, Any]]:
+    def decisions(self) -> list[dict[str, Any]]:
         with self._lock:
             return list(self._decisions)
 
@@ -247,12 +247,12 @@ class Blackboard:
             self._open_questions.append({"question": question, "agent": agent, "ts": _now()})
             self._persist()
 
-    def open_questions(self) -> List[Dict[str, Any]]:
+    def open_questions(self) -> list[dict[str, Any]]:
         with self._lock:
             return list(self._open_questions)
 
     # ------------------------------------------------------------------
-    def snapshot(self) -> Dict[str, Any]:
+    def snapshot(self) -> dict[str, Any]:
         """A serializable view of the whole board (audit / debugging)."""
         with self._lock:
             return {

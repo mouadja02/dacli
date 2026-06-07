@@ -6,7 +6,7 @@ free platform connector. It deliberately lives under ``tests/`` rather than
 ``connectors/`` so it is not part of the shipped product.
 """
 
-from typing import Any, Dict, List
+from typing import Any
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 
@@ -15,7 +15,7 @@ class EchoConnector(Connector):
 
     name = "echo"
 
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         return [
             OperationSpec(
                 name="echo_say",
@@ -34,7 +34,7 @@ class EchoConnector(Connector):
             ),
         ]
 
-    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+    async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
         if op == "echo_say":
             return ToolResult(
                 tool_name="echo_say",

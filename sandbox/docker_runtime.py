@@ -33,7 +33,7 @@ import secrets
 import subprocess
 import uuid
 from pathlib import Path
-from typing import Any, List
+from typing import Any
 
 from sandbox.bridge import start_bridge
 from sandbox.policy import SandboxPolicy
@@ -138,7 +138,7 @@ class DockerSandboxRuntime:
         Path(workdir_abs).mkdir(parents=True, exist_ok=True)
         mem = max(64, int(self.policy.max_memory_mb))
 
-        args: List[str] = [
+        args: list[str] = [
             "run", "-d", "--name", self.container,
             "--label", "dacli.sandbox=1", "--label", f"dacli.session={self.session_id}",
             # --- host isolation ---

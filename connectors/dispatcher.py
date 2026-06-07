@@ -20,7 +20,8 @@ post-conditions / catalog updates in.
 
 import time
 import traceback
-from typing import Any, Callable, Dict, Optional
+from typing import Any
+from collections.abc import Callable
 
 from connectors.base import ToolResult, ToolStatus, Risk
 from connectors.registry import ConnectorRegistry
@@ -39,8 +40,8 @@ class Dispatcher:
         self,
         registry: ConnectorRegistry,
         memory: Any = None,
-        on_tool_start: Optional[Callable[[str, Dict], None]] = None,
-        on_tool_end: Optional[Callable[[str, ToolResult], None]] = None,
+        on_tool_start: Callable[[str, dict], None] | None = None,
+        on_tool_end: Callable[[str, ToolResult], None] | None = None,
         verifier: Any = None,
         governor: Any = None,
         test_mode: Any = None,
@@ -68,7 +69,7 @@ class Dispatcher:
         # is governed identically.
         self._governor = governor
 
-    async def execute(self, tool_name: str, arguments: Dict[str, Any]) -> ToolResult:
+    async def execute(self, tool_name: str, arguments: dict[str, Any]) -> ToolResult:
         start_time = time.time()
 
         # Emit tool start
@@ -176,7 +177,7 @@ class Dispatcher:
 
         return result
 
-    async def _staged_health_gate(self, connector, tool_name, start_time) -> Optional[ToolResult]:
+    async def _staged_health_gate(self, connector, tool_name, start_time) -> ToolResult | None:
         """Health-gate the first staged call to a connector.
 
         Returns ``None`` to proceed, or an ERROR ``ToolResult`` to short-circuit

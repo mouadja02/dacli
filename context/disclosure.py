@@ -16,7 +16,8 @@ mis-scored connector is never *unreachable* — it just costs one extra step.
 from __future__ import annotations
 
 import re
-from typing import Any, Iterable, List, Optional, Set
+from typing import Any
+from collections.abc import Iterable
 
 _TOKEN_RE = re.compile(r"[A-Za-z0-9_]+")
 
@@ -28,7 +29,7 @@ DEFAULT_MAX_AUTO = 2
 MIN_RELEVANCE = 0.10
 
 
-def _tokens(text: str) -> Set[str]:
+def _tokens(text: str) -> set[str]:
     return {t.lower() for t in _TOKEN_RE.findall(text or "")}
 
 
@@ -53,7 +54,7 @@ def connector_relevance(task: str, entry: dict) -> float:
     return overlap / len(q) if overlap else 0.0
 
 
-def rank_connectors(task: str, digest: List[dict]) -> List[tuple]:
+def rank_connectors(task: str, digest: list[dict]) -> list[tuple]:
     """Return ``[(entry, score), ...]`` sorted by descending relevance (>0)."""
     scored = [(e, connector_relevance(task, e)) for e in digest]
     scored = [(e, s) for e, s in scored if s > 0]
@@ -64,11 +65,11 @@ def rank_connectors(task: str, digest: List[dict]) -> List[tuple]:
 def disclose(
     task: str,
     registry: Any,
-    already_disclosed: Optional[Iterable[str]] = None,
+    already_disclosed: Iterable[str] | None = None,
     *,
     max_auto: int = DEFAULT_MAX_AUTO,
     min_relevance: float = MIN_RELEVANCE,
-) -> Set[str]:
+) -> set[str]:
     """Compute the set of connector ids to disclose (full schemas) this turn.
 
     Union of:
@@ -81,7 +82,7 @@ def disclose(
     Built-ins (``system``) are not part of this set: their tools are always live
     (see ``ConnectorRegistry.get_tool_definitions``).
     """
-    disclosed: Set[str] = set(already_disclosed or [])
+    disclosed: set[str] = set(already_disclosed or [])
 
     digest = registry.get_tool_digest()
     valid_ids = {e["id"] for e in digest}

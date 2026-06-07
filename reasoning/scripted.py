@@ -18,7 +18,7 @@ A scripted response is a dict::
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 class ScriptExhausted(RuntimeError):
@@ -28,11 +28,11 @@ class ScriptExhausted(RuntimeError):
 class ScriptedLLM:
     """An offline LLM double satisfying the kernel's LLM contract."""
 
-    def __init__(self, responses: List[Dict[str, Any]]):
-        self._responses: List[Dict[str, Any]] = list(responses or [])
+    def __init__(self, responses: list[dict[str, Any]]):
+        self._responses: list[dict[str, Any]] = list(responses or [])
         self._i = 0
         #: Provider-normalized usage of the most recent generate() call.
-        self.last_usage: Dict[str, int] = {}
+        self.last_usage: dict[str, int] = {}
         self.exhausted: bool = False
 
     async def initialize(self) -> None:
@@ -41,12 +41,12 @@ class ScriptedLLM:
 
     async def generate(
         self,
-        messages: Optional[List[Dict[str, Any]]] = None,
-        tools: Optional[List[Dict[str, Any]]] = None,
-        system_prompt: Optional[str] = None,
-        on_text: Optional[Any] = None,
-        model: Optional[str] = None,
-    ) -> Tuple[str, List[Dict[str, Any]]]:
+        messages: list[dict[str, Any]] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        system_prompt: str | None = None,
+        on_text: Any | None = None,
+        model: str | None = None,
+    ) -> tuple[str, list[dict[str, Any]]]:
         if self._i >= len(self._responses):
             self.exhausted = True
             raise ScriptExhausted(
@@ -59,7 +59,7 @@ class ScriptedLLM:
         text = spec.get("text") or ""
         self.last_usage = dict(spec.get("usage") or {})
 
-        tool_calls: List[Dict[str, Any]] = []
+        tool_calls: list[dict[str, Any]] = []
         for j, tc in enumerate(spec.get("tool_calls") or [], start=1):
             tool_calls.append(
                 {

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 from connectors.base import OperationSpec, Risk, ToolResult
 from connectors.cli_base import CliConnector
@@ -78,7 +78,7 @@ class MongoDBConnector(CliConnector):
         cfg = getattr(settings, "mongodb", None)
         self.binary = getattr(cfg, "mongosh_binary", "mongosh") or "mongosh"
 
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         coll = {"type": "string", "description": "Collection name."}
         flt = {"type": "object", "description": "Query filter (MongoDB query document)."}
         return [
@@ -151,7 +151,7 @@ class MongoDBConnector(CliConnector):
             ),
         ]
 
-    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+    async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
         args = dict(args or {})
         if op == "find_mongodb_documents":
             return await self._find(args)
@@ -201,7 +201,7 @@ class MongoDBConnector(CliConnector):
         except json.JSONDecodeError:
             return None
 
-    async def _find(self, args: Dict[str, Any]) -> ToolResult:
+    async def _find(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         coll = self._coll_expr(args.get("collection", ""))
         flt = json.dumps(args.get("filter") or {})
@@ -214,7 +214,7 @@ class MongoDBConnector(CliConnector):
         docs = self._parse(res.stdout)
         return self._ok("find_mongodb_documents", docs if isinstance(docs, list) else [], started)
 
-    async def _count(self, args: Dict[str, Any]) -> ToolResult:
+    async def _count(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         coll = self._coll_expr(args.get("collection", ""))
         flt = json.dumps(args.get("filter") or {})
@@ -225,7 +225,7 @@ class MongoDBConnector(CliConnector):
                               f"count failed (rc={res.rc}): {(res.stderr or res.stdout)[-1200:]}", started)
         return self._ok("count_mongodb_documents", self._parse(res.stdout) or {"count": 0}, started)
 
-    async def _insert(self, args: Dict[str, Any]) -> ToolResult:
+    async def _insert(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         coll = self._coll_expr(args.get("collection", ""))
         docs = json.dumps(args.get("documents") or [])
@@ -241,7 +241,7 @@ class MongoDBConnector(CliConnector):
                         catalog_effects=[{"action": "invalidate", "object_type": "collection",
                                           "scope": {"object": args.get("collection")}}])
 
-    async def _delete(self, args: Dict[str, Any]) -> ToolResult:
+    async def _delete(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         coll = self._coll_expr(args.get("collection", ""))
         flt = json.dumps(args.get("filter") or {})
@@ -256,7 +256,7 @@ class MongoDBConnector(CliConnector):
                         catalog_effects=[{"action": "invalidate", "object_type": "collection",
                                           "scope": {"object": args.get("collection")}}])
 
-    async def _introspect(self, args: Dict[str, Any]) -> ToolResult:
+    async def _introspect(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         collection = args.get("collection", "")
         coll = self._coll_expr(collection)
@@ -288,7 +288,7 @@ class MongoDBConnector(CliConnector):
     # ------------------------------------------------------------------
     # Governance: rollback-path verification (DoD)
     # ------------------------------------------------------------------
-    async def verify_rollback(self, plan, args: Dict[str, Any]):
+    async def verify_rollback(self, plan, args: dict[str, Any]):
         if getattr(plan, "primitive", "") != "mongodump_snapshot":
             return False, f"no verifiable rollback path for primitive '{plan.primitive}'"
         collection = args.get("collection", "")

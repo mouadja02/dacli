@@ -28,14 +28,14 @@ from eval.passk import PassKResult, run_pass_k, suite_pass_k
 from eval.harness import EvalHarness, SuiteReport, RunHistory
 
 __all__ = [
+    "EvalHarness",
     "GoldenTask",
-    "TaskResult",
-    "Stakes",
-    "default_k_for",
     "PassKResult",
+    "RunHistory",
+    "Stakes",
+    "SuiteReport",
+    "TaskResult",
+    "default_k_for",
     "run_pass_k",
     "suite_pass_k",
-    "EvalHarness",
-    "SuiteReport",
-    "RunHistory",
 ]

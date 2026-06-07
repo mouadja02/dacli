@@ -25,7 +25,8 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional
+from typing import Any
+from collections.abc import Callable
 
 from connectors.base import Risk, ToolResult, ToolStatus
 from core.logging_setup import get_logger
@@ -43,7 +44,7 @@ from governance.audit import AuditLedger
 # proceed. It is synchronous (like the existing on_user_input_needed hook).
 ApprovalFn = Callable[["ApprovalRequest"], bool]
 # Resolves the policy/classification environment for a connector+action.
-EnvResolver = Callable[[str, Dict[str, Any], Any], Optional[str]]
+EnvResolver = Callable[[str, dict[str, Any], Any], str | None]
 
 
 @dataclass
@@ -55,9 +56,9 @@ class ApprovalRequest:
     classification: Classification
     policy: PolicyResult
     rollback_plan: RollbackPlan
-    args: Dict[str, Any]
-    dry_run_preview: Optional[str] = None
-    shadow: Optional[ShadowResult] = None
+    args: dict[str, Any]
+    dry_run_preview: str | None = None
+    shadow: ShadowResult | None = None
 
     def describe(self) -> str:
         lines = [
@@ -83,27 +84,27 @@ class GovernanceDecision:
     decision_id: str
     classification: Classification
     policy: PolicyResult
-    rollback_plan: Optional[RollbackPlan] = None
-    shadow: Optional[ShadowResult] = None
-    blocked_reason: Optional[str] = None
-    short_circuit: Optional[ToolResult] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    rollback_plan: RollbackPlan | None = None
+    shadow: ShadowResult | None = None
+    blocked_reason: str | None = None
+    short_circuit: ToolResult | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class Governor:
     def __init__(
         self,
         *,
-        classifier: Optional[ActionClassifier] = None,
-        policy: Optional[PolicyEngine] = None,
-        permissions: Optional[PermissionRegistry] = None,
-        strategist: Optional[RollbackStrategist] = None,
-        shadow_executor: Optional[ShadowExecutor] = None,
-        ledger: Optional[AuditLedger] = None,
+        classifier: ActionClassifier | None = None,
+        policy: PolicyEngine | None = None,
+        permissions: PermissionRegistry | None = None,
+        strategist: RollbackStrategist | None = None,
+        shadow_executor: ShadowExecutor | None = None,
+        ledger: AuditLedger | None = None,
         session_id: str = "",
-        approval_fn: Optional[ApprovalFn] = None,
-        dry_run_fn: Optional[Callable[[Any, str, Dict[str, Any]], Optional[str]]] = None,
-        env_resolver: Optional[EnvResolver] = None,
+        approval_fn: ApprovalFn | None = None,
+        dry_run_fn: Callable[[Any, str, dict[str, Any]], str | None] | None = None,
+        env_resolver: EnvResolver | None = None,
         enforce: bool = True,
         use_shadow: bool = True,
     ):
@@ -126,14 +127,14 @@ class Governor:
     # helpers
     # ------------------------------------------------------------------
     def _audit(self, kind: str, tool_name: str, decision_id: str, actor: str,
-               tier: Optional[str], summary: str, **detail: Any) -> None:
+               tier: str | None, summary: str, **detail: Any) -> None:
         self.ledger.log(
             kind, tool_name, session_id=self.session_id, decision_id=decision_id,
             actor=actor, tier=tier, summary=summary, **detail,
         )
 
     @staticmethod
-    def _shell_command(spec: Any, connector_id: str, args: Dict[str, Any]) -> Optional[str]:
+    def _shell_command(spec: Any, connector_id: str, args: dict[str, Any]) -> str | None:
         """Return the shell command string when this is a shell-tier op, else None.
 
         Gated on the op being the shell connector (or declaring a ``shell.``
@@ -146,8 +147,8 @@ class Governor:
         cmd = args.get("command") or args.get("cmd")
         return str(cmd) if cmd else None
 
-    def _environment(self, connector_id: str, args: Dict[str, Any], connector: Any,
-                     classification: Classification) -> Optional[str]:
+    def _environment(self, connector_id: str, args: dict[str, Any], connector: Any,
+                     classification: Classification) -> str | None:
         if self._env_resolver is not None:
             try:
                 env = self._env_resolver(connector_id, args, connector)
@@ -160,7 +161,7 @@ class Governor:
 
     def _blocked_result(self, tool_name: str, reason: str, status: ToolStatus,
                         decision_id: str, classification: Classification,
-                        policy: Optional[PolicyResult]) -> ToolResult:
+                        policy: PolicyResult | None) -> ToolResult:
         meta = {
             "governance": {
                 "decision_id": decision_id,
@@ -179,7 +180,7 @@ class Governor:
         self,
         tool_name: str,
         spec: Any,
-        args: Dict[str, Any],
+        args: dict[str, Any],
         connector: Any,
         *,
         actor: str = "agent",
@@ -264,7 +265,7 @@ class Governor:
         preview = self._dry_run(connector, tool_name, args) if policy.requires_dry_run else None
 
         # 7. Shadow / clone-first execution for transforms (best-effort).
-        shadow: Optional[ShadowResult] = None
+        shadow: ShadowResult | None = None
         if self.use_shadow and supports_shadow(connector):
             shadow = await self.shadow_executor.run(connector, args)
             self._audit("shadow", tool_name, decision_id, actor, tier.value,
@@ -326,7 +327,7 @@ class Governor:
     # ------------------------------------------------------------------
     # internals
     # ------------------------------------------------------------------
-    def _dry_run(self, connector: Any, tool_name: str, args: Dict[str, Any]) -> Optional[str]:
+    def _dry_run(self, connector: Any, tool_name: str, args: dict[str, Any]) -> str | None:
         if self._dry_run_fn is not None:
             try:
                 return self._dry_run_fn(connector, tool_name, args)

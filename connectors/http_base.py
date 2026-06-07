@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any
+from collections.abc import Awaitable, Callable
 
 from connectors.base import Connector, ToolResult, ToolStatus
 
@@ -25,7 +26,7 @@ class HttpResult:
     status: int
     data: Any = None
     text: str = ""
-    headers: Dict[str, str] = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -38,7 +39,7 @@ Transport = Callable[..., Any]
 
 
 class HttpConnector(Connector):
-    def __init__(self, settings: Any, transport: Optional[Transport] = None):
+    def __init__(self, settings: Any, transport: Transport | None = None):
         super().__init__(settings)
         self._transport = transport
 
@@ -48,7 +49,7 @@ class HttpConnector(Connector):
     def _base_url(self) -> str:
         return ""
 
-    def _default_headers(self) -> Dict[str, str]:
+    def _default_headers(self) -> dict[str, str]:
         return {}
 
     def _timeout(self) -> int:
@@ -62,8 +63,8 @@ class HttpConnector(Connector):
         method: str,
         path: str,
         *,
-        params: Optional[Dict[str, Any]] = None,
-        json: Optional[Dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
     ) -> HttpResult:
         headers = self._default_headers()
         if self._transport is not None:

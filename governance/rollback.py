@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass, field
-from typing import Any, Dict
+from typing import Any
 
 from governance.classifier import Classification, Tier
 
@@ -38,9 +38,9 @@ class RollbackPlan:
     strategy: str                    # human-readable description of the undo
     verified: bool = False           # the path was *checked* to exist (not assumed)
     verify_detail: str = ""          # why verified / why not
-    details: Dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "available": self.available,
             "primitive": self.primitive,
@@ -51,7 +51,7 @@ class RollbackPlan:
         }
 
     @classmethod
-    def none(cls, reason: str) -> "RollbackPlan":
+    def none(cls, reason: str) -> RollbackPlan:
         return cls(available=False, primitive="none", strategy=reason,
                    verified=False, verify_detail=reason)
 
@@ -328,7 +328,7 @@ class RollbackStrategist:
         self,
         plan: RollbackPlan,
         connector: Any,
-        args: Dict[str, Any],
+        args: dict[str, Any],
     ) -> RollbackPlan:
         """Verify the rollback path *actually exists* before the action runs.
 

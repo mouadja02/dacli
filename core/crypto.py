@@ -20,7 +20,8 @@ import binascii
 import os
 import sys
 from pathlib import Path
-from typing import Iterable, List, Optional, TextIO
+from typing import TextIO
+from collections.abc import Iterable
 
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
@@ -43,7 +44,7 @@ _FERNET_VERSION = 0x80
 _FERNET_MIN_LEN = 57
 
 
-def resolve_base_dir(state_path: Optional[str] = None) -> Path:
+def resolve_base_dir(state_path: str | None = None) -> Path:
     """The single source of truth for the credential base directory.
 
     The encryption key (``.key``) and the secrets store (``dacli.json``) both
@@ -63,7 +64,7 @@ def _resolve_base_dir() -> Path:
     return resolve_base_dir()
 
 
-def _try_load_fernet_key(raw: bytes) -> Optional[bytes]:
+def _try_load_fernet_key(raw: bytes) -> bytes | None:
     if len(raw) == 44 and raw.endswith(b"="):
         try:
             decoded = base64.urlsafe_b64decode(raw)
@@ -85,7 +86,7 @@ def _derive_key(password: bytes) -> bytes:
     return base64.urlsafe_b64encode(kdf.derive(password))
 
 
-def get_encryption_key(base_dir: Optional[str] = None) -> bytes:
+def get_encryption_key(base_dir: str | None = None) -> bytes:
     base = Path(base_dir) if base_dir else _resolve_base_dir()
     key_file = base / _KEY_FILE
 
@@ -110,18 +111,18 @@ def get_encryption_key(base_dir: Optional[str] = None) -> bytes:
     return key
 
 
-def _fernet(base_dir: Optional[str] = None) -> Fernet:
+def _fernet(base_dir: str | None = None) -> Fernet:
     return Fernet(get_encryption_key(base_dir))
 
 
-def encrypt_value(plaintext: str, base_dir: Optional[str] = None) -> str:
+def encrypt_value(plaintext: str, base_dir: str | None = None) -> str:
     if not plaintext:
         return plaintext
     return _fernet(base_dir).encrypt(plaintext.encode("utf-8")).decode("utf-8")
 
 
 def decrypt_value(
-    token: str, base_dir: Optional[str] = None, name: Optional[str] = None
+    token: str, base_dir: str | None = None, name: str | None = None
 ) -> str:
     """Decrypt a stored credential.
 
@@ -169,8 +170,8 @@ _warned_secrets: set = set()
 
 
 def surface_decryption_failures(
-    names: Iterable[str], *, stream: Optional[TextIO] = None
-) -> Optional[str]:
+    names: Iterable[str], *, stream: TextIO | None = None
+) -> str | None:
     """Report, exactly once, secrets that couldn't be decrypted.
 
     Aggregates the affected credential names into a single clear message so the
@@ -179,7 +180,7 @@ def surface_decryption_failures(
     error. Returns the emitted message, or ``None`` if there is nothing new to
     report (empty input or every name already warned about this process).
     """
-    new: List[str] = [n for n in names if n and n not in _warned_secrets]
+    new: list[str] = [n for n in names if n and n not in _warned_secrets]
     if not new:
         return None
     _warned_secrets.update(new)

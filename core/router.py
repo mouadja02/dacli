@@ -35,7 +35,7 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, List, Optional, Tuple
+from typing import Any
 
 
 class Tier(str, Enum):
@@ -84,13 +84,13 @@ class RoutingDecision:
 
     task: str
     tier: str
-    target: Optional[str]
+    target: str | None
     confidence: float
     rationale: str
     escalations: int = 0
-    escalation_target: Optional[str] = None
+    escalation_target: str | None = None
     surfaced_to_user: bool = False
-    trail: List[str] = field(default_factory=list)
+    trail: list[str] = field(default_factory=list)
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
 
     def to_dict(self) -> dict:
@@ -110,10 +110,10 @@ class RoutingAuditLog:
             f.flush()
             os.fsync(f.fileno())
 
-    def recent(self, n: int = 20) -> List[dict]:
+    def recent(self, n: int = 20) -> list[dict]:
         if not self.path.exists():
             return []
-        with open(self.path, "r", encoding="utf-8") as f:
+        with open(self.path, encoding="utf-8") as f:
             lines = f.readlines()
         out = []
         for line in lines[-n:]:
@@ -138,12 +138,12 @@ class TierRouter:
         llm: Any = None,
         registry: Any = None,
         memory: Any = None,
-        audit_log: Optional[RoutingAuditLog] = None,
+        audit_log: RoutingAuditLog | None = None,
         *,
         min_confidence: float = 0.7,
         escalation_budget: int = 2,
         use_model: bool = True,
-        model_band: Tuple[float, float] = (0.45, 0.8),
+        model_band: tuple[float, float] = (0.45, 0.8),
     ):
         self._llm = llm
         self._registry = registry
@@ -159,7 +159,7 @@ class TierRouter:
     # ------------------------------------------------------------------
     # Platform detection (grounded in the registry when available)
     # ------------------------------------------------------------------
-    def _known_platforms(self) -> List[str]:
+    def _known_platforms(self) -> list[str]:
         # Grounded in installed connectors. No registry (or an empty/failed
         # digest) means "no platform signal" — never a hardcoded guess, so a
         # routing decision reflects what is actually wired up (02.4).
@@ -170,7 +170,7 @@ class TierRouter:
         except Exception:
             return []
 
-    def _platforms_in(self, task: str) -> List[str]:
+    def _platforms_in(self, task: str) -> list[str]:
         low = task.lower()
         hits = []
         # Platform aliases beyond the bare id so "S3"/"warehouse" still match.
@@ -196,7 +196,7 @@ class TierRouter:
     # ------------------------------------------------------------------
     # Heuristic classification
     # ------------------------------------------------------------------
-    def _heuristic(self, task: str) -> Tuple[Tier, Optional[str], float, str]:
+    def _heuristic(self, task: str) -> tuple[Tier, str | None, float, str]:
         low = (task or "").strip().lower()
         if not low:
             return Tier.TOOL, None, 0.2, "empty task — cannot classify"
@@ -268,7 +268,7 @@ class TierRouter:
             confidence=round(confidence, 3), rationale=rationale,
         )
 
-    async def _confirm_with_model(self, task: str) -> Tuple[Optional[Tier], str]:
+    async def _confirm_with_model(self, task: str) -> tuple[Tier | None, str]:
         try:
             label = await self._llm.classify(
                 task,
@@ -290,7 +290,7 @@ class TierRouter:
     # ------------------------------------------------------------------
     # Escalation (4.3)
     # ------------------------------------------------------------------
-    def _escalate(self, decision: RoutingDecision) -> Tuple[str, Optional[str], float, str]:
+    def _escalate(self, decision: RoutingDecision) -> tuple[str, str | None, float, str]:
         """One escalation step: tool→sandbox, then nudge confidence upward.
 
         Escalating to the more general tier *increases* our ability to handle the
@@ -311,7 +311,7 @@ class TierRouter:
         """Classify, then escalate while under threshold (bounded), then log."""
         decision = await self.classify(task)
         attempts = 0
-        trail: List[str] = [f"classified: {decision.tier} ({decision.confidence}) — {decision.rationale}"]
+        trail: list[str] = [f"classified: {decision.tier} ({decision.confidence}) — {decision.rationale}"]
 
         while decision.confidence < self.min_confidence and attempts < self.escalation_budget:
             attempts += 1

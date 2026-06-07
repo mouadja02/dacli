@@ -21,7 +21,6 @@ import re
 import shutil
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 
 #: Stable, unlikely-to-collide marker that opens every command-completion line.
@@ -37,7 +36,7 @@ class RawExec:
     timed_out: bool = False
     # The literal lines the transport produced (pre-sentinel-stripping) — kept
     # for provenance / debugging; the session tags these with command ids.
-    raw_lines: List[str] = field(default_factory=list)
+    raw_lines: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -53,7 +52,7 @@ class ShellBackend(ABC):
     #: The executable this backend drives (resolved on PATH for availability).
     binary: str = ""
 
-    def __init__(self, *, binary: Optional[str] = None):
+    def __init__(self, *, binary: str | None = None):
         if binary:
             self.binary = binary
 
@@ -61,7 +60,7 @@ class ShellBackend(ABC):
     # launch
     # ------------------------------------------------------------------
     @abstractmethod
-    def launch_argv(self) -> List[str]:
+    def launch_argv(self) -> list[str]:
         """argv that starts the shell in a persistent, interactive-ish mode."""
         raise NotImplementedError
 
@@ -85,13 +84,13 @@ class ShellBackend(ABC):
         """
         return f"{command}\n{self._sentinel_echo(nonce)}\n"
 
-    def sentinel_pattern(self, nonce: str) -> "re.Pattern[str]":
+    def sentinel_pattern(self, nonce: str) -> re.Pattern[str]:
         """Matches the completion line and captures the exit code (group 1)."""
         return re.compile(
             re.escape(f"{SENTINEL}:{nonce}:") + r"(-?\d+)"
         )
 
-    def is_sentinel_line(self, line: str, nonce: str) -> Optional[int]:
+    def is_sentinel_line(self, line: str, nonce: str) -> int | None:
         """Return the parsed exit code if ``line`` is this command's sentinel."""
         m = self.sentinel_pattern(nonce).search(line)
         if not m:

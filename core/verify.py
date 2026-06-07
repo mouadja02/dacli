@@ -29,7 +29,8 @@ import hashlib
 import inspect
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Union
+from collections.abc import Awaitable, Callable
 
 
 # ---------------------------------------------------------------------------
@@ -44,17 +45,17 @@ class VerificationContext:
     ``args`` is the original input; ``memory`` exposes the catalog/fact store.
     """
 
-    args: Dict[str, Any] = field(default_factory=dict)
+    args: dict[str, Any] = field(default_factory=dict)
     result: Any = None
     target: Any = None
     memory: Any = None
     task: str = ""
-    extra: Dict[str, Any] = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 # A check returns a bool, or ``(bool, detail)``, optionally as a coroutine.
-CheckReturn = Union[bool, Tuple[bool, str]]
-CheckFn = Callable[[VerificationContext], Union[CheckReturn, Awaitable[CheckReturn]]]
+CheckReturn = Union[bool, tuple[bool, str]]
+CheckFn = Callable[[VerificationContext], CheckReturn | Awaitable[CheckReturn]]
 
 
 @dataclass
@@ -72,7 +73,7 @@ class PostCondition:
     check: CheckFn
     description: str = ""
     anchored: bool = True
-    applies_when: Optional[Callable[[VerificationContext], bool]] = None
+    applies_when: Callable[[VerificationContext], bool] | None = None
 
 
 @dataclass
@@ -90,11 +91,11 @@ class VerificationReport:
     """Aggregate outcome. ``passed`` is the gate the dispatcher/skill respects."""
 
     passed: bool
-    checks: List[CheckResult] = field(default_factory=list)
+    checks: list[CheckResult] = field(default_factory=list)
     timestamp: datetime = field(default_factory=datetime.now)
 
     @property
-    def failures(self) -> List[CheckResult]:
+    def failures(self) -> list[CheckResult]:
         return [c for c in self.checks if not c.passed and not c.skipped]
 
     def summary(self) -> str:
@@ -104,7 +105,7 @@ class VerificationReport:
         parts = [f"{c.name}: {c.detail or 'failed'}" for c in self.failures]
         return "post-condition(s) FAILED — " + "; ".join(parts)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "passed": self.passed,
             "timestamp": self.timestamp.isoformat(),
@@ -122,7 +123,7 @@ class VerificationReport:
         }
 
 
-def _normalize(outcome: CheckReturn) -> Tuple[bool, str]:
+def _normalize(outcome: CheckReturn) -> tuple[bool, str]:
     if isinstance(outcome, tuple):
         ok, detail = outcome
         return bool(ok), str(detail or "")
@@ -130,7 +131,7 @@ def _normalize(outcome: CheckReturn) -> Tuple[bool, str]:
 
 
 async def run_postconditions(
-    postconditions: List[PostCondition],
+    postconditions: list[PostCondition],
     ctx: VerificationContext,
 ) -> VerificationReport:
     """Run every post-condition against ``ctx`` and aggregate the verdict.
@@ -139,7 +140,7 @@ async def run_postconditions(
     that would re-open the confident-but-unchecked hole). A check whose
     ``applies_when`` is False is *skipped* and does not affect the verdict.
     """
-    results: List[CheckResult] = []
+    results: list[CheckResult] = []
     for pc in postconditions:
         if pc.applies_when is not None:
             try:
@@ -171,7 +172,7 @@ class MissingPostConditionError(ValueError):
     """Raised when an op/skill tries to register without any post-condition."""
 
 
-def require_postconditions(name: str, postconditions: Optional[List[PostCondition]]) -> None:
+def require_postconditions(name: str, postconditions: list[PostCondition] | None) -> None:
     """Enforce the structural rule that *every* capability is checkable.
 
     Called by the skill registry (always) and the connector registry (when
@@ -239,7 +240,7 @@ def data_has_keys(*keys: str, name: str = "data_has_keys") -> PostCondition:
 def content_hash_matches(
     *,
     expected_arg: str = "content",
-    actual_getter: Callable[[VerificationContext], Optional[str]],
+    actual_getter: Callable[[VerificationContext], str | None],
     name: str = "content_hash_matches",
 ) -> PostCondition:
     """The bytes that landed hash-equal to the bytes we sent.
@@ -248,7 +249,7 @@ def content_hash_matches(
     expected content is the original arg. Used by ``github push`` to confirm the
     committed file is byte-identical to what we pushed.
     """
-    def _sha(text: Optional[str]) -> Optional[str]:
+    def _sha(text: str | None) -> str | None:
         if text is None:
             return None
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -267,7 +268,7 @@ def content_hash_matches(
 # ---------------------------------------------------------------------------
 # Shell-tier post-conditions (Era 2) — anchored to the exit code + filesystem.
 # ---------------------------------------------------------------------------
-def _shell_data(ctx: VerificationContext) -> Dict[str, Any]:
+def _shell_data(ctx: VerificationContext) -> dict[str, Any]:
     data = getattr(ctx.result, "data", None)
     return data if isinstance(data, dict) else {}
 
@@ -338,7 +339,7 @@ def shell_deletes_observed(name: str = "shell_deletes_observed") -> PostConditio
 
 
 def scope_not_violated(
-    forbidden: Callable[[VerificationContext], Optional[str]],
+    forbidden: Callable[[VerificationContext], str | None],
     name: str = "scope_not_violated",
 ) -> PostCondition:
     """Enforce a skill's ``cannot_do`` as a post-condition (catches scope creep).
@@ -368,13 +369,13 @@ class Verifier:
     """
 
     def __init__(self, *, enforce: bool = True,
-                 on_report: Optional[Callable[[str, VerificationReport], None]] = None):
+                 on_report: Callable[[str, VerificationReport], None] | None = None):
         self.enforce = enforce
         self._on_report = on_report
 
     async def verify(
         self,
-        postconditions: List[PostCondition],
+        postconditions: list[PostCondition],
         ctx: VerificationContext,
         *,
         label: str = "",
@@ -394,13 +395,13 @@ class Verifier:
 @dataclass
 class HandoffResult:
     ok: bool
-    errors: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
     def __bool__(self) -> bool:
         return self.ok
 
 
-def validate_json(instance: Any, schema: Dict[str, Any], path: str = "$") -> List[str]:
+def validate_json(instance: Any, schema: dict[str, Any], path: str = "$") -> list[str]:
     """Validate ``instance`` against a JSON-Schema *subset* (no extra deps).
 
     Supports ``type`` (object/array/string/number/integer/boolean/null),
@@ -408,7 +409,7 @@ def validate_json(instance: Any, schema: Dict[str, Any], path: str = "$") -> Lis
     harness actually declares in skill/op contracts. Returns a list of error
     strings (empty = valid).
     """
-    errors: List[str] = []
+    errors: list[str] = []
     if not isinstance(schema, dict):
         return errors
 
@@ -468,7 +469,7 @@ class PipelineVerifier:
     def verify_handoff(
         self,
         upstream_output: Any,
-        downstream_input_schema: Dict[str, Any],
+        downstream_input_schema: dict[str, Any],
     ) -> HandoffResult:
         errors = validate_json(upstream_output, downstream_input_schema)
         return HandoffResult(ok=not errors, errors=errors)

@@ -13,7 +13,7 @@ from a manifest) because it needs runtime collaborators — the SDK's governed
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from core.verify import PostCondition, VerificationContext
@@ -62,7 +62,7 @@ class SandboxConnector(Connector):
             except Exception:
                 pass
 
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         return [
             OperationSpec(
                 name="run_sandbox_code",
@@ -97,7 +97,7 @@ class SandboxConnector(Connector):
             ),
         ]
 
-    async def invoke(self, op: str, args: Dict[str, Any]) -> ToolResult:
+    async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
         if op != "run_sandbox_code":
             return ToolResult(tool_name=op, status=ToolStatus.ERROR,
                               error=f"Unknown operation '{op}' for connector '{self.name}'")

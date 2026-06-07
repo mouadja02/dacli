@@ -7,7 +7,8 @@ the ``Dispatcher`` (execute), and ``memory`` (context in/out).
 
 import json
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Set
+from typing import Any
+from collections.abc import Awaitable, Callable
 
 from connectors.base import ToolStatus
 from core.logging_setup import get_logger
@@ -19,10 +20,10 @@ log = get_logger(__name__)
 class AgentResponse:
     # Response from the agent
     content: str
-    tool_calls: List[Dict[str, Any]]
-    thinking: Optional[str] = None
+    tool_calls: list[dict[str, Any]]
+    thinking: str | None = None
     needs_user_input: bool = False
-    error: Optional[str] = None
+    error: str | None = None
     iteration: int = 0
 
 
@@ -32,18 +33,18 @@ class Kernel:
         llm: Any,
         dispatcher: Any,
         memory: Any,
-        tools: List[Dict[str, Any]],
+        tools: list[dict[str, Any]],
         system_prompt: str,
         max_iterations: int,
-        on_status_update: Optional[Callable[[str], None]] = None,
-        on_stream_start: Optional[Callable[[], None]] = None,
-        on_text: Optional[Callable[[str], None]] = None,
-        on_stream_end: Optional[Callable[[str], None]] = None,
-        context_builder: Optional[Callable[[str, List[Dict[str, Any]], Set[str]], Any]] = None,
-        result_spill: Optional[Callable[[Any], str]] = None,
-        maybe_compact: Optional[Callable[[List[Dict[str, Any]]], Awaitable[List[Dict[str, Any]]]]] = None,
-        on_usage: Optional[Callable[[Dict[str, int], str], None]] = None,
-        on_retry: Optional[Callable[..., None]] = None,
+        on_status_update: Callable[[str], None] | None = None,
+        on_stream_start: Callable[[], None] | None = None,
+        on_text: Callable[[str], None] | None = None,
+        on_stream_end: Callable[[str], None] | None = None,
+        context_builder: Callable[[str, list[dict[str, Any]], set[str]], Any] | None = None,
+        result_spill: Callable[[Any], str] | None = None,
+        maybe_compact: Callable[[list[dict[str, Any]]], Awaitable[list[dict[str, Any]]]] | None = None,
+        on_usage: Callable[[dict[str, int], str], None] | None = None,
+        on_retry: Callable[..., None] | None = None,
         debug: bool = False,
     ):
         self._llm = llm
@@ -120,7 +121,7 @@ class Kernel:
         if self._on_stream_end:
             self._on_stream_end(content)
 
-    def _capture_episode(self, goal: str, trace: List[Dict[str, Any]], outcome: str) -> None:
+    def _capture_episode(self, goal: str, trace: list[dict[str, Any]], outcome: str) -> None:
         # Episodic capture (2.5). Guarded: a memory without capture_episode
         # (e.g. the golden-transcript fake) is simply skipped.
         if not trace:
@@ -135,7 +136,7 @@ class Kernel:
             # the failure so "sometimes it doesn't remember" is debuggable.
             log.debug("episodic capture failed", exc_info=True)
 
-    def _seed_working(self) -> List[Dict[str, Any]]:
+    def _seed_working(self) -> list[dict[str, Any]]:
         """Seed the working conversation list.
 
         New path: the fixed window is gone — seed from the *full*
@@ -150,7 +151,7 @@ class Kernel:
         return list(self._memory.get_context_messages())
 
     def _assemble(
-        self, task: str, working: List[Dict[str, Any]], disclosed: Set[str]
+        self, task: str, working: list[dict[str, Any]], disclosed: set[str]
     ):
         """Return ``(messages, tools, system_prompt)`` for this iteration.
 
@@ -169,7 +170,7 @@ class Kernel:
             return self._result_spill(result)
         return result.to_message()
 
-    async def orchestrate(self, user_message: str, *, model: Optional[str] = None) -> AgentResponse:
+    async def orchestrate(self, user_message: str, *, model: str | None = None) -> AgentResponse:
         # Process a user message and generate a response.
         # ``model`` (model tiering, ℛ) overrides the LLM model for *this*
         # run only; None preserves the configured default, so the single-model
@@ -184,10 +185,10 @@ class Kernel:
 
         # Connectors disclosed this turn (progressive disclosure, 3.3): seeded
         # empty and grown when the model calls load_connector_tools.
-        disclosed: Set[str] = set()
+        disclosed: set[str] = set()
 
         # Trace of tool calls -> outcomes for episodic capture (2.5).
-        trace: List[Dict[str, Any]] = []
+        trace: list[dict[str, Any]] = []
 
         # Iteration loop
         self._current_iteration = 0

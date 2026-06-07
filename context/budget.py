@@ -13,7 +13,6 @@ charged but never rejected — losing them would defeat the point.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict
 
 # Canonical source ids. Kept as constants so the assembler, budget and
 # ``--explain`` renderer all agree on the labels.
@@ -29,7 +28,7 @@ SOURCES = (PRIORS, MEMORY, LIVE, SKILLS, HISTORY)
 # Default share of the total budget each source may consume. Pinned content is
 # uncapped (charged against the total but never rejected). The fractions need not
 # sum to 1: they are independent ceilings, and the *total* is the hard wall.
-DEFAULT_FRACTIONS: Dict[str, float] = {
+DEFAULT_FRACTIONS: dict[str, float] = {
     PRIORS: 0.20,
     MEMORY: 0.20,
     LIVE: 0.25,
@@ -43,7 +42,7 @@ class Budget:
     """Immutable budget spec: a total and per-source fractional ceilings."""
 
     total: int
-    fractions: Dict[str, float] = field(default_factory=lambda: dict(DEFAULT_FRACTIONS))
+    fractions: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_FRACTIONS))
 
     def cap(self, source: str) -> int:
         """Token ceiling for ``source`` (the total for pinned/unknown sources)."""
@@ -55,7 +54,7 @@ class Budget:
         return int(self.total * frac)
 
     @classmethod
-    def from_settings(cls, settings) -> "Budget":
+    def from_settings(cls, settings) -> Budget:
         """Build from ``settings.context`` (falls back to defaults)."""
         ctx = getattr(settings, "context", None)
         total = getattr(ctx, "budget_tokens", None) or 12000
@@ -71,7 +70,7 @@ class BudgetTracker:
 
     def __init__(self, budget: Budget):
         self.budget = budget
-        self._used: Dict[str, int] = {s: 0 for s in (*SOURCES, PINNED)}
+        self._used: dict[str, int] = dict.fromkeys((*SOURCES, PINNED), 0)
 
     @property
     def total_used(self) -> int:
@@ -111,9 +110,9 @@ class BudgetTracker:
         self.charge(source, tokens)
         return True
 
-    def snapshot(self) -> Dict[str, Dict[str, int]]:
+    def snapshot(self) -> dict[str, dict[str, int]]:
         """Per-source ``{used, cap}`` plus a ``total`` row, for ``--explain``."""
-        out: Dict[str, Dict[str, int]] = {}
+        out: dict[str, dict[str, int]] = {}
         for source in (*SOURCES, PINNED):
             out[source] = {"used": self._used.get(source, 0), "cap": self.budget.cap(source)}
         out["total"] = {"used": self.total_used, "cap": self.budget.total}

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import List
 
 from sandbox.shells.base import SENTINEL, ShellBackend
 
@@ -11,7 +10,7 @@ class ZshBackend(ShellBackend):
     name = "zsh"
     binary = "zsh"
 
-    def launch_argv(self) -> List[str]:
+    def launch_argv(self) -> list[str]:
         # No -i: an interactive shell wants a tty and prints prompts/job-control
         # noise. Reading the command stream from stdin keeps capture clean; the
         # sentinel echo provides the "command finished" signal a prompt would.

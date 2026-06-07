@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 from eval.types import GoldenTask, TaskResult
 
@@ -28,7 +27,7 @@ class PassKResult:
     connector: str
     stakes: str
     k: int
-    runs: List[TaskResult] = field(default_factory=list)
+    runs: list[TaskResult] = field(default_factory=list)
 
     @property
     def successes(self) -> int:
@@ -55,7 +54,7 @@ class PassKResult:
         return p * (1.0 - p)  # Bernoulli variance of the per-run success bit
 
     @property
-    def earliest_failed_step(self) -> Optional[int]:
+    def earliest_failed_step(self) -> int | None:
         """The earliest step at which *any* rollout failed (None = always passed).
 
         Drives earlier-failure-recurrence detection: if this regresses to a
@@ -113,7 +112,7 @@ class PassKResult:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "PassKResult":
+    def from_dict(cls, d: dict) -> PassKResult:
         return cls(
             task_id=str(d.get("task_id", "")),
             connector=str(d.get("connector", "")),
@@ -123,12 +122,12 @@ class PassKResult:
         )
 
 
-async def run_pass_k(task: GoldenTask, k: Optional[int] = None) -> PassKResult:
+async def run_pass_k(task: GoldenTask, k: int | None = None) -> PassKResult:
     """Run ``task`` k times and aggregate. Latency is measured per rollout here so
     individual ``run`` callables don't each have to time themselves."""
     k = k if k is not None else task.rollouts()
     k = max(1, int(k))
-    runs: List[TaskResult] = []
+    runs: list[TaskResult] = []
     for _ in range(k):
         start = time.perf_counter()
         try:
@@ -147,7 +146,7 @@ async def run_pass_k(task: GoldenTask, k: Optional[int] = None) -> PassKResult:
     )
 
 
-def suite_pass_k(results: List[PassKResult]) -> float:
+def suite_pass_k(results: list[PassKResult]) -> float:
     """Suite-level pass^k: the fraction of tasks that succeeded on *every* rollout."""
     if not results:
         return 0.0

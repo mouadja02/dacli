@@ -23,7 +23,7 @@ import os
 import shutil
 import tempfile
 from types import SimpleNamespace
-from typing import Any, List, Optional, Tuple
+from typing import Any
 
 from core.verify import VerificationContext, run_postconditions
 from eval.sim.shell import SimShell, make_sim_session
@@ -37,8 +37,8 @@ def _settings(max_output_chars: int = 2000) -> SimpleNamespace:
     ))
 
 
-def _build(scope: str, *, sim: Optional[SimShell] = None, max_output_chars: int = 2000,
-           approve: Optional[Any] = None):
+def _build(scope: str, *, sim: SimShell | None = None, max_output_chars: int = 2000,
+           approve: Any | None = None):
     """Wire a Governor + ShellConnector + SimShell session in a fresh temp jail.
 
     ``approve`` is the human-approval callback. Left ``None`` the Governor is
@@ -76,7 +76,7 @@ def _op_spec(conn: Any):
     return next(o for o in conn.operations() if o.name == "run_shell_command")
 
 
-async def _govern_run_verify(env: Any, command: str) -> Tuple[Any, Any, Any]:
+async def _govern_run_verify(env: Any, command: str) -> tuple[Any, Any, Any]:
     """review → (if allowed) invoke → run the op's post-conditions."""
     spec = _op_spec(env.conn)
     args = {"command": command}
@@ -282,7 +282,7 @@ def _classifier_accuracy():
     ]
 
     async def run() -> TaskResult:
-        wrong: List[str] = []
+        wrong: list[str] = []
         for command, expected in cases:
             verdict = classify_command(command, network="allowlist", egress_allowlist=[])
             if verdict.tier.value != expected:
@@ -320,7 +320,7 @@ def _jail_escape_blocked():
     return run
 
 
-def build_terminal_suite() -> List[GoldenTask]:
+def build_terminal_suite() -> list[GoldenTask]:
     return [
         GoldenTask(id="shell.read_autoruns", connector="shell",
                    description="a safe read (cat) auto-runs with no interrupt and exit-0 verified",

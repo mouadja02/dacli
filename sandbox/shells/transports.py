@@ -19,7 +19,7 @@ import os
 import queue
 import subprocess
 import threading
-from typing import List, Optional, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -28,8 +28,8 @@ class Transport(Protocol):
 
     kind: str
 
-    def start(self, argv: List[str], *, cwd: Optional[str] = None,
-              env: Optional[dict] = None) -> None: ...
+    def start(self, argv: list[str], *, cwd: str | None = None,
+              env: dict | None = None) -> None: ...
 
     def write(self, data: str) -> None: ...
 
@@ -57,12 +57,12 @@ class PipeTransport:
     kind = "pipe"
 
     def __init__(self) -> None:
-        self._proc: Optional[subprocess.Popen] = None
-        self._q: "queue.Queue[str]" = queue.Queue()
-        self._reader: Optional[threading.Thread] = None
+        self._proc: subprocess.Popen | None = None
+        self._q: queue.Queue[str] = queue.Queue()
+        self._reader: threading.Thread | None = None
 
-    def start(self, argv: List[str], *, cwd: Optional[str] = None,
-              env: Optional[dict] = None) -> None:
+    def start(self, argv: list[str], *, cwd: str | None = None,
+              env: dict | None = None) -> None:
         self._proc = subprocess.Popen(
             argv,
             cwd=cwd,
@@ -97,7 +97,7 @@ class PipeTransport:
             self._proc.stdin.flush()
 
     def read_available(self, timeout: float) -> str:
-        chunks: List[str] = []
+        chunks: list[str] = []
         try:
             chunks.append(self._q.get(timeout=timeout))
         except queue.Empty:
@@ -151,8 +151,8 @@ class WinptyTransport:
     def __init__(self) -> None:
         self._pty = None
 
-    def start(self, argv: List[str], *, cwd: Optional[str] = None,
-              env: Optional[dict] = None) -> None:
+    def start(self, argv: list[str], *, cwd: str | None = None,
+              env: dict | None = None) -> None:
         from winpty import PtyProcess  # type: ignore
 
         self._pty = PtyProcess.spawn(argv, cwd=cwd, env=env)
@@ -199,8 +199,8 @@ class PosixPtyTransport:
     def __init__(self) -> None:
         self._pty = None
 
-    def start(self, argv: List[str], *, cwd: Optional[str] = None,
-              env: Optional[dict] = None) -> None:
+    def start(self, argv: list[str], *, cwd: str | None = None,
+              env: dict | None = None) -> None:
         from ptyprocess import PtyProcess  # type: ignore
 
         self._pty = PtyProcess.spawn(argv, cwd=cwd, env=env)
@@ -243,7 +243,7 @@ class PosixPtyTransport:
                 pass
 
 
-def _pty_available() -> Optional[str]:
+def _pty_available() -> str | None:
     if os.name == "nt":
         try:
             import winpty  # noqa: F401

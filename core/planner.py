@@ -26,7 +26,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class NodeStatus(str, Enum):
@@ -64,18 +64,18 @@ class Subtask:
 
     id: str
     description: str
-    depends_on: List[str] = field(default_factory=list)
-    success_criteria: List[str] = field(default_factory=list)
+    depends_on: list[str] = field(default_factory=list)
+    success_criteria: list[str] = field(default_factory=list)
     tier: str = "tool"                 # router hint (tool|sandbox)
     irreversible: bool = False         # pause for approval before running
     breadth_first: bool = False        # fan out to parallel sub-agents
-    items: List[str] = field(default_factory=list)  # the objects a breadth-first node iterates
+    items: list[str] = field(default_factory=list)  # the objects a breadth-first node iterates
     status: NodeStatus = NodeStatus.PENDING
     result: Any = None
-    error: Optional[str] = None
+    error: str | None = None
     attempts: int = 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "description": self.description,
@@ -98,9 +98,9 @@ class CyclicPlanError(ValueError):
 class TaskDAG:
     """A dependency DAG of subtasks with first-class readiness + resumability."""
 
-    def __init__(self, goal: str, nodes: Optional[List[Subtask]] = None):
+    def __init__(self, goal: str, nodes: list[Subtask] | None = None):
         self.goal = goal
-        self._nodes: Dict[str, Subtask] = {}
+        self._nodes: dict[str, Subtask] = {}
         for node in nodes or []:
             self.add(node)
 
@@ -112,10 +112,10 @@ class TaskDAG:
         return node
 
     @property
-    def nodes(self) -> List[Subtask]:
+    def nodes(self) -> list[Subtask]:
         return list(self._nodes.values())
 
-    def get(self, node_id: str) -> Optional[Subtask]:
+    def get(self, node_id: str) -> Subtask | None:
         return self._nodes.get(node_id)
 
     def __len__(self) -> int:
@@ -130,13 +130,13 @@ class TaskDAG:
                     raise ValueError(f"subtask '{node.id}' depends on unknown '{dep}'")
         self.topological_order()  # raises CyclicPlanError on a cycle
 
-    def topological_order(self) -> List[Subtask]:
+    def topological_order(self) -> list[Subtask]:
         """Kahn's algorithm — also the cycle detector."""
-        indegree = {nid: 0 for nid in self._nodes}
+        indegree = dict.fromkeys(self._nodes, 0)
         for node in self._nodes.values():
             indegree[node.id] += len(node.depends_on)
         queue = [nid for nid, d in indegree.items() if d == 0]
-        order: List[str] = []
+        order: list[str] = []
         while queue:
             nid = queue.pop(0)
             order.append(nid)
@@ -159,7 +159,7 @@ class TaskDAG:
             if d in self._nodes
         )
 
-    def ready(self) -> List[Subtask]:
+    def ready(self) -> list[Subtask]:
         """Pending nodes whose dependencies are all completed — runnable now.
 
         Multiple ready nodes with no path between them are safe to run in
@@ -170,19 +170,19 @@ class TaskDAG:
             if n.status == NodeStatus.PENDING and self._deps_satisfied(n)
         ]
 
-    def parallel_groups(self) -> List[List[Subtask]]:
+    def parallel_groups(self) -> list[list[Subtask]]:
         """Topological *levels*: each inner list can run concurrently.
 
         A node sits at level = 1 + max(level(dep)); nodes sharing a level have no
         dependency between them.
         """
-        level: Dict[str, int] = {}
+        level: dict[str, int] = {}
         for node in self.topological_order():
             level[node.id] = (
                 0 if not node.depends_on
                 else 1 + max(level[d] for d in node.depends_on if d in level)
             )
-        groups: Dict[int, List[Subtask]] = {}
+        groups: dict[int, list[Subtask]] = {}
         for nid, lvl in level.items():
             groups.setdefault(lvl, []).append(self._nodes[nid])
         return [groups[k] for k in sorted(groups)]
@@ -193,10 +193,10 @@ class TaskDAG:
     def has_failures(self) -> bool:
         return any(n.status == NodeStatus.FAILED for n in self._nodes.values())
 
-    def paused(self) -> List[Subtask]:
+    def paused(self) -> list[Subtask]:
         return [n for n in self._nodes.values() if n.status == NodeStatus.PAUSED]
 
-    def remaining(self) -> List[Subtask]:
+    def remaining(self) -> list[Subtask]:
         """Nodes still to do — the resumability surface (completed ones excluded)."""
         return [
             n for n in self._nodes.values()
@@ -220,7 +220,7 @@ class TaskDAG:
                 lines.append(f"      ✓ {crit}")
         return "\n".join(lines)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {"goal": self.goal, "nodes": [n.to_dict() for n in self.topological_order()]}
 
 
@@ -238,7 +238,7 @@ class Planner:
         self.complexity_gate = complexity_gate
 
     # ------------------------------------------------------------------
-    def _split_steps(self, goal: str) -> List[str]:
+    def _split_steps(self, goal: str) -> list[str]:
         pattern = "|".join(_SEQUENCE_SPLITS)
         parts = re.split(pattern, goal, flags=re.IGNORECASE)
         return [p.strip(" .,-").strip() for p in parts if p and p.strip(" .,-").strip()]
@@ -249,7 +249,7 @@ class Planner:
         return any(m in low for m in _IRREVERSIBLE_MARKERS)
 
     @staticmethod
-    def _breadth_items(text: str) -> List[str]:
+    def _breadth_items(text: str) -> list[str]:
         """Best-effort extraction of an explicit object list for a breadth node.
 
         Pulls a count ("profile all 14 tables") into placeholder item slots so the
@@ -263,9 +263,9 @@ class Planner:
         return []
 
     @staticmethod
-    def _criteria_for(step: str) -> List[str]:
+    def _criteria_for(step: str) -> list[str]:
         low = step.lower()
-        crits: List[str] = []
+        crits: list[str] = []
         if any(w in low for w in ("create", "build", "stand up", "set up")):
             crits.append("the created object exists in the live catalog with the intended schema")
         if any(w in low for w in ("load", "ingest", "copy", "backfill")):
@@ -302,8 +302,8 @@ class Planner:
         complexity gate may choose to run single-step).
         """
         steps = self._split_steps(goal) or [goal.strip()]
-        nodes: List[Subtask] = []
-        prev_id: Optional[str] = None
+        nodes: list[Subtask] = []
+        prev_id: str | None = None
         for i, step in enumerate(steps, 1):
             nid = f"s{i}"
             breadth = any(m in step.lower() for m in _BREADTH_MARKERS)

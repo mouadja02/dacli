@@ -7,7 +7,6 @@ compaction. Extracted from :class:`core.agent.DACLI` so the agent stays a thin
 wiring object.
 """
 
-from typing import Dict
 
 from context.assembler import build_context
 from context.budget import Budget
@@ -18,7 +17,7 @@ from context.tokenizer import make_counter
 from prompts.system_prompt import compose_system_prompt
 
 
-def build_context_pipeline(settings, memory, registry, llm, system_connector) -> Dict:
+def build_context_pipeline(settings, memory, registry, llm, system_connector) -> dict:
     """Construct the context collaborators and return them as hooks.
 
     Returns ``{"build", "spill", "maybe_compact", "counter", "budget"}``.

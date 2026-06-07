@@ -26,7 +26,6 @@ from __future__ import annotations
 
 # This script bootstraps sys.path before importing the dacli package, so the
 # dacli imports intentionally come after that setup (E402 doesn't apply here).
-# ruff: noqa: E402
 
 import asyncio
 import sys
@@ -282,7 +281,7 @@ async def main() -> int:
     except AssertionError:
         console.print("\n[bold red]SMOKE FAILED[/bold red]")
         return 1
-    except Exception as exc:  # noqa: BLE001 - surface any unexpected error
+    except Exception as exc:
         console.print(f"\n[bold red]SMOKE ERROR:[/bold red] {exc!r}")
         import traceback
 

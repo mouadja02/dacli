@@ -7,7 +7,7 @@ Each test class maps to an exit criterion in the roadmap. Run with:
 import asyncio
 import tempfile
 import unittest
-from typing import Any, Dict, List
+from typing import Any
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from connectors.registry import ConnectorRegistry
@@ -58,13 +58,13 @@ class _Conn(Connector):
         super().__init__(settings=None)
         self.name = name
         self._is_connected = True
-        self.invoked: List[Dict[str, Any]] = []
+        self.invoked: list[dict[str, Any]] = []
         self._rollback_ok = rollback_ok          # None=no hook, True/False=verdict
         self._rows = rows
         self.supports_shadow = supports_shadow
-        self.clone_calls: List[str] = []
+        self.clone_calls: list[str] = []
 
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         return [
             _spec("execute_snowflake_query", Risk.RISKY),
             _spec("read_thing", Risk.SAFE),

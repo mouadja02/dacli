@@ -2,7 +2,8 @@ import json
 import random
 import asyncio
 import logging
-from typing import Awaitable, Callable, Dict, List, Optional, Tuple, Type
+from typing import Optional
+from collections.abc import Awaitable, Callable
 
 from config.settings import Settings
 
@@ -30,7 +31,7 @@ class LLMClient:
         self._provider = settings.llm.provider
         # Provider-normalized token usage of the most recent generate() call,
         # read by the kernel for cost tracking. Reset on each generate().
-        self.last_usage: Dict[str, int] = {}
+        self.last_usage: dict[str, int] = {}
 
     async def initialize(self) -> None:
         # Initialize the LLM client based on the provider
@@ -70,7 +71,7 @@ class LLMClient:
         else:
             raise ValueError(f"Unsupported LLM provider: {provider}")
 
-    async def generate(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None, model: Optional[str] = None, on_retry: OnRetry = None) -> Tuple[str, List[Dict]]:
+    async def generate(self, messages: list[dict[str, str]], tools: list[dict] | None = None, system_prompt: str | None = None, on_text: OnText = None, model: str | None = None, on_retry: OnRetry = None) -> tuple[str, list[dict]]:
         """
         Generate a response from the LLM.
 
@@ -99,14 +100,13 @@ class LLMClient:
         provider = self._provider.lower()
         if provider in ["openai", "openrouter"]:
             return await self._generate_openai(messages, tools, system_prompt, on_text=on_text, model=model, on_retry=on_retry)
-        elif provider == "anthropic":
+        if provider == "anthropic":
             return await self._generate_anthropic(messages, tools, system_prompt, on_text=on_text, model=model, on_retry=on_retry)
-        elif provider == "google":
+        if provider == "google":
             return await self._generate_google(messages, tools, system_prompt, on_text=on_text, model=model, on_retry=on_retry)
-        else:
-            raise ValueError(f"Unsupported provider: {provider}")
+        raise ValueError(f"Unsupported provider: {provider}")
 
-    def _retryable_exceptions(self) -> Tuple[type, ...]:
+    def _retryable_exceptions(self) -> tuple[type, ...]:
         # Provider-specific *transient* error classes that are safe to retry
         # (429 rate limit, dropped connection, 5xx). Auth / 4xx-validation
         # errors are deliberately excluded so they fail fast. Imported lazily
@@ -154,10 +154,10 @@ class LLMClient:
         self,
         fn: Callable[[], Awaitable],
         *,
-        attempts: Optional[int] = None,
-        base: Optional[float] = None,
+        attempts: int | None = None,
+        base: float | None = None,
         on_retry: OnRetry = None,
-        retryable: Optional[Tuple[Type[BaseException], ...]] = None,
+        retryable: tuple[type[BaseException], ...] | None = None,
     ):
         """Run ``fn`` with bounded, jittered exponential backoff (P05).
 
@@ -197,7 +197,7 @@ class LLMClient:
             except Exception:
                 pass
 
-    async def classify(self, text: str, labels: List[str], instructions: Optional[str] = None, model: Optional[str] = None) -> str:
+    async def classify(self, text: str, labels: list[str], instructions: str | None = None, model: str | None = None) -> str:
         """
         Thin classification helper used by the router.
 
@@ -233,7 +233,7 @@ class LLMClient:
                 return label
         return answer
 
-    async def _generate_openai(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None, model: Optional[str] = None, on_retry: OnRetry = None) -> Tuple[str, List[Dict]]:
+    async def _generate_openai(self, messages: list[dict[str, str]], tools: list[dict] | None = None, system_prompt: str | None = None, on_text: OnText = None, model: str | None = None, on_retry: OnRetry = None) -> tuple[str, list[dict]]:
         # Generate using OpenAI-compatibile API
 
         # Prepare messages includes system prompt
@@ -277,7 +277,7 @@ class LLMClient:
         self.last_usage = self._usage_openai(getattr(response, "usage", None))
         return content, tool_calls
 
-    async def _stream_openai(self, request_kwargs: Dict, on_text: OnText, on_retry: OnRetry = None) -> Tuple[str, List[Dict]]:
+    async def _stream_openai(self, request_kwargs: dict, on_text: OnText, on_retry: OnRetry = None) -> tuple[str, list[dict]]:
         # Streaming variant: accumulate text deltas (emitted live) and reassemble
         # tool calls, which arrive as indexed fragments across chunks.
         request_kwargs = {**request_kwargs, "stream": True, "stream_options": {"include_usage": True}}
@@ -286,13 +286,13 @@ class LLMClient:
         # establishing *or* consuming the stream restarts it from scratch.
         # at-most-once-token caveat — partial deltas already emitted to the UI on
         # a failed attempt are discarded; the restart re-emits from the top.
-        async def _do() -> Tuple[str, List[Dict]]:
+        async def _do() -> tuple[str, list[dict]]:
             stream = await self._client.chat.completions.create(**request_kwargs)
 
             content = ""
             usage_obj = None
             # index -> {"id", "name", "arguments"(str)}
-            acc: Dict[int, Dict[str, str]] = {}
+            acc: dict[int, dict[str, str]] = {}
 
             async for chunk in stream:
                 if getattr(chunk, "usage", None):
@@ -330,7 +330,7 @@ class LLMClient:
 
         return await self._with_retry(_do, on_retry=on_retry)
 
-    async def _generate_anthropic(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None, model: Optional[str] = None, on_retry: OnRetry = None) -> Tuple[str, List[Dict]]:
+    async def _generate_anthropic(self, messages: list[dict[str, str]], tools: list[dict] | None = None, system_prompt: str | None = None, on_text: OnText = None, model: str | None = None, on_retry: OnRetry = None) -> tuple[str, list[dict]]:
         # Generate using Anthropic API
         # Prepare request
         request_kwargs = {
@@ -356,19 +356,19 @@ class LLMClient:
         if on_text is not None:
             return await self._stream_anthropic(request_kwargs, on_text, on_retry=on_retry)
 
-        async def _do() -> Tuple[str, List[Dict]]:
+        async def _do() -> tuple[str, list[dict]]:
             response = await self._client.messages.create(**request_kwargs)
             self.last_usage = self._usage_anthropic(getattr(response, "usage", None))
             return self._extract_anthropic(response.content)
 
         return await self._with_retry(_do, on_retry=on_retry)
 
-    async def _stream_anthropic(self, request_kwargs: Dict, on_text: OnText, on_retry: OnRetry = None) -> Tuple[str, List[Dict]]:
+    async def _stream_anthropic(self, request_kwargs: dict, on_text: OnText, on_retry: OnRetry = None) -> tuple[str, list[dict]]:
         # Streaming variant: emit text events live, then read the assembled
         # final message for the authoritative content + tool_use blocks. The
         # whole stream is retried as a unit (see _stream_openai for the
         # at-most-once-token caveat on restart).
-        async def _do() -> Tuple[str, List[Dict]]:
+        async def _do() -> tuple[str, list[dict]]:
             async with self._client.messages.stream(**request_kwargs) as stream:
                 async for text in stream.text_stream:
                     self._emit(on_text, text)
@@ -379,7 +379,7 @@ class LLMClient:
         return await self._with_retry(_do, on_retry=on_retry)
 
     @staticmethod
-    def _usage_openai(usage) -> Dict[str, int]:
+    def _usage_openai(usage) -> dict[str, int]:
         # OpenAI prompt_tokens includes cached tokens -> split them out so cost
         # isn't double-counted.
         if usage is None:
@@ -394,7 +394,7 @@ class LLMClient:
         }
 
     @staticmethod
-    def _usage_anthropic(usage) -> Dict[str, int]:
+    def _usage_anthropic(usage) -> dict[str, int]:
         # Anthropic reports cache tokens as fields separate from input_tokens.
         if usage is None:
             return {}
@@ -406,7 +406,7 @@ class LLMClient:
         }
 
     @staticmethod
-    def _usage_google(um) -> Dict[str, int]:
+    def _usage_google(um) -> dict[str, int]:
         if um is None:
             return {}
         cached = getattr(um, "cached_content_token_count", 0) or 0
@@ -418,7 +418,7 @@ class LLMClient:
         }
 
     @staticmethod
-    def _extract_anthropic(blocks) -> Tuple[str, List[Dict]]:
+    def _extract_anthropic(blocks) -> tuple[str, list[dict]]:
         content = ""
         tool_calls = []
         for block in blocks:
@@ -428,7 +428,7 @@ class LLMClient:
                 tool_calls.append({"id": block.id, "name": block.name, "arguments": block.input})
         return content, tool_calls
 
-    async def _generate_google(self, messages: List[Dict[str, str]], tools: Optional[List[Dict]] = None, system_prompt: Optional[str] = None, on_text: OnText = None, model: Optional[str] = None, on_retry: OnRetry = None) -> Tuple[str, List[Dict]]:
+    async def _generate_google(self, messages: list[dict[str, str]], tools: list[dict] | None = None, system_prompt: str | None = None, on_text: OnText = None, model: str | None = None, on_retry: OnRetry = None) -> tuple[str, list[dict]]:
         # Generate using Google Gemini API
 
         # Reliability: tool calling is not implemented for Gemini. Rather than

@@ -8,7 +8,6 @@ import os
 import tempfile
 import unittest
 from dataclasses import dataclass
-from typing import List
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from connectors.registry import ConnectorRegistry
@@ -33,7 +32,7 @@ class _MockConnector(Connector):
         self.name = f"mock{idx}"
         self._ops = ops
 
-    def operations(self) -> List[OperationSpec]:
+    def operations(self) -> list[OperationSpec]:
         specs = []
         for j in range(self._ops):
             specs.append(OperationSpec(
@@ -100,9 +99,9 @@ class _Msg:
 
 class _FakeMemory:
     def __init__(self):
-        self._history: List[_Msg] = []
+        self._history: list[_Msg] = []
         self.catalog = None
-        self.finals: List[str] = []
+        self.finals: list[str] = []
 
     def add_user_message(self, content):
         self._history.append(_Msg("user", content))
@@ -129,8 +128,8 @@ class _RecordingLLM:
 
     def __init__(self, script):
         self.script = list(script)
-        self.seen_tools: List[set] = []
-        self.seen_system: List[str] = []
+        self.seen_tools: list[set] = []
+        self.seen_system: list[str] = []
 
     async def generate(self, messages, tools=None, system_prompt=None, on_text=None):
         self.seen_tools.append({t["function"]["name"] for t in (tools or [])})

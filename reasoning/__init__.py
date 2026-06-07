@@ -8,9 +8,9 @@ from reasoning.model_router import (
 
 __all__ = [
     "LLMClient",
+    "ModelChoice",
     "ModelRouter",
+    "ModelRoutingAuditLog",
     "ModelTier",
     "Stakes",
-    "ModelChoice",
-    "ModelRoutingAuditLog",
 ]

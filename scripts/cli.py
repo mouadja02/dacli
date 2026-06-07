@@ -1,6 +1,5 @@
 import asyncio
 import click
-from typing import Optional
 
 from pathlib import Path
 from rich.markdown import Markdown
@@ -112,7 +111,7 @@ def build_completion_keybindings() -> KeyBindings:
 # -----------------------------------------
 #  UI components
 # -----------------------------------------
-def print_status(memory: AgentMemory, target: Optional[DacliUI] = None):
+def print_status(memory: AgentMemory, target: DacliUI | None = None):
     # Print current agent status through the active themed UI.
     out = target or ui
     con = out.console
@@ -198,8 +197,8 @@ def _fmt_cost(c) -> str:
 
 def print_usage(
     store: DacliStore,
-    session_id: Optional[str] = None,
-    target: Optional[DacliUI] = None,
+    session_id: str | None = None,
+    target: DacliUI | None = None,
     pricing=None,
 ):
     # Token/cost usage through the themed UI: all-time totals, by model, this session.
@@ -902,7 +901,7 @@ def _ctx_pct(memory) -> int:
 
 
 async def _run_chat(
-    config_path: Optional[str], session_id: Optional[str], force_setup: bool = False
+    config_path: str | None, session_id: str | None, force_setup: bool = False
 ):
     # Run the interactive chat session.
     # Load configuration first so the UI is themed from the user's settings.
@@ -1089,7 +1088,7 @@ async def _run_chat(
                     if cmd in ("/exit", "/quit"):
                         break
 
-                    elif cmd == "/help":
+                    if cmd == "/help":
                         chat_ui.help(CLI_COMMANDS)
 
                     elif cmd == "/init":

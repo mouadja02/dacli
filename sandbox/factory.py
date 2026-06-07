@@ -15,7 +15,7 @@ Either runtime exposes the same surface (``run_script`` / ``bind_result_store`` 
 
 from __future__ import annotations
 
-from typing import Any, Tuple
+from typing import Any
 
 from sandbox.policy import SandboxPolicy
 from sandbox.runtime import SandboxRuntime
@@ -28,7 +28,7 @@ def build_sandbox_runtime(
     registry: Any = None,
     result_store: Any = None,
     session_id: str = "default",
-) -> Tuple[Any, str]:
+) -> tuple[Any, str]:
     """Return ``(runtime, backend_name)`` for the configured/available backend."""
     policy = SandboxPolicy.from_settings(settings)
     sb = getattr(settings, "sandbox", None)

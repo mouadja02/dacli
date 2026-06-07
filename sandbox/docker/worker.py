@@ -79,7 +79,7 @@ class _BridgeSDK:
         out = []
         if not path.exists():
             return out
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             for i, line in enumerate(f):
                 if limit is not None and i >= limit:
                     break

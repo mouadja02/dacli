@@ -28,7 +28,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set
+from typing import Any
+from collections.abc import Callable, Sequence
 
 from context.budget import (
     Budget,
@@ -45,11 +46,11 @@ from context.tokenizer import TokenCounter
 _TOKEN_RE = re.compile(r"[A-Za-z0-9_]+")
 
 
-def _tokens(text: str) -> Set[str]:
+def _tokens(text: str) -> set[str]:
     return {t.lower() for t in _TOKEN_RE.findall(text or "")}
 
 
-def _overlap(task_tokens: Set[str], doc: str) -> float:
+def _overlap(task_tokens: set[str], doc: str) -> float:
     if not task_tokens:
         return 0.0
     d = _tokens(doc)
@@ -67,10 +68,10 @@ class ContextChunk:
     label: str                  # short human label (e.g. "DACLI.md", "msg[-1] user")
     tokens: int
     pinned: bool = False
-    timestamp: Optional[str] = None
+    timestamp: str | None = None
     text: str = ""              # retained for --explain; not re-sent anywhere
 
-    def explain_row(self) -> Dict[str, Any]:
+    def explain_row(self) -> dict[str, Any]:
         return {
             "source": self.source,
             "label": self.label,
@@ -85,12 +86,12 @@ class Context:
     """The assembled, inspectable context handed to the LLM for one turn."""
 
     system_prompt: str
-    messages: List[Dict[str, Any]]
-    tools: List[Dict[str, Any]]
-    chunks: List[ContextChunk] = field(default_factory=list)
-    budget: Dict[str, Dict[str, int]] = field(default_factory=dict)
+    messages: list[dict[str, Any]]
+    tools: list[dict[str, Any]]
+    chunks: list[ContextChunk] = field(default_factory=list)
+    budget: dict[str, dict[str, int]] = field(default_factory=dict)
 
-    def explain(self) -> List[Dict[str, Any]]:
+    def explain(self) -> list[dict[str, Any]]:
         """Per-chunk provenance rows for ``dacli context --explain``."""
         return [c.explain_row() for c in self.chunks]
 
@@ -123,13 +124,13 @@ def build_context(
     *,
     memory: Any,
     registry: Any,
-    recent_messages: List[Dict[str, Any]],
+    recent_messages: list[dict[str, Any]],
     counter: TokenCounter,
     budget: Budget,
-    disclosed: Optional[Set[str]] = None,
+    disclosed: set[str] | None = None,
     base_system_prompt: str = "",
-    priors_text: Optional[str] = None,
-    live_provider: Optional[Callable[[str], List[Any]]] = None,
+    priors_text: str | None = None,
+    live_provider: Callable[[str], list[Any]] | None = None,
     max_memory: int = 5,
     max_live: int = 8,
 ) -> Context:
@@ -143,7 +144,7 @@ def build_context(
     introspection hook (defaults to the catalog cache).
     """
     tracker = BudgetTracker(budget)
-    chunks: List[ContextChunk] = []
+    chunks: list[ContextChunk] = []
     task_tokens = _tokens(task)
 
     # -- L1 priors (pinned, always) ------------------------------------------
@@ -161,7 +162,7 @@ def build_context(
         priors_section = _section("Persistent priors", [priors_text])
 
     # -- L3 live-env (fresh, authoritative) ----------------------------------
-    live_entries: List[Any] = []
+    live_entries: list[Any] = []
     if live_provider is not None:
         try:
             live_entries = list(live_provider(task)) or []
@@ -175,7 +176,7 @@ def build_context(
         key=lambda e: _overlap(task_tokens, _format_catalog_entry(e)),
         reverse=True,
     )
-    live_lines: List[str] = []
+    live_lines: list[str] = []
     for entry in ranked_live[:max_live]:
         line = _format_catalog_entry(entry)
         ltok = counter.count(line)
@@ -187,13 +188,13 @@ def build_context(
     live_section = _section("Live environment (verified structure)", live_lines) if live_lines else ""
 
     # -- L2 memory (ranked hypotheses) ---------------------------------------
-    mem_entries: List[Any] = []
+    mem_entries: list[Any] = []
     if hasattr(memory, "retrieve"):
         try:
             mem_entries = memory.retrieve(task, top_k=max_memory) or []
         except Exception:
             mem_entries = []
-    mem_lines: List[str] = []
+    mem_lines: list[str] = []
     for entry in mem_entries:
         content = getattr(entry, "content", str(entry))
         mtok = counter.count(content)
@@ -206,7 +207,7 @@ def build_context(
 
     # -- skills / connectors digest (progressive disclosure) -----------------
     digest = registry.get_tool_digest() if hasattr(registry, "get_tool_digest") else []
-    digest_lines: List[str] = []
+    digest_lines: list[str] = []
     for e in digest:
         line = f"- {e['id']} ({e.get('name', e['id'])}): {e.get('description', '')} [{e.get('operations', '?')} ops]"
         dtok = counter.count(line)
@@ -241,7 +242,7 @@ def build_context(
     )
 
 
-def _last_index(messages: List[Dict[str, Any]], role: str) -> int:
+def _last_index(messages: list[dict[str, Any]], role: str) -> int:
     for i in range(len(messages) - 1, -1, -1):
         if messages[i].get("role") == role:
             return i
@@ -249,11 +250,11 @@ def _last_index(messages: List[Dict[str, Any]], role: str) -> int:
 
 
 def _select_history(
-    recent_messages: List[Dict[str, Any]],
+    recent_messages: list[dict[str, Any]],
     counter: TokenCounter,
     tracker: BudgetTracker,
-    chunks: List[ContextChunk],
-) -> List[Dict[str, Any]]:
+    chunks: list[ContextChunk],
+) -> list[dict[str, Any]]:
     """Record + charge the conversation turns, returning them **intact**.
 
     Crucially, this does **not** drop messages: dropping a ``tool`` result while
@@ -274,7 +275,7 @@ def _select_history(
     last_user = _last_index(recent_messages, "user")
     last_tool = _last_index(recent_messages, "tool")
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for i, msg in enumerate(recent_messages):
         tok = counter.count_messages([msg])
         is_task = i == last_user
