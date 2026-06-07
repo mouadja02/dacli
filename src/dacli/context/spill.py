@@ -25,7 +25,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from dacli.core.atomicio import write_json_atomic
+from dacli.core.atomicio import write_bytes_atomic
+from dacli.core.fastjson import dumps as _json_dumps, dumps_bytes as _json_dumps_bytes
+from dacli.core.timeutils import now_iso
 
 # How many head/tail rows to show in the summary sample.
 SAMPLE_ROWS = 5
@@ -51,10 +53,13 @@ class ResultStore:
         handle = f"res_{datetime.now():%H%M%S}_{uuid.uuid4().hex[:6]}"
         payload = {
             "tool_name": tool_name,
-            "spilled_at": datetime.now().isoformat(timespec="seconds"),
+            "spilled_at": now_iso(),
             "data": data,
         }
-        write_json_atomic(self._path(handle), payload, default=str)
+        # orjson serializes the (potentially large) table; the bytes are written
+        # crash-safely via the atomic writer (P03). default=str rescues any
+        # non-JSON-native cell (Decimal, etc.) in both backends.
+        write_bytes_atomic(self._path(handle), _json_dumps_bytes(payload, default=str))
         return handle
 
     def read(self, handle: str, start: int = 0, count: int | None = None) -> dict[str, Any]:
@@ -113,16 +118,16 @@ def summarize(result: Any, handle: str) -> str:
             lines.append(f"Columns containing nulls/empties: {', '.join(nulls)}")
         head = data[:SAMPLE_ROWS]
         tail = data[-SAMPLE_ROWS:] if len(data) > SAMPLE_ROWS else []
-        lines.append(f"First {len(head)} rows: {json.dumps(head, default=str)}")
+        lines.append(f"First {len(head)} rows: {_json_dumps(head, default=str)}")
         if tail:
-            lines.append(f"Last {len(tail)} rows: {json.dumps(tail, default=str)}")
+            lines.append(f"Last {len(tail)} rows: {_json_dumps(tail, default=str)}")
         lines.append(fetch)
         return "\n".join(lines)
 
     if isinstance(data, list):
         return (
             f"{header}\nList of {len(data)} items. "
-            f"First {min(SAMPLE_ROWS, len(data))}: {json.dumps(data[:SAMPLE_ROWS], default=str)}{fetch}"
+            f"First {min(SAMPLE_ROWS, len(data))}: {_json_dumps(data[:SAMPLE_ROWS], default=str)}{fetch}"
         )
 
     # Large scalar/text/dict: note size and spill.

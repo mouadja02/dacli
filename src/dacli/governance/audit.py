@@ -22,17 +22,13 @@ import json
 import os
 import threading
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from dacli.core.logging_setup import get_logger
+from dacli.core.timeutils import now_iso as _now_iso
 
 log = get_logger(__name__)
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 @dataclass

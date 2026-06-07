@@ -11,15 +11,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 
+from dacli.core.timeutils import now_iso as _now_iso
 from dacli.eval.passk import PassKResult, run_pass_k, suite_pass_k
 from dacli.eval.types import GoldenTask
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 @dataclass

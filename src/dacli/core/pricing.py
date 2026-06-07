@@ -25,6 +25,10 @@ from typing import Any
 
 MODELS_DEV_URL = "https://models.dev/api.json"
 CACHE_TTL_SECONDS = 24 * 60 * 60  # refresh pricing at most once a day
+# Short network timeout: pricing is a startup nicety, not a blocker. A
+# first-run offline user (no cache yet) must not wait long before we fall back to
+# "cost unknown". Keep it well under a human's patience threshold.
+HTTP_TIMEOUT_SECONDS = 5.0
 
 # Minimum similarity score for a fuzzy model match to be trusted. Below this we
 # return no pricing (better an honest "unknown" than a wrong, confident price).
@@ -285,7 +289,7 @@ def fetch_api_json(cache_dir: str = ".dacli", force_refresh: bool = False) -> An
     try:
         import httpx
 
-        resp = httpx.get(MODELS_DEV_URL, timeout=10.0)
+        resp = httpx.get(MODELS_DEV_URL, timeout=HTTP_TIMEOUT_SECONDS)
         resp.raise_for_status()
         payload = resp.json()
         _save_cache(cache_dir, payload)
