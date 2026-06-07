@@ -17,6 +17,7 @@ from typing import Any
 
 from connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from core.verify import PostCondition, VerificationContext
+import contextlib
 
 
 def _run_completed() -> PostCondition:
@@ -57,10 +58,8 @@ class SandboxConnector(Connector):
     def close(self) -> None:
         """Release runtime resources (e.g. tear down a per-session container)."""
         if self._runtime is not None and hasattr(self._runtime, "close"):
-            try:
+            with contextlib.suppress(Exception):
                 self._runtime.close()
-            except Exception:
-                pass
 
     def operations(self) -> list[OperationSpec]:
         return [

@@ -25,6 +25,7 @@ import socket
 import sys
 import traceback
 from pathlib import Path
+import contextlib
 
 
 class _BridgeSDK:
@@ -169,17 +170,13 @@ def main() -> int:
         error = traceback.format_exc()
         print(error, file=sys.stderr)
 
-    try:
+    with contextlib.suppress(Exception):
         result_path.write_text(
             json.dumps({"ok": ok, "error": error, "returned": sdk._returned}, default=str),
             encoding="utf-8",
         )
-    except Exception:
-        pass
-    try:
+    with contextlib.suppress(Exception):
         sock.close()
-    except Exception:
-        pass
     return 0 if ok else 1
 
 

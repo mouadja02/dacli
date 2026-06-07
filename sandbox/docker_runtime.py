@@ -39,6 +39,7 @@ from sandbox.bridge import start_bridge
 from sandbox.policy import SandboxPolicy
 from sandbox.runtime import SandboxRunResult
 from sandbox.sdk import ConnectorSDK
+import contextlib
 
 #: Default image tag built from ``sandbox/docker/Dockerfile``.
 DEFAULT_IMAGE = "dacli-sandbox:latest"
@@ -216,10 +217,8 @@ class DockerSandboxRuntime:
                 proc.communicate(), timeout=self.policy.wall_clock_seconds)
         except asyncio.TimeoutError:
             timed_out = True
-            try:
+            with contextlib.suppress(Exception):
                 proc.kill()
-            except Exception:
-                pass
             # Best-effort: stop the runaway worker inside the container.
             self._docker("exec", self.container, "pkill", "-f", f"run_{run_id}", timeout=30)
             stdout_b, stderr_b = b"", b"sandbox run exceeded wall-clock limit"
@@ -273,8 +272,6 @@ class DockerSandboxRuntime:
     def close(self) -> None:
         """Tear the session container down (best-effort)."""
         if self._started:
-            try:
+            with contextlib.suppress(Exception):
                 self._docker("rm", "-f", self.container, timeout=60)
-            except Exception:
-                pass
             self._started = False

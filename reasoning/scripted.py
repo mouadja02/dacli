@@ -19,6 +19,7 @@ A scripted response is a dict::
 from __future__ import annotations
 
 from typing import Any
+import contextlib
 
 
 class ScriptExhausted(RuntimeError):
@@ -72,9 +73,7 @@ class ScriptedLLM:
         # Presentation parity with streaming providers (headless on_text is a
         # no-op; the chat UI streams). Never let a presentation hook break us.
         if on_text and text:
-            try:
+            with contextlib.suppress(Exception):
                 on_text(text)
-            except Exception:
-                pass
 
         return text, tool_calls

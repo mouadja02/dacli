@@ -3,6 +3,7 @@ import shutil
 import tempfile
 import unittest
 from unittest import mock
+import contextlib
 
 # Temp state dirs created by _settings_for_test(), removed in tearDownModule.
 _TEMP_DIRS = []
@@ -43,10 +44,8 @@ def _settings_for_test():
     _TEMP_DIRS.append(root)
     settings.agent.state_path = os.path.join(root, "state.json")
     settings.agent.history_path = os.path.join(root, "history.json")
-    try:
+    with contextlib.suppress(Exception):
         settings.sandbox.enabled = False
-    except Exception:
-        pass
     return settings
 
 

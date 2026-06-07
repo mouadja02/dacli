@@ -30,6 +30,7 @@ import asyncio
 import json
 from typing import Any
 from collections.abc import Callable
+import contextlib
 
 
 async def start_bridge(
@@ -93,10 +94,8 @@ async def start_bridge(
         except Exception:
             pass
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 writer.close()
-            except Exception:
-                pass
 
     server = await asyncio.start_server(handle_conn, host, 0)
     port = server.sockets[0].getsockname()[1]

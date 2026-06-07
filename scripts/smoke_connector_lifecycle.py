@@ -50,6 +50,7 @@ from core.connector_generator import (
     _CONNECTORS_DIR,
 )
 from core.connector_workflow import import_connector
+import contextlib
 
 CONNECTOR_NAME = "smoketest_conn"
 CLASS_NAME = "SmoketestConnConnector"
@@ -178,10 +179,8 @@ def _purge_modules() -> None:
 def _cleanup(tmp_yaml: Path) -> None:
     _purge_modules()
     shutil.rmtree(_CONNECTORS_DIR / CONNECTOR_NAME, ignore_errors=True)
-    try:
+    with contextlib.suppress(Exception):
         tmp_yaml.unlink(missing_ok=True)
-    except Exception:
-        pass
 
 
 async def main() -> int:

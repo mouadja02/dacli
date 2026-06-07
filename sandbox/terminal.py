@@ -237,7 +237,7 @@ class TerminalSession:
         if isinstance(outcome, RawExec):
             return outcome
         if isinstance(outcome, tuple):
-            output, code = (list(outcome) + [0])[:2]
+            output, code = ([*list(outcome), 0])[:2]
             return RawExec(output=str(output), exit_code=int(code))
         # A bare string → assume success.
         return RawExec(output=str(outcome), exit_code=0)

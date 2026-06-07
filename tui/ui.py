@@ -39,6 +39,7 @@ from rich.text import Text
 
 from connectors.base import ToolResult
 from .theme import ThemeSpec, get_theme
+import contextlib
 
 __author__ = ""  # populated by caller if needed
 
@@ -127,10 +128,8 @@ class StreamView:
 
     def _teardown(self) -> None:
         if self._live:
-            try:
+            with contextlib.suppress(Exception):
                 self._live.stop()
-            except Exception:
-                pass
             self._live = None
         self._buffer = ""
 
@@ -658,7 +657,7 @@ def _rows_table(rows: list[dict[str, Any]]) -> Table:
     """Render row-dicts as a full table — every row, every column (data work)."""
     columns = list(rows[0].keys())
     for row in rows[1:]:
-        for key in row.keys():
+        for key in row:
             if key not in columns:
                 columns.append(key)
 

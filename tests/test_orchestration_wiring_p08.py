@@ -24,6 +24,7 @@ from pathlib import Path
 from unittest import mock
 
 from core.kernel import AgentResponse
+import contextlib
 
 _TEMP_DIRS = []
 
@@ -43,15 +44,15 @@ def _settings(orchestration=None):
     orchestration sub-block when given."""
     from config.settings import Settings
 
-    kwargs = dict(
-        llm={"provider": "scripted", "model": "scripted",
+    kwargs = {
+        "llm": {"provider": "scripted", "model": "scripted",
              "api_key": "scripted", "base_url": "https://api.test.local"},
-        github={"token": "x"},
-        snowflake={"account": "a", "user": "u", "password": "p",
+        "github": {"token": "x"},
+        "snowflake": {"account": "a", "user": "u", "password": "p",
                    "warehouse": "w", "role": "r", "database": "d"},
-        pinecone={"api_key": "k", "index_name": "i", "environment": "e"},
-        embeddings={"provider": "openai", "api_key": "k", "model": "m"},
-    )
+        "pinecone": {"api_key": "k", "index_name": "i", "environment": "e"},
+        "embeddings": {"provider": "openai", "api_key": "k", "model": "m"},
+    }
     if orchestration is not None:
         kwargs["orchestration"] = orchestration
     settings = Settings(**kwargs)
@@ -59,10 +60,8 @@ def _settings(orchestration=None):
     _TEMP_DIRS.append(root)
     settings.agent.state_path = os.path.join(root, "state.json")
     settings.agent.history_path = os.path.join(root, "history.json")
-    try:
+    with contextlib.suppress(Exception):
         settings.sandbox.enabled = False
-    except Exception:
-        pass
     try:
         settings.terminal.enabled = False  # avoid spawning a workspace/shell
     except Exception:

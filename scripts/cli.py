@@ -300,12 +300,11 @@ def _init_dacli_md(settings: Settings) -> None:
     from memory.priors import generate_dacli_md, DACLI_PRIORS_FILE
 
     target = Path(DACLI_PRIORS_FILE.name)
-    if target.exists():
-        if not Confirm.ask(
-            f"[warning]{target} already exists. Overwrite?[/warning]", default=False
-        ):
-            console.print("[dim]Cancelled — DACLI.md left unchanged.[/dim]")
-            return
+    if target.exists() and not Confirm.ask(
+        f"[warning]{target} already exists. Overwrite?[/warning]", default=False
+    ):
+        console.print("[dim]Cancelled — DACLI.md left unchanged.[/dim]")
+        return
 
     content = generate_dacli_md(settings)
     target.write_text(content, encoding="utf-8")
@@ -415,12 +414,11 @@ def init(config):
     # Initialize a new config.yaml file.
     target_path = Path(config) if config else Path("config.yaml")
 
-    if target_path.exists():
-        if not Confirm.ask(
-            f"[warning]{target_path} already exists. Overwrite?[/warning]"
-        ):
-            console.print("Cancelled.")
-            return
+    if target_path.exists() and not Confirm.ask(
+        f"[warning]{target_path} already exists. Overwrite?[/warning]"
+    ):
+        console.print("Cancelled.")
+        return
 
     # Create default config
     from config.settings import Settings
@@ -897,7 +895,7 @@ def _ctx_pct(memory) -> int:
     # Context-window fill: how full the rolling message window is (0-100).
     window = max(getattr(memory, "memory_window", 0) or 1, 1)
     used = min(len(memory.get_full_history()), window)
-    return int(round(used / window * 100))
+    return round(used / window * 100)
 
 
 async def _run_chat(

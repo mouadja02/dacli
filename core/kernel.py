@@ -211,12 +211,12 @@ class Kernel:
                 content = ""
                 self._begin_stream()
                 try:
-                    gen_kwargs = dict(
-                        messages=messages,
-                        tools=tools,
-                        system_prompt=system_prompt,
-                        on_text=self._on_text,
-                    )
+                    gen_kwargs = {
+                        "messages": messages,
+                        "tools": tools,
+                        "system_prompt": system_prompt,
+                        "on_text": self._on_text,
+                    }
                     # Only thread ``model`` when set — keeps the call signature
                     # identical to the legacy path (and to test doubles that don't
                     # accept a ``model`` kwarg) unless tiering is actually in use.

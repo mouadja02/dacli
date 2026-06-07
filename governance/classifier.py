@@ -113,8 +113,7 @@ def _strip_sql(sql: str) -> str:
     no_line = re.sub(r"--[^\n]*", " ", no_block)
     # Drop single- and double-quoted literals (so a literal 'DROP' is invisible).
     no_strings = re.sub(r"'(?:[^']|'')*'", " ", no_line)
-    no_strings = re.sub(r'"(?:[^"]|"")*"', " ", no_strings)
-    return no_strings
+    return re.sub(r'"(?:[^"]|"")*"', " ", no_strings)
 
 
 def classify_sql(sql: str) -> SqlVerdict:
@@ -289,10 +288,7 @@ class ActionClassifier:
             # The SQL verb *replaces* the conservative op floor when it can be
             # parsed confidently (a real SELECT is safe even though the op that
             # carries it is declared RISKY); otherwise it can only promote.
-            if verdict.ambiguous:
-                tier = _max_tier(tier, verdict.tier)
-            else:
-                tier = verdict.tier
+            tier = _max_tier(tier, verdict.tier) if verdict.ambiguous else verdict.tier
             reasons.append(verdict.reason)
 
         # 2b. Shell command parse (the actual command is the truth for the shell

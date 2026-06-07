@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from core.atomicio import write_json_atomic
+import contextlib
 
 # How many head/tail lines the summary shows when output is spilled.
 SAMPLE_LINES = 8
@@ -67,10 +68,8 @@ class ScrollbackStore:
             "line_count": len(output.splitlines()),
             "output": output,
         }
-        try:
+        with contextlib.suppress(Exception):
             write_json_atomic(self._path(command_id), payload, default=str)
-        except Exception:
-            pass
         if command_id not in self._order:
             self._order.append(command_id)
         return command_id

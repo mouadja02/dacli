@@ -6,6 +6,7 @@ from typing import Optional
 from collections.abc import Awaitable, Callable
 
 from config.settings import Settings
+import contextlib
 
 logger = logging.getLogger(__name__)
 
@@ -192,10 +193,8 @@ class LLMClient:
         # Stream a delta to the UI without ever letting a rendering error break
         # generation (reliability-first).
         if on_text and delta:
-            try:
+            with contextlib.suppress(Exception):
                 on_text(delta)
-            except Exception:
-                pass
 
     async def classify(self, text: str, labels: list[str], instructions: str | None = None, model: str | None = None) -> str:
         """

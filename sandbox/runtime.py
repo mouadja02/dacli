@@ -33,6 +33,7 @@ from typing import Any
 from sandbox.bridge import start_bridge
 from sandbox.policy import SandboxPolicy
 from sandbox.sdk import ConnectorSDK
+import contextlib
 
 # Each sandbox run leaves a ``run_*`` workspace on disk. Without pruning these
 # grow unbounded; retain at most this many (the most recent), sweeping the rest.
@@ -147,10 +148,8 @@ class SandboxRuntime:
                 proc.communicate(), timeout=self.policy.wall_clock_seconds)
         except asyncio.TimeoutError:
             timed_out = True
-            try:
+            with contextlib.suppress(Exception):
                 proc.kill()
-            except Exception:
-                pass
             stdout_b, stderr_b = b"", b"sandbox run exceeded wall-clock limit"
         finally:
             server.close()

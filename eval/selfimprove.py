@@ -103,14 +103,13 @@ class SelfImprovement:
                 f"candidate did not beat baseline on pass^{k} "
                 f"({cand_pk:.2f} vs {base_pk:.2f}) — not promoted")
 
-        result = PromotionResult(
+        return PromotionResult(
             runbook=runbook_name, promoted=promoted,
             baseline_pass_k=base_pk, candidate_pass_k=cand_pk,
             baseline_success_rate=base.success_rate,
             candidate_success_rate=cand.success_rate,
             k=k, reason=reason,
         )
-        return result
 
     async def distill_and_promote(
         self,

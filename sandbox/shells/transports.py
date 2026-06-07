@@ -20,6 +20,7 @@ import queue
 import subprocess
 import threading
 from typing import Protocol, runtime_checkable
+import contextlib
 
 
 @runtime_checkable
@@ -83,10 +84,8 @@ class PipeTransport:
             except Exception:
                 pass
             finally:
-                try:
+                with contextlib.suppress(Exception):
                     stream.close()
-                except Exception:
-                    pass
 
         self._reader = threading.Thread(target=_pump, args=(self._proc.stdout,), daemon=True)
         self._reader.start()
@@ -130,10 +129,8 @@ class PipeTransport:
             return
         try:
             if self._proc.stdin:
-                try:
+                with contextlib.suppress(Exception):
                     self._proc.stdin.close()
-                except Exception:
-                    pass
             self._proc.terminate()
             try:
                 self._proc.wait(timeout=3)
@@ -178,17 +175,13 @@ class WinptyTransport:
 
     def send_interrupt(self) -> None:
         if self._pty is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._pty.write("\x03")
-            except Exception:
-                pass
 
     def close(self) -> None:
         if self._pty is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._pty.terminate(force=True)
-            except Exception:
-                pass
 
 
 class PosixPtyTransport:
@@ -230,17 +223,13 @@ class PosixPtyTransport:
 
     def send_interrupt(self) -> None:
         if self._pty is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._pty.write(b"\x03")
-            except Exception:
-                pass
 
     def close(self) -> None:
         if self._pty is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._pty.terminate(force=True)
-            except Exception:
-                pass
 
 
 def _pty_available() -> str | None:

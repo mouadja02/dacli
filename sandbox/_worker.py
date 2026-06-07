@@ -23,6 +23,7 @@ import socket
 import sys
 import traceback
 from pathlib import Path
+import contextlib
 
 
 class _BridgeSDK:
@@ -111,10 +112,8 @@ def main() -> int:
     network = os.environ.get("DACLI_SANDBOX_NETWORK", "off")
     allowlist = [a for a in os.environ.get("DACLI_SANDBOX_ALLOWLIST", "").split(",") if a]
     bridge_port = int(os.environ.get("DACLI_SANDBOX_BRIDGE_PORT", "0") or 0)
-    try:
+    with contextlib.suppress(Exception):
         apply_resource_limits(int(os.environ.get("DACLI_SANDBOX_MAX_MEM_MB", "1024")))
-    except Exception:
-        pass
 
     # Connect to the parent bridge first (loopback) — then lock down egress.
     sock = socket.create_connection(("127.0.0.1", ns.port))
@@ -135,17 +134,13 @@ def main() -> int:
         error = traceback.format_exc()
         print(error, file=sys.stderr)
 
-    try:
+    with contextlib.suppress(Exception):
         result_path.write_text(
             json.dumps({"ok": ok, "error": error, "returned": sdk._returned}, default=str),
             encoding="utf-8",
         )
-    except Exception:
-        pass
-    try:
+    with contextlib.suppress(Exception):
         sock.close()
-    except Exception:
-        pass
     return 0 if ok else 1
 
 
