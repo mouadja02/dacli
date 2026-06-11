@@ -11,7 +11,9 @@ Design goals (best-of from Claude Code / Codex / OpenCode TUIs):
 - **Live token streaming** — agent text appears as it is generated, with a
   thinking indicator that shows elapsed time and the current activity.
 - **Compact tool calls** — ``⏺ tool(args)`` then ``⎿ ✓ N rows · 340ms`` with the
-  full result table underneath (data work: never truncated).
+  result table underneath. Huge results are rendered head+tail (bounded by
+  ``ui.max_render_rows``) so the terminal survives a 50k-row SELECT; the
+  *data* itself — and the off-context spill — is never truncated.
 - **Persistent status bar** — provider·model · connectors · context · session,
   rendered by prompt-toolkit beneath the input.
 
@@ -384,6 +386,12 @@ class DacliUI:
             )
             self.console.print(Padding(syntax, (0, 0, 0, 4)))
 
+    def _render_cap(self) -> int:
+        # How many rows/items/fields the transcript renders before head+tail
+        # elision kicks in. Bounded out of the box; settings may widen it.
+        cap = getattr(getattr(self.settings, "ui", None), "max_render_rows", None)
+        return cap if isinstance(cap, int) and cap > 0 else 120
+
     def tool_end(self, tool_name: str, result: Any) -> None:
         if not isinstance(result, ToolResult):
             self.console.print(
@@ -408,30 +416,40 @@ class DacliUI:
         summary.append("✓ ", style="ok")
         data = result.data
         body: RenderableType | None = None
+        cap = self._render_cap()
 
         if isinstance(data, list) and data and isinstance(data[0], dict):
             summary.append(
                 f"{len(data)} row{'s' if len(data) != 1 else ''}", style="success"
             )
-            body = _rows_table(data)
+            body = _rows_table(data, max_rows=cap)
         elif isinstance(data, list):
             summary.append(
                 f"{len(data)} item{'s' if len(data) != 1 else ''}", style="success"
             )
             if data:
-                body = Text(
-                    "\n".join(f"{i}. {_cell(v)}" for i, v in enumerate(data, 1)),
+                indexed, footer = _capped_indexed(data, cap, "items")
+                listing = Text(
+                    "\n".join(
+                        "…" if v is _GAP else f"{i}. {_cell(v)}" for i, v in indexed
+                    ),
                     style="step",
                 )
+                body = Group(listing, footer) if footer else listing
         elif isinstance(data, dict):
             summary.append(
                 f"{len(data)} field{'s' if len(data) != 1 else ''}", style="success"
             )
+            indexed, footer = _capped_indexed(list(data.items()), cap, "fields")
             kv = Text()
-            for k, v in data.items():
+            for _i, item in indexed:
+                if item is _GAP:
+                    kv.append("…\n", style="muted")
+                    continue
+                k, v = item
                 kv.append(f"{k}: ", style="muted")
                 kv.append(f"{_cell(v)}\n", style="step")
-            body = kv
+            body = Group(kv, footer) if footer else kv
         elif data is None:
             summary.append("done", style="success")
         else:
@@ -653,8 +671,41 @@ def _arg_preview(args: dict[str, Any], max_len: int = 80) -> str:
     return preview
 
 
-def _rows_table(rows: list[dict[str, Any]]) -> Table:
-    """Render row-dicts as a full table — every row, every column (data work)."""
+# Sentinel marking the elided middle in a capped head+tail render.
+_GAP = object()
+
+
+def _capped_indexed(
+    items: list, cap: int, noun: str
+) -> tuple[list[tuple[int, Any]], Text | None]:
+    """1-based ``(index, item)`` pairs capped to head+tail, plus a footer.
+
+    Under the cap, every item is returned (footer ``None``). Over it, the head
+    and tail survive with their *true* indices, a ``_GAP`` marks the elision,
+    and the footer says how much was shown — the data itself is untouched.
+    """
+    total = len(items)
+    if total <= cap:
+        return list(enumerate(items, 1)), None
+    tail_n = max(1, cap // 6)
+    head_n = cap - tail_n
+    indexed: list[tuple[int, Any]] = list(enumerate(items[:head_n], 1))
+    indexed.append((0, _GAP))
+    indexed.extend(enumerate(items[-tail_n:], total - tail_n + 1))
+    footer = Text(
+        f"… showing {head_n + tail_n:,} of {total:,} {noun}. Full result "
+        "preserved — use the result handle / /export to see all.",
+        style="muted",
+    )
+    return indexed, footer
+
+
+def _rows_table(rows: list[dict[str, Any]], max_rows: int = 120) -> RenderableType:
+    """Render row-dicts as a table — every column, head+tail rows when huge.
+
+    The cap bounds only what is *printed*; ``result.data`` and the off-context
+    spill keep every row.
+    """
     columns = list(rows[0].keys())
     for row in rows[1:]:
         for key in row:
@@ -668,6 +719,10 @@ def _rows_table(rows: list[dict[str, Any]]) -> Table:
     for col in columns:
         table.add_column(str(col), style="info", overflow="fold")
 
-    for i, row in enumerate(rows, 1):
+    indexed, footer = _capped_indexed(rows, max_rows, "rows")
+    for i, row in indexed:
+        if row is _GAP:
+            table.add_row("…", *["…" for _ in columns])
+            continue
         table.add_row(str(i), *[_cell(row.get(col)) for col in columns])
-    return table
+    return Group(table, footer) if footer else table

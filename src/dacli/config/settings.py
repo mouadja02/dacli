@@ -486,6 +486,9 @@ class UISettings(BaseModel):
     table_format: str = "grid"
     max_width: int = Field(default=120, ge=40)
     truncate_output: int = Field(default=5000, ge=100)
+    # Cap on rows/items/fields *rendered* in the tool transcript (head + tail).
+    # The underlying result data and the off-context spill are never truncated.
+    max_render_rows: int = Field(default=120, ge=10)
 
 
 class RetrySettings(BaseModel):
