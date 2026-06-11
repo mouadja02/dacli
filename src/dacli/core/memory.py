@@ -381,8 +381,6 @@ class AgentMemory:
                     "updated_at": data.get("updated_at"),
                     "active_task": active,
                     "errors_count": data.get("errors_count", 0),
-                    # Tolerate both new (catalog-derived) and legacy state files.
-                    "tables_created": len(data.get("created_tables", [])),
                 })
             except Exception:
                 continue
