@@ -80,6 +80,45 @@ _NOTICE_ICONS = {
     "info": "ℹ",
 }
 
+# Blast-radius tier → style. Shared by the audit view and the approval panel so
+# "risky" reads the same color everywhere.
+TIER_STYLE = {
+    "safe": "success",
+    "write": "info",
+    "risky": "warning",
+    "irreversible": "error",
+}
+
+# Error remediation hints: substring of the error → a one-line next step.
+# Deliberately a small lookup (the startup path attaches hints the same way for
+# failed connectors); first match wins.
+_REMEDIATION_HINTS: tuple[tuple[str, str], ...] = (
+    ("not healthy", "Try /debug-connector <name> to diagnose, or /connect to reconfigure."),
+    ("health check", "Try /debug-connector <name> to diagnose, or /connect to reconfigure."),
+    ("decrypt", "Stored secrets could not be read — re-enter them via /connect."),
+    ("unknown tool", "See /tools for what's enabled; /setup to enable more."),
+    ("blocked by governance", "See /audit for the decision; adjust config/policy.yaml if intended."),
+    ("permission denied", "Scope too narrow — see /audit; widen it in config/policy.yaml if intended."),
+    ("unauthorized", "Credentials look invalid — update them via /connect."),
+    ("forbidden", "Credentials look invalid — update them via /connect."),
+    ("401", "Credentials look invalid — update them via /connect."),
+    ("403", "Credentials look invalid — update them via /connect."),
+    ("rate limit", "Provider rate limit — wait a moment and retry."),
+    ("429", "Provider rate limit — wait a moment and retry."),
+    ("timed out", "The platform didn't answer in time — check connectivity, then retry."),
+)
+
+
+def _remediation_hint(message: Any) -> str | None:
+    """First matching one-line suggestion for a rendered error, or None."""
+    try:
+        msg = str(message or "").lower()
+    except Exception:
+        return None
+    return next(
+        (hint for needle, hint in _REMEDIATION_HINTS if needle in msg), None
+    )
+
 
 class StreamView:
     """A transient Rich ``Live`` region for one LLM ``generate`` call.
@@ -183,6 +222,8 @@ class DacliUI:
             self.console.push_theme(self.theme.rich_theme())
         self.stream = StreamView(self)
         self.activity = ""  # current background activity, shown in the spinner
+        # Transient liveness line for a long-running tool (see tool_progress).
+        self._progress_live: Live | None = None
 
     # ------------------------------------------------------------------
     # Theme
@@ -335,7 +376,13 @@ class DacliUI:
         self.console.print(f"[{style}]{prefix}{message}[/{style}]")
 
     def error(self, message: str) -> None:
+        self._clear_progress()
         self.console.print(self._guttered("✗", "bad", Text(message, style="error")))
+        hint = _remediation_hint(message)
+        if hint:
+            self.console.print(
+                Padding(Text(f"↳ {hint}", style="muted"), (0, 0, 0, 2))
+            )
 
     def status(self, message: str) -> None:
         """Background activity from the kernel.
@@ -357,6 +404,7 @@ class DacliUI:
     # Streaming hooks (wired into the kernel)
     # ------------------------------------------------------------------
     def on_stream_start(self) -> None:
+        self._clear_progress()  # only one live region may own the console
         self.stream.begin()
 
     def on_text(self, delta: str) -> None:
@@ -366,9 +414,50 @@ class DacliUI:
         self.stream.end(content)
 
     # ------------------------------------------------------------------
+    # Tool liveness (optional on_tool_progress callback)
+    # ------------------------------------------------------------------
+    def tool_progress(self, tool_name: str, message: str) -> None:
+        """Liveness for a long-running tool: one transient status line.
+
+        Polling connectors (Airflow/Dagster) report each iteration here so a
+        minutes-long run doesn't sit behind a static tool card. The line is
+        transient — ``tool_end`` clears it, keeping the scrollback clean. While
+        the streaming spinner owns the live region, the message feeds it
+        instead. Never raises into the control loop.
+        """
+        try:
+            if self.stream.active:
+                self.activity = f"{tool_name}: {message}"
+                return
+            frame = _FRAMES[int(time.monotonic() * 10) % len(_FRAMES)]
+            line = Text()
+            line.append(f"  {frame} ", style="tool")
+            line.append(f"{tool_name} ", style="muted")
+            line.append(str(message), style="step")
+            if self._progress_live is None:
+                self._progress_live = Live(
+                    line,
+                    console=self.console,
+                    transient=True,
+                    refresh_per_second=8,
+                )
+                self._progress_live.start()
+            else:
+                self._progress_live.update(line)
+        except Exception:
+            self._clear_progress()
+
+    def _clear_progress(self) -> None:
+        live, self._progress_live = self._progress_live, None
+        if live is not None:
+            with contextlib.suppress(Exception):
+                live.stop()
+
+    # ------------------------------------------------------------------
     # Tool transcript
     # ------------------------------------------------------------------
     def tool_start(self, tool_name: str, args: dict[str, Any]) -> None:
+        self._clear_progress()
         header = Text(tool_name, style="tool")
         preview = _arg_preview(args)
         if preview:
@@ -393,6 +482,7 @@ class DacliUI:
         return cap if isinstance(cap, int) and cap > 0 else 120
 
     def tool_end(self, tool_name: str, result: Any) -> None:
+        self._clear_progress()
         if not isinstance(result, ToolResult):
             self.console.print(
                 Padding(
@@ -409,6 +499,11 @@ class DacliUI:
             self.console.print(
                 Padding(self._guttered(G_RESULT, "bad", summary), (0, 0, 0, 2))
             )
+            hint = _remediation_hint(result.error)
+            if hint:
+                self.console.print(
+                    Padding(Text(f"↳ {hint}", style="muted"), (0, 0, 0, 4))
+                )
             self.console.print()
             return
 
@@ -465,6 +560,124 @@ class DacliUI:
         self.console.print()
 
     # ------------------------------------------------------------------
+    # Approval / plan rendering (governance sign-off)
+    # ------------------------------------------------------------------
+    def approval_panel(self, request) -> None:
+        """Render a governance approval request (or a DAG plan) for sign-off.
+
+        Structured when the request carries a dry-run preview / shadow diff or
+        is a plan; plain text otherwise. A malformed request can never raise —
+        it falls back to ``describe()`` text, then to ``str()``.
+        """
+        tier = getattr(getattr(request, "tier", None), "value", "?")
+        border = "error" if tier == "irreversible" else "warning"
+        try:
+            body = self._approval_body(request, tier)
+        except Exception:
+            describe = getattr(request, "describe", None)
+            try:
+                text = str(describe()) if callable(describe) else str(request)
+            except Exception:
+                text = str(request)
+            body = Text(text, style="step")
+        tier_style = TIER_STYLE.get(tier, "muted")
+        self.console.print(
+            Panel(
+                body,
+                title=(
+                    f"[{border}]approval needed[/{border}] · "
+                    f"[{tier_style}]{tier}[/{tier_style}]"
+                ),
+                title_align="left",
+                border_style=border,
+                padding=(1, 2),
+            )
+        )
+
+    def _approval_body(self, request, tier: str) -> RenderableType:
+        describe = getattr(request, "describe", None)
+        if not callable(describe):
+            # A DAG plan (plan-approve-execute) renders its inspectable text.
+            render = getattr(request, "render", None)
+            if callable(render):
+                return Text(str(render()), style="step")
+            return Text(str(request), style="step")
+
+        grid = Table.grid(padding=(0, 2, 0, 0))
+        grid.add_column(style="muted", no_wrap=True)
+        grid.add_column()
+        grid.add_row(
+            "Action", Text(str(getattr(request, "tool_name", "?")), style="accent")
+        )
+        tier_text = Text(tier, style=TIER_STYLE.get(tier, "muted"))
+        cls = getattr(request, "classification", None)
+        if getattr(cls, "is_prod", False):
+            tier_text.append(f"  (PROD: {cls.prod_marker})", style="error")
+        grid.add_row("Blast radius", tier_text)
+        reasons = "; ".join(getattr(cls, "reasons", None) or [])
+        if reasons:
+            grid.add_row("Why", Text(reasons, style="step"))
+        policy = getattr(request, "policy", None)
+        if policy is not None:
+            decision = getattr(getattr(policy, "decision", None), "value", "?")
+            source = getattr(policy, "source", "?")
+            grid.add_row("Decision", Text(f"{decision}  [{source}]", style="step"))
+        plan = getattr(request, "rollback_plan", None)
+        if plan is not None:
+            rollback = Text(str(getattr(plan, "strategy", "?")), style="step")
+            if getattr(plan, "primitive", None) not in ("noop", "none", None):
+                rollback.append(
+                    f"  (verified: {getattr(plan, 'verify_detail', '')})",
+                    style="muted",
+                )
+            grid.add_row("Rollback", rollback)
+
+        parts: list[RenderableType] = [grid]
+        preview = getattr(request, "dry_run_preview", None)
+        if preview:
+            parts.append(Text("Dry-run preview", style="muted"))
+            parts.append(
+                Syntax(
+                    str(preview).strip(),
+                    "sql",
+                    theme="monokai",
+                    word_wrap=True,
+                    background_color="default",
+                )
+            )
+        shadow = getattr(request, "shadow", None)
+        if shadow is not None and getattr(shadow, "ran", False):
+            diff = getattr(shadow, "diff", None) or {}
+            if "rows_before" in diff and "rows_after" in diff:
+                parts.append(self._shadow_delta_table(diff))
+            else:
+                parts.append(Text(f"Shadow: {shadow.summary()}", style="step"))
+        return Group(*parts) if len(parts) > 1 else parts[0]
+
+    @staticmethod
+    def _shadow_delta_table(diff: dict[str, Any]) -> Table:
+        # Tiny before/after table for a shadow row-count delta.
+        delta = diff.get("row_delta")
+        if delta is None:
+            try:
+                delta = diff["rows_after"] - diff["rows_before"]
+            except Exception:
+                delta = "?"
+        table = Table(
+            title="[muted]Shadow run (on a clone)[/muted]",
+            title_justify="left",
+            show_header=True,
+            header_style="muted",
+            box=None,
+            padding=(0, 2, 0, 0),
+        )
+        table.add_column("rows before", justify="right", style="info")
+        table.add_column("rows after", justify="right", style="info")
+        table.add_column("Δ", justify="right", style="accent")
+        table.add_row(str(diff["rows_before"]), str(diff["rows_after"]), str(delta))
+        return table
+
+    # ------------------------------------------------------------------
     # Slash-command tables
     # ------------------------------------------------------------------
     def help(self, commands: Iterable) -> None:
@@ -481,6 +694,32 @@ class DacliUI:
         for cmd, desc in commands:
             table.add_row(cmd, desc)
         self.console.print(table)
+        self.console.print()
+
+    def keys_panel(self) -> None:
+        """`/keys`: the TUI keybinding map, so shortcuts are discoverable."""
+        table = Table(show_header=False, box=None, padding=(0, 2, 0, 0))
+        table.add_column("Key", style="accent", no_wrap=True)
+        table.add_column("Action", style="step")
+        for key, action in (
+            ("Tab / Shift-Tab", "Open / step through slash-command completions"),
+            ("↑ / ↓", "Browse input history"),
+            ("Ctrl-R", "Reverse-search input history"),
+            ("Ctrl-C", "Interrupt the running turn"),
+            ("Enter", "Send the message"),
+            ("paste", "Pasted text keeps its newlines (multiline message)"),
+            ("/help", "List all slash commands"),
+        ):
+            table.add_row(key, action)
+        self.console.print(
+            Panel(
+                table,
+                title="[accent]Keyboard shortcuts[/accent]",
+                title_align="left",
+                border_style="border",
+                padding=(1, 2),
+            )
+        )
         self.console.print()
 
     def connectors_table(self, registry) -> None:
@@ -657,6 +896,7 @@ class DacliUI:
         ctx_pct: int,
         session: str,
         test_mode: str = "",
+        cost: str = "",
     ):
         """Return prompt-toolkit formatted text for the bottom bar."""
         from prompt_toolkit.formatted_text import HTML
@@ -677,10 +917,12 @@ class DacliUI:
             if test_mode
             else ""
         )
+        cost_seg = f" │  {esc(cost)} " if cost else ""
         text = (
             f" <b>{esc(provider)}</b>·{esc(model)} "
             f" │  ⛁ {esc(conns)} "
             f" │  ◴ ctx {ctx_pct}% "
+            f"{cost_seg}"
             f" │  ⎇ {esc(session)} "
             f"{test_seg}"
             f" │  /help "

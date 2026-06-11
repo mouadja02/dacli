@@ -58,9 +58,23 @@ You can always re-run this wizard later by using: `dacli --setup`
         return not self.registry.setup_completed
 
     async def run(self) -> dict[str, Any]:
-        """Run the complete setup wizard. Returns a connectors-config dict."""
+        """Run the complete setup wizard. Returns a connectors-config dict.
+
+        Leads with the quick profiles (one question, immediate value); the
+        granular per-connector / per-operation flow is the "custom" path.
+        """
         self.print_welcome()
         self.console.print()
+
+        if Confirm.ask(
+            "Quick start with a profile? (recommended — choose 'n' to customize)",
+            default=True,
+        ) and self._apply_quick_profile():
+            self.console.print("\n[bold cyan]Validating Credentials[/bold cyan]\n")
+            self._collect_secrets()
+            validation_results = await self._validate_credentials()
+            self._show_summary(validation_results)
+            return {"setup_completed": True, "connectors": self.selections}
 
         # Step 1: Connector selection
         self.console.print("[bold cyan]Step 1/3:[/bold cyan] Select Connectors\n")
@@ -79,6 +93,23 @@ You can always re-run this wizard later by using: `dacli --setup`
         self._show_summary(validation_results)
 
         return {"setup_completed": True, "connectors": self.selections}
+
+    def _apply_quick_profile(self) -> bool:
+        """Pick a QuickSetup profile and adopt its selections.
+
+        Returns True when a profile was applied; False (fall through to the
+        custom flow) when the chosen profile is unknown.
+        """
+        QuickSetup.show_profiles(self.console, self.registry)
+        choices = list(QuickSetup.list_profiles(self.registry).keys())
+        name = Prompt.ask("Profile", choices=choices, default="full")
+        config = QuickSetup.get_profile(name, self.registry)
+        if config is None:
+            self.console.print(f"[yellow]Unknown profile: {name}[/yellow]")
+            return False
+        self.selections = config["connectors"]
+        self.console.print(f"[green]✓ Applied profile: {name}[/green]")
+        return True
 
     def _select_connectors(self):
         """Interactive connector selection"""

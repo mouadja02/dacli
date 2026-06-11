@@ -155,6 +155,182 @@ def test_max_render_rows_is_configurable():
 
 
 # ---------------------------------------------------------------------------
+# /keys panel (P08 U-2)
+# ---------------------------------------------------------------------------
+def test_keys_panel_renders_shortcuts():
+    ui = _recording_ui()
+    ui.keys_panel()
+    out = ui.console.export_text()
+    assert "Keyboard shortcuts" in out
+    assert "Tab" in out
+    assert "Ctrl-R" in out
+    assert "/help" in out
+
+
+def test_keys_command_is_registered_for_autocomplete():
+    from dacli.config import CLI_COMMANDS
+    assert "/keys" in [cmd.split()[0] for cmd, _desc in CLI_COMMANDS]
+
+
+# ---------------------------------------------------------------------------
+# Approval / plan rendering (P08 U-3)
+# ---------------------------------------------------------------------------
+def _approval_request(**overrides):
+    base = {
+        "tool_name": "execute_snowflake_query",
+        "tier": types.SimpleNamespace(value="risky"),
+        "classification": types.SimpleNamespace(
+            is_prod=False, prod_marker="", reasons=["DML on orders"]
+        ),
+        "policy": types.SimpleNamespace(
+            decision=types.SimpleNamespace(value="require_approval"), source="default"
+        ),
+        "rollback_plan": types.SimpleNamespace(
+            strategy="transaction rollback", primitive="txn", verify_detail="BEGIN ok"
+        ),
+        "args": {},
+        "dry_run_preview": None,
+        "shadow": None,
+    }
+    base.update(overrides)
+    request = types.SimpleNamespace(**base)
+    request.describe = lambda: "Action      : execute_snowflake_query"
+    return request
+
+
+def test_approval_panel_renders_structured_request():
+    ui = _recording_ui()
+    ui.approval_panel(_approval_request())
+    out = ui.console.export_text()
+    assert "approval needed" in out
+    assert "risky" in out
+    assert "execute_snowflake_query" in out
+    assert "DML on orders" in out
+    assert "transaction rollback" in out
+
+
+def test_approval_panel_renders_sql_dry_run_preview():
+    ui = _recording_ui()
+    ui.approval_panel(
+        _approval_request(dry_run_preview="UPDATE orders SET status = 'x'")
+    )
+    out = ui.console.export_text()
+    assert "Dry-run preview" in out
+    assert "UPDATE" in out
+
+
+def test_approval_panel_renders_shadow_row_delta_table():
+    ui = _recording_ui()
+    shadow = types.SimpleNamespace(
+        ran=True, diff={"rows_before": 100, "rows_after": 90, "row_delta": -10}
+    )
+    ui.approval_panel(_approval_request(shadow=shadow))
+    out = ui.console.export_text()
+    assert "rows before" in out
+    assert "100" in out and "90" in out and "-10" in out
+
+
+def test_approval_panel_renders_dag_plan():
+    ui = _recording_ui()
+    plan = types.SimpleNamespace(
+        render=lambda: "Plan for: migrate\n1. [a] create table\n2. [b] load data"
+    )
+    ui.approval_panel(plan)
+    out = ui.console.export_text()
+    assert "Plan for: migrate" in out
+    assert "create table" in out
+
+
+def test_approval_panel_never_raises_on_malformed_input():
+    ui = _recording_ui()
+    ui.approval_panel(object())
+    ui.approval_panel(None)
+    # describe() raising + a shadow diff that can't compute a delta.
+    weird = _approval_request(
+        classification=None,
+        policy=None,
+        rollback_plan=None,
+        shadow=types.SimpleNamespace(ran=True, diff={"rows_before": "x", "rows_after": None}),
+    )
+    weird.describe = lambda: 1 / 0
+    ui.approval_panel(weird)
+    assert "approval needed" in ui.console.export_text()
+
+
+# ---------------------------------------------------------------------------
+# Tool liveness (P08 U-4)
+# ---------------------------------------------------------------------------
+def test_tool_progress_updates_then_tool_end_clears():
+    ui = _recording_ui()
+    ui.tool_progress("trigger_airflow_dag", "run r1: queued — polling (1/10)")
+    ui.tool_progress("trigger_airflow_dag", "run r1: running — polling (2/10)")
+    assert ui._progress_live is not None
+    ui.tool_end("trigger_airflow_dag", ToolResult(
+        "trigger_airflow_dag", ToolStatus.SUCCESS, execution_time_ms=1.0))
+    assert ui._progress_live is None
+
+
+def test_tool_progress_feeds_spinner_while_streaming():
+    ui = _recording_ui()
+    ui.on_stream_start()
+    ui.tool_progress("launch_dagster_run", "run r2: STARTED")
+    assert ui._progress_live is None  # the stream owns the live region
+    assert "launch_dagster_run" in ui.activity
+    ui.on_stream_end("done")
+
+
+def test_tool_progress_never_raises_on_weird_data():
+    ui = _recording_ui()
+    ui.tool_progress(None, object())  # malformed input must not raise
+    ui.tool_start("x", {})
+    assert ui._progress_live is None
+
+
+# ---------------------------------------------------------------------------
+# Error remediation hints (P08 U-5)
+# ---------------------------------------------------------------------------
+def test_tool_end_health_error_hints_debug_connector():
+    ui = _recording_ui()
+    ui.tool_end("q", ToolResult(
+        "q", ToolStatus.ERROR, error="connector 'foo' is not healthy: boom"))
+    out = ui.console.export_text()
+    assert "/debug-connector" in out
+
+
+def test_error_decryption_failure_hints_connect():
+    ui = _recording_ui()
+    ui.error("failed to decrypt secrets store")
+    assert "/connect" in ui.console.export_text()
+
+
+def test_unmapped_error_has_no_hint():
+    ui = _recording_ui()
+    ui.tool_end("q", ToolResult("q", ToolStatus.ERROR, error="some odd failure"))
+    assert "↳" not in ui.console.export_text()
+
+
+# ---------------------------------------------------------------------------
+# Bottom toolbar $cost segment (P08 U-6)
+# ---------------------------------------------------------------------------
+def test_bottom_toolbar_shows_cost_segment():
+    from prompt_toolkit.formatted_text import to_formatted_text
+    ui = _recording_ui()
+    tb = ui.bottom_toolbar(provider="p", model="m", connectors=["a"],
+                           ctx_pct=10, session="s", cost="$0.12")
+    text = "".join(t[1] for t in to_formatted_text(tb))
+    assert "$0.12" in text
+
+
+def test_bottom_toolbar_omits_cost_segment_when_blank():
+    from prompt_toolkit.formatted_text import to_formatted_text
+    ui = _recording_ui()
+    tb = ui.bottom_toolbar(provider="p", model="m", connectors=["a"],
+                           ctx_pct=10, session="s")
+    text = "".join(t[1] for t in to_formatted_text(tb))
+    assert "$" not in text
+
+
+# ---------------------------------------------------------------------------
 # OpenAI streaming reassembly
 # ---------------------------------------------------------------------------
 def _chunk(content=None, tool_fragments=None):

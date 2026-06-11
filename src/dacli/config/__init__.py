@@ -2,6 +2,7 @@ from dacli.config.settings import Settings, is_llm_configured, load_config
 
 CLI_COMMANDS = [
     ("/help", "Show this help message"),
+    ("/keys", "Show keyboard shortcuts"),
     ("/init", "Generate a DACLI.md priors draft from your config"),
     ("/status", "Show current progress and state"),
     ("/usage", "Show token usage and cost (overall, by model, this session)"),

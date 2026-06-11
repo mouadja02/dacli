@@ -33,6 +33,7 @@ from dacli.prompts.system_prompt import (
     SYSTEM_PROMPT_FILE,
 )
 from dacli.tui import DacliUI, THEMES
+from dacli.tui.ui import TIER_STYLE
 
 # Module-level UI for the standalone (non-chat) click commands. The interactive
 # chat in ``_run_chat`` builds its own themed instance once settings are loaded.
@@ -576,12 +577,7 @@ def _print_audit(ledger, session_id, *, full=False, limit=20, header=None, targe
         )
     )
 
-    tier_style = {
-        "safe": "success",
-        "write": "info",
-        "risky": "warning",
-        "irreversible": "error",
-    }
+    tier_style = TIER_STYLE  # shared with the approval panel (tui.ui)
     icons = {
         "classification": "◆",
         "policy": "▸",
@@ -847,8 +843,21 @@ def _enabled_connector_names(registry) -> list:
     ]
 
 
-def _ctx_pct(memory) -> int:
-    # Context-window fill: how full the rolling message window is (0-100).
+def _ctx_pct(memory, agent=None) -> int:
+    # Context fill for the toolbar (0-100). Prefer the assembler's real budget
+    # snapshot (cached once per turn by the context pipeline) so the number
+    # reflects true token pressure; before the first turn assembles anything,
+    # fall back to the rolling message-window proxy.
+    try:
+        last = agent._context["last_context"]() if agent is not None else None
+        budget = getattr(last, "budget", None)
+        if budget:
+            used = sum(v.get("used", 0) for v in budget.values())
+            cap = sum(v.get("cap", 0) for v in budget.values())
+            if cap > 0:
+                return min(100, max(0, round(used / cap * 100)))
+    except Exception:
+        pass  # a toolbar glitch must never break the input loop
     window = max(getattr(memory, "memory_window", 0) or 1, 1)
     used = min(len(memory.get_full_history()), window)
     return round(used / window * 100)
@@ -936,16 +945,7 @@ async def _run_chat(
         # Governance: a risky/irreversible action wants sign-off. Show
         # the blast radius, the classifier's reasoning, the rollback plan and any
         # dry-run / shadow diff, then ask. Default is NO (fail-safe).
-        tier = getattr(getattr(request, "tier", None), "value", "?")
-        border = "error" if tier == "irreversible" else "warning"
-        con.print(
-            Panel(
-                Text(request.describe(), style="step"),
-                title=f"[{border}]approval needed · {tier}[/{border}]",
-                border_style=border,
-                padding=(1, 2),
-            )
-        )
+        chat_ui.approval_panel(request)
         return Confirm.ask(
             "[prompt]Proceed with this action?[/prompt]", console=con, default=False
         )
@@ -957,6 +957,7 @@ async def _run_chat(
         on_status_update=chat_ui.status,
         on_tool_start=chat_ui.tool_start,
         on_tool_end=chat_ui.tool_end,
+        on_tool_progress=chat_ui.tool_progress,
         on_user_input_needed=on_user_input_needed,
         on_approval=on_approval,
         on_stream_start=chat_ui.on_stream_start,
@@ -1010,6 +1011,14 @@ async def _run_chat(
     history_file = Path(settings.agent.history_path) / "input_history.txt"
     history_file.parent.mkdir(parents=True, exist_ok=True)
 
+    def _session_cost() -> str:
+        # Live per-session $cost for the bottom bar; blank on any hiccup.
+        try:
+            session = store.usage_summary(memory.session_id).get("session")
+            return _fmt_cost(session.get("costUSD", 0) if session else 0)
+        except Exception:
+            return ""
+
     def bottom_toolbar():
         from dacli.core.test_mode import test_mode as _tm
 
@@ -1017,9 +1026,10 @@ async def _run_chat(
             provider=settings.llm.provider,
             model=settings.llm.model,
             connectors=_enabled_connector_names(agent.registry),
-            ctx_pct=_ctx_pct(memory),
+            ctx_pct=_ctx_pct(memory, agent),
             session=memory.session_id,
             test_mode=_tm.toolbar_text(),
+            cost=_session_cost(),
         )
 
     pt_session = PromptSession(
@@ -1052,6 +1062,9 @@ async def _run_chat(
 
                     if cmd == "/help":
                         chat_ui.help(CLI_COMMANDS)
+
+                    elif cmd == "/keys":
+                        chat_ui.keys_panel()
 
                     elif cmd == "/init":
                         _init_dacli_md(settings)

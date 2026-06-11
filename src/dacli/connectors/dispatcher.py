@@ -42,6 +42,7 @@ class Dispatcher:
         memory: Any = None,
         on_tool_start: Callable[[str, dict], None] | None = None,
         on_tool_end: Callable[[str, ToolResult], None] | None = None,
+        on_tool_progress: Callable[[str, str], None] | None = None,
         verifier: Any = None,
         governor: Any = None,
         test_mode: Any = None,
@@ -50,6 +51,11 @@ class Dispatcher:
         self._memory = memory
         self._on_tool_start = on_tool_start
         self._on_tool_end = on_tool_end
+        #: optional liveness callback (tool_name, message). When provided it is
+        # bound onto the connector around ``invoke`` so a long-running op (an
+        # Airflow/Dagster poll loop) can animate the UI via ``emit_progress``.
+        # Headless/eval runs don't pass it, so behaviour there is unchanged.
+        self._on_tool_progress = on_tool_progress
         #: optional :class:`core.test_mode.StagingMode`. When active and the resolved
         # connector is the one under test, the call runs in *staging mode*:
         # health-gated, exception-captured with full diagnostics, and with
@@ -125,6 +131,11 @@ class Dispatcher:
                     self._on_tool_end(tool_name, staged_gate)
                 return staged_gate
 
+            # Bind the liveness callback for the duration of the call only, so
+            # progress is always attributed to the tool that is running.
+            if self._on_tool_progress is not None:
+                progress = self._on_tool_progress
+                connector._on_progress = lambda msg: progress(tool_name, msg)
             try:
                 result = await connector.invoke(op, arguments)
             except Exception as e:
@@ -142,6 +153,9 @@ class Dispatcher:
                 # success. Runs before logging/catalog effects so a failed check
                 # never lets a bad outcome propagate as done.
                 result = await self._verify(tool_name, connector, arguments, result)
+            finally:
+                if self._on_tool_progress is not None:
+                    connector._on_progress = None
 
             if staged:
                 # Tag so the UI can mark the call [TEST]; the connector name lets
