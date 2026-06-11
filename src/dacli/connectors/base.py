@@ -9,6 +9,7 @@ It also keeps ``ToolResult`` / ``ToolStatus`` here so the rest of the runtime
 imports its result type from one place.
 """
 
+import contextlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -133,9 +134,23 @@ class Connector(ABC):
     #: Stable connector id (e.g. "snowflake"). Subclasses must set this.
     name: str = ""
 
+    #: Optional liveness callback, set by the dispatcher around ``invoke`` when
+    # the host UI wants progress (e.g. each poll of a long-running run). Never
+    # set in headless/eval runs, so ``emit_progress`` is a no-op there.
+    _on_progress: Any = None
+
     def __init__(self, settings: Any):
         self.settings = settings
         self._is_connected = False
+
+    def emit_progress(self, message: str) -> None:
+        """Report liveness from a long-running operation. No-op when unset."""
+        callback = self._on_progress
+        if callback is None:
+            return
+        # A UI hiccup must never break the operation.
+        with contextlib.suppress(Exception):
+            callback(message)
 
     @property
     def is_connected(self) -> bool:

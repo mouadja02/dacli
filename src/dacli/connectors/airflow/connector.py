@@ -227,6 +227,10 @@ class AirflowConnector(HttpConnector):
         for _attempt in range(max_attempts):
             if state in _TERMINAL:
                 break
+            self.emit_progress(
+                f"run {run_id}: {state or 'queued'} — polling "
+                f"({_attempt + 1}/{max_attempts})"
+            )
             run = await self._request("GET", f"/api/v1/dags/{dag_id}/dagRuns/{run_id}")
             state = (run.data or {}).get("state") if run.ok else state
             if state in _TERMINAL:

@@ -199,9 +199,13 @@ class DagsterConnector(HttpConnector):
         cfg = self._cfg()
         interval = getattr(cfg, "poll_interval", 5) if cfg else 5
         max_attempts = max(1, self._timeout() // max(interval, 1))
-        for _ in range(max_attempts):
+        for _attempt in range(max_attempts):
             if status in _TERMINAL:
                 break
+            self.emit_progress(
+                f"run {run_id}: {status or 'launching'} — polling "
+                f"({_attempt + 1}/{max_attempts})"
+            )
             ok2, data2, _ = await self._graphql(_RUN_Q, {"runId": run_id})
             if ok2:
                 status = (data2.get("runOrError", {}) or {}).get("status") or status
