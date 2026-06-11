@@ -871,27 +871,38 @@ def prompt(output):
 # ============================================================
 
 
+async def _check_one_connection(registry, connector_id: str, info: dict) -> str | None:
+    # Health-check one connector; return its rendered result line(s).
+    label = f"{info['icon']} {info['name']}"
+    connector = registry.get_connector(connector_id)
+    if connector is None:
+        return None
+    try:
+        result = await connector.health()
+        if result.success:
+            line = f"[success]✅ {label}: Connected[/success]\n   {result.data}"
+        else:
+            line = f"[error]❌ {label}: {result.error}[/error]"
+        await connector.disconnect()
+    except Exception as e:
+        return f"[warning]⚠️ {label}: {e}[/warning]"
+    return line
+
+
 async def _validate_connections(settings: Settings):
-    # Validate all discovered connectors via a live health check.
+    # Validate all discovered connectors via a live health check, run
+    # concurrently so total wait is the slowest check, not the sum. Results
+    # are printed in catalog order after the gather.
     registry = ConnectorRegistry(settings, config_path=CONNECTORS_CONFIG_PATH)
     catalog = registry.get_catalog()
 
-    for connector_id, info in catalog.items():
-        label = f"{info['icon']} {info['name']}"
-        with console.status(f"[bold green]Testing {info['name']} connection..."):
-            connector = registry.get_connector(connector_id)
-            if connector is None:
-                continue
-            try:
-                result = await connector.health()
-                if result.success:
-                    console.print(f"[success]✅ {label}: Connected[/success]")
-                    console.print(f"   {result.data}")
-                else:
-                    console.print(f"[error]❌ {label}: {result.error}[/error]")
-                await connector.disconnect()
-            except Exception as e:
-                console.print(f"[warning]⚠️ {label}: {e}[/warning]")
+    with console.status("[bold green]Testing connections..."):
+        lines = await asyncio.gather(
+            *(_check_one_connection(registry, cid, info) for cid, info in catalog.items())
+        )
+    for line in lines:
+        if line is not None:
+            console.print(line)
 
 
 def _enabled_connector_names(registry) -> list:
@@ -1120,7 +1131,7 @@ async def _run_chat(
                             agent.store,
                             memory.session_id,
                             chat_ui,
-                            pricing=agent._pricing,
+                            pricing=agent._get_pricing(),
                         )
 
                     elif cmd == "/context":

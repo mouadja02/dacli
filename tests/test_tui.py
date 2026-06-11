@@ -104,6 +104,57 @@ def test_bottom_toolbar_is_formatted_text():
 
 
 # ---------------------------------------------------------------------------
+# Result render cap (P05 Fix C)
+# ---------------------------------------------------------------------------
+def test_tool_end_caps_rendered_rows_but_keeps_real_count():
+    ui = _recording_ui()
+    rows = [{"id": i, "name": f"val_{i}"} for i in range(1000)]
+    ui.tool_end("execute_query", ToolResult(
+        "execute_query", ToolStatus.SUCCESS, data=rows, execution_time_ms=5.0))
+    out = ui.console.export_text()
+    assert "1000 rows" in out                      # summary stays truthful
+    assert "showing 120 of 1,000" in out           # capped render is labelled
+    assert "val_0" in out and "val_999" in out     # head and tail survive
+    assert "val_500" not in out                    # the middle is elided
+    assert out.count("val_") <= 120
+
+
+def test_tool_end_caps_rendered_list_items():
+    ui = _recording_ui()
+    items = [f"item_{i}" for i in range(500)]
+    ui.tool_end("list_things", ToolResult(
+        "list_things", ToolStatus.SUCCESS, data=items, execution_time_ms=5.0))
+    out = ui.console.export_text()
+    assert "500 items" in out
+    assert "showing 120 of 500" in out
+    assert "item_0" in out and "item_499" in out
+    assert "item_250" not in out
+
+
+def test_tool_end_small_results_render_in_full():
+    ui = _recording_ui()
+    rows = [{"id": i} for i in range(5)]
+    ui.tool_end("execute_query", ToolResult(
+        "execute_query", ToolStatus.SUCCESS, data=rows, execution_time_ms=5.0))
+    out = ui.console.export_text()
+    assert "5 rows" in out
+    assert "showing" not in out  # no cap footer under the limit
+
+
+def test_max_render_rows_is_configurable():
+    import types as _types
+    console = Console(record=True, width=80, force_terminal=False)
+    settings = _types.SimpleNamespace(ui=_types.SimpleNamespace(max_render_rows=12))
+    ui = DacliUI(settings=settings, version="9.9.9", author="t", console=console)
+    rows = [{"id": i} for i in range(100)]
+    ui.tool_end("execute_query", ToolResult(
+        "execute_query", ToolStatus.SUCCESS, data=rows, execution_time_ms=5.0))
+    out = ui.console.export_text()
+    assert "100 rows" in out
+    assert "showing 12 of 100" in out
+
+
+# ---------------------------------------------------------------------------
 # OpenAI streaming reassembly
 # ---------------------------------------------------------------------------
 def _chunk(content=None, tool_fragments=None):
