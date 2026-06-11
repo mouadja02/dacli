@@ -59,10 +59,11 @@ classifiers = [
 # extra — boto3 and PyGithub were declared-but-never-imported and were dropped.
 snowflake = ["snowflake-connector-python>=3.5,<5"]   # .venv has 4.x; <4 would exclude it
 pinecone  = ["pinecone>=4,<10"]                       # .venv has 9.x; package renamed from pinecone-client
-# Google provider. The legacy `google-generativeai` dep is kept/pinned as-is here;
-# reconciling it against the new `google-genai` API the code imports is P02's call,
-# not P11's. The provider is lazy-imported, so this extra is genuinely optional.
-google    = ["google-generativeai>=0.8,<0.9"]
+# NOTE: there is intentionally no `google` extra. The Gemini LLM provider was
+# removed (P02, Option B): it never supported tool calling — which every real
+# agent turn requires — and the declared legacy SDK (`google-generativeai`)
+# didn't match the `google.genai` import the code carried. Re-add the extra
+# (`google-genai>=1,<2`) if/when Gemini function-calling lands.
 # Faithful TTY for the governed terminal (Era 2). Optional: the shell tier works
 # everywhere over stdlib pipes; install only for ANSI/interactive fidelity.
 pty       = [
@@ -71,7 +72,7 @@ pty       = [
 ]
 dev       = ["pytest>=8,<10", "ruff>=0.15,<0.16", "vulture>=2,<3"]
 # Convenience aggregate: every Python-SDK connector at once.
-all       = ["dacli[snowflake,pinecone,google]"]
+all       = ["dacli[snowflake,pinecone]"]
 
 [project.urls]
 Homepage = "https://github.com/mouadja02/dacli"

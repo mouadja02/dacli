@@ -6,7 +6,7 @@
 # LLM Configuration
 # ------------------------------------------------------------
 llm:
-  # Provider: openai, anthropic, google, openrouter
+  # Provider: openai, anthropic, openrouter
   provider: "openrouter"
   
   # Model name

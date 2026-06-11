@@ -77,7 +77,7 @@ zero-copy clones, `dbt test`, row counts) rather than to the model's own say-so.
 | 🧭 **Multi-agent orchestration** | A lead fans breadth-first work out to isolated-context sub-agents with contradiction detection and de-duplication. |
 | 📊 **pass^k reliability eval** | An offline golden suite measures consistency across *repeated* rollouts (not single-shot luck), with regression detection and a reliability dashboard. |
 | 🔍 **Fully auditable** | Append-only ledgers record every classification, policy decision, rollback plan, approval, and post-condition verdict — `dacli audit` reconstructs *why* the agent acted. |
-| 🤖 **Multi-provider LLM** | OpenAI, Anthropic, Google, or OpenRouter, with cheap/strong **model tiering** and confidence-aware escalation. |
+| 🤖 **Multi-provider LLM** | OpenAI, Anthropic, or OpenRouter (Google Gemini planned), with cheap/strong **model tiering** and confidence-aware escalation. |
 
 ---
 
