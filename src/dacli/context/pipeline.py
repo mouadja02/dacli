@@ -39,10 +39,14 @@ def build_context_pipeline(settings, memory, registry, llm, system_connector) ->
         if remember is not None:
             remember(note, source="compaction", tags=["compaction"])
 
+    # The most recently assembled Context, cached once per turn so the bottom
+    # toolbar's ctx % can read the real budget snapshot without re-assembling.
+    last: dict = {"ctx": None}
+
     def _build(task, working, disclosed):
         effective = disclose(task, registry, already_disclosed=disclosed)
         base = compose_system_prompt(task, effective)
-        return build_context(
+        ctx = build_context(
             task,
             memory=memory,
             registry=registry,
@@ -52,6 +56,8 @@ def build_context_pipeline(settings, memory, registry, llm, system_connector) ->
             disclosed=effective,
             base_system_prompt=base,
         )
+        last["ctx"] = ctx
+        return ctx
 
     def _spill(result) -> str:
         return summarize_or_inline(
@@ -74,4 +80,5 @@ def build_context_pipeline(settings, memory, registry, llm, system_connector) ->
         "counter": counter,
         "budget": budget,
         "store": store,
+        "last_context": lambda: last["ctx"],
     }
