@@ -28,10 +28,10 @@ class LLMClient:
     def __init__(self, settings: Settings):
         # Initialize LLM client with settings
         self.settings = settings
-        # Concrete client type varies by provider (AsyncOpenAI / AsyncAnthropic /
-        # genai.Client), each conditionally imported in initialize(); typed Any so
-        # provider-specific attribute access (.chat, .messages, .GenerativeModel)
-        # type-checks without a fragile union.
+        # Concrete client type varies by provider (AsyncOpenAI / AsyncAnthropic),
+        # each conditionally imported in initialize(); typed Any so
+        # provider-specific attribute access (.chat, .messages) type-checks
+        # without a fragile union.
         self._client: Any = None
         self._provider = settings.llm.provider
         # Provider-normalized token usage of the most recent generate() call,
@@ -63,8 +63,13 @@ class LLMClient:
                 max_retries=0,
             )
         elif provider == "google":
-            from google import genai  # type: ignore  # optional google-genai dep, not installed in CI
-            self._client = genai.Client(api_key=self.settings.llm.api_key)
+            # Fail fast at configuration time, not deep inside the first agent
+            # turn: the Gemini path never supported tool calling, and every real
+            # turn passes tools (P02, Option B — honest removal).
+            raise ValueError(
+                "The 'google' provider does not yet support tool use, which dacli requires. "
+                "Use 'openai', 'anthropic', or 'openrouter'."
+            )
         elif provider == "openrouter":
             from openai import AsyncOpenAI
             self._client = AsyncOpenAI(
@@ -107,8 +112,6 @@ class LLMClient:
             return await self._generate_openai(messages, tools, system_prompt, on_text=on_text, model=model, on_retry=on_retry)
         if provider == "anthropic":
             return await self._generate_anthropic(messages, tools, system_prompt, on_text=on_text, model=model, on_retry=on_retry)
-        if provider == "google":
-            return await self._generate_google(messages, tools, system_prompt, on_text=on_text, model=model, on_retry=on_retry)
         raise ValueError(f"Unsupported provider: {provider}")
 
     def _retryable_exceptions(self) -> tuple[type, ...]:
@@ -133,13 +136,6 @@ class LLMClient:
                     InternalServerError,
                 )
                 return (RateLimitError, APIConnectionError, InternalServerError)
-            if provider == "google":
-                from google.api_core.exceptions import (
-                    ResourceExhausted,
-                    ServiceUnavailable,
-                    InternalServerError as GoogleInternalServerError,
-                )
-                return (ResourceExhausted, ServiceUnavailable, GoogleInternalServerError)
         except ImportError:
             return ()
         return ()
@@ -410,18 +406,6 @@ class LLMClient:
         }
 
     @staticmethod
-    def _usage_google(um) -> dict[str, int]:
-        if um is None:
-            return {}
-        cached = getattr(um, "cached_content_token_count", 0) or 0
-        return {
-            "input": max(0, (getattr(um, "prompt_token_count", 0) or 0) - cached),
-            "output": getattr(um, "candidates_token_count", 0) or 0,
-            "cache_read": cached,
-            "cache_creation": 0,
-        }
-
-    @staticmethod
     def _extract_anthropic(blocks) -> tuple[str, list[dict]]:
         content = ""
         tool_calls = []
@@ -431,35 +415,3 @@ class LLMClient:
             elif block.type == "tool_use":
                 tool_calls.append({"id": block.id, "name": block.name, "arguments": block.input})
         return content, tool_calls
-
-    async def _generate_google(self, messages: list[dict[str, str]], tools: list[dict] | None = None, system_prompt: str | None = None, on_text: OnText = None, model: str | None = None, on_retry: OnRetry = None) -> tuple[str, list[dict]]:
-        # Generate using Google Gemini API
-
-        # Reliability: tool calling is not implemented for Gemini. Rather than
-        # silently dropping tool use (which would make the agent appear to ignore
-        # its tools), fail loudly so the misconfiguration is visible.
-        if tools:
-            raise NotImplementedError(
-                "Tool calling is not supported for the 'google' provider yet. "
-                "Use a provider with tool support (openai, anthropic, openrouter) "
-                "or disable tools for this request."
-            )
-
-        gen_model = self._client.GenerativeModel(model or self.settings.llm.model, system_instruction=system_prompt)
-
-        # Convert messages to Gemini format
-        gemini_messages = []
-        for msg in messages:
-            role = "user" if msg["role"] == "user" else "model"
-            gemini_messages.append({"role": role, "parts": [msg["content"]]})
-
-        response = await self._with_retry(
-            lambda: asyncio.to_thread(gen_model.generate_content, gemini_messages),
-            on_retry=on_retry,
-        )
-        self.last_usage = self._usage_google(getattr(response, "usage_metadata", None))
-
-        # Gemini has no streaming path here; emit the full text once so the
-        # streaming UI still renders it.
-        self._emit(on_text, response.text)
-        return response.text, []
