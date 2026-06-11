@@ -39,7 +39,7 @@ src/dacli/config/connectors.yaml
 
 # Local-only working dirs
 test.py
-roadmap/
 .claude/
 TEST.md
 reporting/
+.roadmap
