@@ -32,35 +32,20 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any
 
 from dacli.connectors.base import Risk
 
-
-class Tier(str, Enum):
-    """Blast-radius tier. Ordered: SAFE < WRITE < RISKY < IRREVERSIBLE."""
-
-    SAFE = "safe"
-    WRITE = "write"
-    RISKY = "risky"
-    IRREVERSIBLE = "irreversible"
-
-
-# Severity order so we can take the *max* of several signals and "promote".
-_ORDER: list[Tier] = [Tier.SAFE, Tier.WRITE, Tier.RISKY, Tier.IRREVERSIBLE]
-
-
-def _rank(tier: Tier) -> int:
-    return _ORDER.index(tier)
-
-
-def _max_tier(*tiers: Tier) -> Tier:
-    return max(tiers, key=_rank)
-
-
-def _promote(tier: Tier, steps: int = 1) -> Tier:
-    return _ORDER[min(_rank(tier) + steps, len(_ORDER) - 1)]
+# The verb → tier vocabulary is shared with the shell command classifier (one
+# source of truth — A-3). ``Tier`` is re-exported here so existing
+# ``from dacli.governance.classifier import Tier`` imports keep working.
+from dacli.governance.vocab import (
+    SQL_KEYWORD_TIERS as _SQL_KEYWORD_TIERS,
+    Tier,
+    max_tier as _max_tier,
+    promote as _promote,
+    rank as _rank,
+)
 
 
 # The op-level Risk hint maps straight onto a tier as the floor.
@@ -75,18 +60,11 @@ _RISK_TO_TIER: dict[Risk, Tier] = {
 # ---------------------------------------------------------------------------
 # SQL verb classification — whole-statement, defense-in-depth.
 # ---------------------------------------------------------------------------
-# A keyword anywhere in the statement promotes to (at least) its tier. This
-# deliberately over-classifies on string literals/identifiers (fail-safe): we
-# would rather ask for confirmation on a benign query than auto-run a hidden
-# DELETE. Word boundaries keep ``UPDATED_AT`` from matching ``UPDATE``.
-_SQL_KEYWORD_TIERS = [
-    (Tier.IRREVERSIBLE, ["DROP", "TRUNCATE", "RENAME", "REPLACE", "UNDROP", "PURGE"]),
-    (Tier.RISKY, ["DELETE", "UPDATE", "MERGE", "ALTER", "GRANT", "REVOKE",
-                  "OVERWRITE", "CALL", "EXECUTE"]),
-    (Tier.WRITE, ["CREATE", "INSERT", "COPY", "PUT", "UPSERT", "UNLOAD", "COMMENT"]),
-    (Tier.SAFE, ["SELECT", "SHOW", "DESCRIBE", "DESC", "EXPLAIN", "LIST",
-                 "USE", "VALUES", "GET", "WITH"]),
-]
+# The keyword → tier tables live in governance.vocab (shared with the shell
+# command classifier). A keyword anywhere in the statement promotes to (at
+# least) its tier; the scan deliberately over-classifies on string literals/
+# identifiers (fail-safe) and word boundaries keep ``UPDATED_AT`` from
+# matching ``UPDATE``.
 
 # A statement whose leading verb is none of these (and that we therefore cannot
 # vouch for) is treated as ambiguous → default-deny → RISKY.

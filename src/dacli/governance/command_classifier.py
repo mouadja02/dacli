@@ -30,17 +30,18 @@ import re
 import shlex
 from dataclasses import dataclass, field
 
-from dacli.governance.classifier import Tier
-
-_ORDER = [Tier.SAFE, Tier.WRITE, Tier.RISKY, Tier.IRREVERSIBLE]
-
-
-def _rank(t: Tier) -> int:
-    return _ORDER.index(t)
-
-
-def _max_tier(*tiers: Tier) -> Tier:
-    return max(tiers, key=_rank)
+# The verb → tier vocabulary (tier order, sub-verb sets, destructive-SQL
+# regex) is shared with the action/SQL classifier via governance.vocab so the
+# two classifiers cannot drift (A-3).
+from dacli.governance.vocab import (
+    IRREVERSIBLE_SUBVERBS as _IRREVERSIBLE_SUBVERBS,
+    READ_SUBVERBS as _READ_SUBVERBS,
+    RISKY_SUBVERBS as _RISKY_SUBVERBS,
+    WRITE_SUBVERBS as _WRITE_SUBVERBS,
+    DESTRUCTIVE_SQL_RE as _SQL_IRREVERSIBLE,
+    Tier,
+    max_tier as _max_tier,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -91,30 +92,9 @@ _WRAPPERS = {
     "ionice", "stdbuf", "setsid", "watch", "xargs", "timeout", "caffeinate",
 }
 
-# Read-only sub-verbs for CLIs (git, dbt, aws, gcloud, bq, kubectl, docker, …).
-_READ_SUBVERBS = {
-    "status", "log", "diff", "show", "branch", "remote", "describe",
-    "list", "ls", "get", "head", "cat", "ps", "version", "help", "config",
-    "rev-parse", "ls-files", "blame", "whoami", "info", "inspect", "view",
-    "compile", "parse", "debug", "explain", "validate", "plan", "fmt",
-    "top", "logs", "history", "current-context", "find",
-}
-
-# Mutating / dangerous sub-verbs.
-_WRITE_SUBVERBS = {"add", "fetch", "clone", "init", "stage", "tag", "seed", "cp", "sync"}
-_RISKY_SUBVERBS = {
-    "commit", "merge", "rebase", "pull", "push", "checkout", "switch",
-    "stash", "cherry-pick", "revert", "run", "build", "snapshot", "apply",
-    "create", "update", "set", "put", "deploy", "restart", "scale", "exec",
-    "run-operation", "mv", "move",
-}
-_IRREVERSIBLE_SUBVERBS = {
-    "prune", "destroy", "delete", "rm", "drop", "truncate", "purge",
-    "force-delete", "terminate", "uninstall", "reset",
-}
-
-# Destructive SQL keywords that may appear in a `psql -c "..."` / `bq query`.
-_SQL_IRREVERSIBLE = re.compile(r"\b(DROP|TRUNCATE|DELETE\s+FROM|ALTER)\b", re.IGNORECASE)
+# The read/write/risky/irreversible CLI sub-verb sets and the destructive-SQL
+# regex are imported from governance.vocab above (shared with the SQL
+# classifier).
 
 # Hosts in a fetch-pipe-shell are the canonical "remote code execution" smell.
 _PIPE_SHELL = re.compile(r"\|\s*(sudo\s+)?(sh|bash|zsh|python[0-9.]*|powershell|pwsh)\b")
