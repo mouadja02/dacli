@@ -29,10 +29,13 @@ from pathlib import Path
 from typing import Any
 from collections.abc import Callable
 
+from dacli.core.logging_setup import get_logger
 from dacli.core.timeutils import now_iso as _now_iso
 from dacli.sandbox.shells.base import RawExec, ShellBackend, select_backend
 from dacli.sandbox.shells.transports import Transport, make_transport
 from dacli.sandbox.workspace import SessionWorkspace
+
+log = get_logger(__name__)
 
 
 # A test/eval seam: given a command (+ cwd, timeout) return its raw outcome.
@@ -319,7 +322,7 @@ class TerminalSession:
             with open(path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(result.to_dict(), default=str) + "\n")
         except Exception:
-            pass
+            log.debug("command journal write failed", exc_info=True)
 
     def load_journal(self) -> list[dict[str, Any]]:
         """Read the command journal back (P6 resume)."""

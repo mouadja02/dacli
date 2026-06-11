@@ -538,14 +538,6 @@ class UISettings(BaseModel):
     max_render_rows: int = Field(default=120, ge=10)
 
 
-class RetrySettings(BaseModel):
-    # Retry and error handling configuration
-    max_attempts: int = Field(default=3, ge=1)
-    initial_delay: float = Field(default=1.0, ge=0.1)
-    max_delay: float = Field(default=30.0, ge=1.0)
-    multiplier: float = Field(default=2.0, ge=1.0)
-
-
 class Settings(BaseModel):
     # Main settings container
     model_config = ConfigDict(extra="ignore")
@@ -576,7 +568,6 @@ class Settings(BaseModel):
     terminal: TerminalSettings = Field(default_factory=TerminalSettings)
     orchestration: OrchestrationSettings = Field(default_factory=OrchestrationSettings)
     ui: UISettings = Field(default_factory=UISettings)
-    retry: RetrySettings = Field(default_factory=RetrySettings)
 
     # NOTE: connector enable/disable state lives in config/connectors.yaml
     # (see connectors.registry), not here. A legacy top-level ``tools:`` block in
@@ -647,6 +638,16 @@ def _load_dacli_secrets(base_dir: str) -> dict[str, Any]:
             surface_decryption_failures(undecryptable)
         return decrypted
     except Exception:
+        # Intentionally broad: a broken/missing dacli.json must never block
+        # startup, but leave a breadcrumb so a lost secret overlay is debuggable.
+        try:
+            from dacli.core.logging_setup import get_logger
+
+            get_logger(__name__).debug(
+                "failed to load secrets overlay from %s", base_dir, exc_info=True
+            )
+        except Exception:
+            pass
         return {}
 
 

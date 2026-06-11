@@ -1,6 +1,10 @@
 from pathlib import Path
 from collections.abc import Iterable
 
+from dacli.core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 # Decomposed prompt fragments: an invariant core + per-connector
 # fragments disclosed only when that connector is in play.
 FRAGMENTS_DIR = Path(__file__).parent / "fragments"
@@ -74,7 +78,8 @@ def load_system_prompt(custom_path: str | None = None) -> str:
                 guidelines_content = guidelines_file.read_text(encoding="utf-8")
                 prompt_content += f"\n\n{guidelines_content}"
             except Exception:
-                pass  # Ignore if guidelines cannot be read
+                # Ignore if guidelines cannot be read
+                log.debug("failed to read %s", guidelines_file, exc_info=True)
 
     return prompt_content
 
