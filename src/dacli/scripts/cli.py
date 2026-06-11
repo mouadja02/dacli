@@ -472,7 +472,6 @@ def sessions():
     table.add_column("Session ID", style="cyan")
     table.add_column("Created")
     table.add_column("Active task")
-    table.add_column("Tables")
     table.add_column("Errors")
 
     for s in session_list:
@@ -480,7 +479,6 @@ def sessions():
             s["session_id"],
             s["created_at"][:19] if s.get("created_at") else "?",
             s.get("active_task") or "—",
-            str(s.get("tables_created", 0)),
             str(s.get("errors_count", 0)),
         )
 

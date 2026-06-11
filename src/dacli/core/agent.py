@@ -393,7 +393,9 @@ class DACLI:
             lines.append("Failed to initialize: " + ", ".join(failed_initializations))
 
         self._emit_status("\n".join(lines))
-        return True
+        # The LLM is the only hard requirement; connector failures stay
+        # non-fatal (they surface via failed_connectors() and the notice above).
+        return "LLM" in successfully_initialized
 
     async def shutdown(self) -> None:
         # Clean up resources for enabled connectors only
