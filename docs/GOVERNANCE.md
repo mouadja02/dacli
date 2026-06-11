@@ -124,6 +124,21 @@ through the *same* governed `dispatcher.execute`, so code-execution is not a gov
 stay **on disk**; only a summary returns to context. The sandbox is capability-gated with no ambient
 credentials, a configurable egress policy (`off` / `allowlist` / `open`), resource limits, and full audit.
 
+**The subprocess shell jail is advisory.** With the `subprocess` runtime, the terminal session tracks its
+working directory by parsing a leading `cd` (`sandbox/terminal.py`, `_maybe_update_cwd`) — `pushd`,
+subshells, or `cd "$(…)"` are not reflected. The command classifier still gates obvious escapes, but cwd
+tracking is a heuristic, not a boundary. Real isolation comes from the **docker** sandbox runtime
+(`sandbox.runtime: docker`); prefer it for untrusted shell work.
+
+### Encryption threat model
+
+Secrets are encrypted at rest with Fernet; the key lives in `.dacli/.key` (gitignored), next to the
+ciphertext in `.dacli/dacli.json`. This protects against **accidental git commits and casual inspection /
+screen-shares** — it does **not** protect against a local attacker with filesystem access, who can read the
+key and the ciphertext alike (`chmod 600` on the key file is best-effort and a no-op on Windows). To keep
+the key off-disk, set `DACLI_ENCRYPTION_KEY` (env var or secret manager); it takes priority over `.dacli/.key`
+and accepts either a raw Fernet key or a password (derived via PBKDF2) — see `core/crypto.py`.
+
 ---
 
 ## Failure modes this defends against

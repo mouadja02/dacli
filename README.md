@@ -201,6 +201,23 @@ OPENAI_API_KEY=...        # used for Pinecone embeddings
 > time**; two sessions sharing the same `.dacli/` can overwrite each other's
 > last-write-wins state.
 
+### Security model
+
+Secrets entered through the wizard or `/connect` are encrypted at rest with **Fernet**; the encryption key
+lives in `.dacli/.key` (git-ignored), next to the ciphertext in `.dacli/dacli.json`. Be clear about what
+that buys you:
+
+- **Protects against:** accidentally committing secrets to git, and casual inspection (screen-shares,
+  shoulder-surfing, grepping a backup of the repo).
+- **Does not protect against:** a local attacker with filesystem access — the key and the ciphertext are
+  co-located, so anyone who can read one can read both. The `chmod 600` on the key file is best-effort and
+  a no-op on Windows.
+
+If you want the key off-disk, set the `DACLI_ENCRYPTION_KEY` environment variable (e.g. from a secret
+manager); it takes priority over `.dacli/.key` and accepts either a raw Fernet key or a password (derived
+into one via PBKDF2). This is appropriate for a local single-user tool; it is not a substitute for an
+OS keychain or a vault.
+
 ---
 
 ## Quick start

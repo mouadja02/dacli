@@ -289,6 +289,10 @@ class TerminalSession:
         return "\n".join(kept)
 
     def _maybe_update_cwd(self, command: str) -> None:
+        # Advisory only: tracks a leading `cd` heuristically, so pushd /
+        # subshells / `cd "$(…)"` are not reflected. The command classifier
+        # gates obvious escapes; real isolation is the docker sandbox runtime
+        # (see docs/GOVERNANCE.md, "The sandbox").
         parts = command.strip().split()
         if len(parts) >= 2 and parts[0] == "cd":
             target = command.strip()[2:].strip().strip('"').strip("'")
