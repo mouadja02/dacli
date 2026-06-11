@@ -92,5 +92,81 @@ class LazyPricingTest(unittest.TestCase):
         self.assertEqual(fetch.call_count, 1)
 
 
+class _RendezvousConnector:
+    """Connector whose connect() only completes if its peer is connecting
+    concurrently: each side signals its own event and awaits the other's.
+    Under a serial loop the first one times out."""
+
+    def __init__(self, name, own, peer):
+        self.name = name
+        self._own = own
+        self._peer = peer
+
+    async def connect(self):
+        self._own.set()
+        await asyncio.wait_for(self._peer.wait(), timeout=2.0)
+
+
+class _OkConnector:
+    name = "fine"
+
+    async def connect(self):
+        return None
+
+
+class _BoomConnector:
+    name = "boom"
+
+    async def connect(self):
+        raise RuntimeError("connector down")
+
+
+class ParallelInitializeTest(unittest.TestCase):
+    """Acceptance: initialize() connects concurrently and still attributes
+    per-connector success/failure."""
+
+    def test_connectors_connect_concurrently(self):
+        agent = _agent()
+
+        async def run():
+            a_evt, b_evt = asyncio.Event(), asyncio.Event()
+            pair = [
+                _RendezvousConnector("alpha", a_evt, b_evt),
+                _RendezvousConnector("beta", b_evt, a_evt),
+            ]
+            with mock.patch.object(agent.registry, "enabled_connectors",
+                                   return_value=pair), \
+                 mock.patch.object(agent.registry, "get_catalog", return_value={}):
+                return await agent.initialize()
+
+        statuses = []
+        agent._on_status_update = statuses.append
+        self.assertTrue(asyncio.run(run()))
+        joined = "\n".join(statuses)
+        self.assertIn("Connecting to alpha ...", joined)
+        self.assertIn("Connecting to beta ...", joined)
+        self.assertNotIn("Failed to initialize alpha", joined)
+        self.assertNotIn("Failed to initialize beta", joined)
+
+    def test_mixed_results_keep_per_connector_attribution(self):
+        agent = _agent()
+        statuses = []
+        agent._on_status_update = statuses.append
+
+        async def run():
+            with mock.patch.object(agent.registry, "enabled_connectors",
+                                   return_value=[_OkConnector(), _BoomConnector()]), \
+                 mock.patch.object(agent.registry, "get_catalog", return_value={}):
+                return await agent.initialize()
+
+        self.assertTrue(asyncio.run(run()))  # LLM ok → True despite connector failure
+        joined = "\n".join(statuses)
+        self.assertIn("Connecting to fine ...", joined)
+        self.assertIn("Failed to initialize boom: connector down", joined)
+        # The final summary attributes success and failure to the right names.
+        self.assertIn("Active tools: LLM, fine", joined)
+        self.assertIn("Failed to initialize: boom", joined)
+
+
 if __name__ == "__main__":
     unittest.main()
