@@ -25,9 +25,11 @@ def _substitute_env_vars(value: Any) -> Any:
 
 
 class LLMSettings(BaseModel):
-    # LLM provider configuration
-    provider: str
-    model: str
+    # LLM provider configuration. All fields default to clearly-empty values so
+    # ``Settings()`` is always constructible; "unconfigured" is a detectable
+    # value (see ``is_llm_configured``), not a ValidationError.
+    provider: str = "openai"
+    model: str = ""
     fallback_model: str | None = None
     # Model tiering (ℛ). ``cheap_model`` runs classification, planning
     # drafts, summaries and post-condition judgments; ``strong_model`` runs
@@ -35,8 +37,8 @@ class LLMSettings(BaseModel):
     # default to ``model`` so a single-model config behaves exactly as before.
     cheap_model: str | None = None
     strong_model: str | None = None
-    api_key: str
-    base_url: str
+    api_key: str = ""
+    base_url: str = ""
     max_tokens: int = Field(
         default=4096, ge=1, description="Maximum number of tokens to generate"
     )
@@ -83,8 +85,8 @@ class LLMSettings(BaseModel):
 
 
 class GithubSettings(BaseModel):
-    # Github configuration
-    token: str
+    # Github configuration. Optional so the agent can boot unconfigured.
+    token: str = ""
     repository_url: str | None = None
     owner: str = ""
     repo: str = ""
@@ -112,13 +114,14 @@ class GithubSettings(BaseModel):
 
 
 class SnowflakeSettings(BaseModel):
-    # Snowflake connection configuration
-    account: str
-    user: str
-    password: str
-    warehouse: str
-    role: str
-    database: str
+    # Snowflake connection configuration. All fields optional so the agent can
+    # boot before Snowflake is configured.
+    account: str = ""
+    user: str = ""
+    password: str = ""
+    warehouse: str = ""
+    role: str = ""
+    database: str = ""
     db_schema: str = Field(default="PUBLIC", alias="schema")
     query_timeout: int = Field(default=300, ge=1)
     login_timeout: int = Field(default=60, ge=1)
@@ -128,19 +131,21 @@ class SnowflakeSettings(BaseModel):
 
 
 class PineconeSettings(BaseModel):
-    # Pinecone vector store configuration
-    api_key: str
-    index_name: str
-    environment: str
+    # Pinecone vector store configuration. Optional so the agent can boot
+    # before Pinecone is configured.
+    api_key: str = ""
+    index_name: str = ""
+    environment: str = ""
     top_k: int = Field(default=5, ge=1, le=100)
     include_metadata: bool = True
 
 
 class EmbeddingsSettings(BaseModel):
-    # Embeddings configuration for Pinecone
-    provider: str
-    api_key: str
-    model: str
+    # Embeddings configuration for Pinecone. Optional so the agent can boot
+    # before embeddings are configured.
+    provider: str = ""
+    api_key: str = ""
+    model: str = ""
 
 
 class BigQuerySettings(BaseModel):
@@ -531,6 +536,12 @@ class Settings(BaseModel):
 def _is_secret_placeholder(v: Any) -> bool:
     # A field is "missing" if empty or still an unresolved ${ENV_VAR} reference.
     return v is None or v == "" or (isinstance(v, str) and v.startswith("${"))
+
+
+def is_llm_configured(settings: Settings) -> bool:
+    """True when the LLM has the minimum needed to make a call (key + model)."""
+    llm = settings.llm
+    return bool(llm.api_key and llm.model and not str(llm.api_key).startswith("${"))
 
 
 def _dacli_base_dir(config_data: dict[str, Any]) -> str:

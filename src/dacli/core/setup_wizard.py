@@ -391,3 +391,52 @@ class QuickSetup:
         for key, profile in cls.list_profiles(registry).items():
             table.add_row(key, profile["name"], profile["description"])
         console.print(table)
+
+
+def collect_llm_credentials(console: Console, settings: Any, *, store_base_dir: str) -> Any:
+    """Prompt for provider/model/api_key when the LLM is unconfigured; persist + return reloaded settings.
+
+    The API key goes to the encrypted store (.dacli/dacli.json) only; the
+    non-secret provider/model/base_url are written to config.yaml so they
+    persist across runs.
+    """
+    import yaml
+
+    from dacli.config.settings import load_config
+    from dacli.core.store import DacliStore
+
+    console.print(
+        "[warning]No LLM is configured yet.[/warning] "
+        "Let's set it up (the key is stored encrypted in .dacli/dacli.json)."
+    )
+    known_providers = ["openai", "anthropic", "openrouter"]
+    default_provider = (
+        settings.llm.provider if settings.llm.provider in known_providers else "openai"
+    )
+    provider = Prompt.ask(
+        "LLM provider", choices=known_providers, default=default_provider, console=console
+    )
+    default_base = {
+        "openai": "https://api.openai.com/v1",
+        "anthropic": "https://api.anthropic.com",
+        "openrouter": "https://openrouter.ai/api/v1",
+    }[provider]
+    model = Prompt.ask(
+        "Model id (e.g. gpt-4o-mini, claude-3-5-sonnet-latest)", console=console
+    )
+    api_key = Prompt.ask("API key", password=True, console=console)
+    base_url = Prompt.ask("Base URL", default=default_base, console=console)
+
+    store = DacliStore(base_dir=store_base_dir)
+    store.set_secret("llm", "api_key", api_key)
+    store.save()
+    # Provider/model/base_url aren't secrets; persist them to config.yaml so
+    # the next run loads a configured LLM without re-prompting.
+    cfg_path = Path("config.yaml")
+    existing = {}
+    if cfg_path.exists():
+        existing = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+    existing.setdefault("llm", {})
+    existing["llm"].update({"provider": provider, "model": model, "base_url": base_url})
+    cfg_path.write_text(yaml.dump(existing, default_flow_style=False), encoding="utf-8")
+    return load_config(str(cfg_path))
