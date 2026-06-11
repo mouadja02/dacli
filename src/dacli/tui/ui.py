@@ -557,6 +557,70 @@ class DacliUI:
         self.console.print(table)
         self.console.print()
 
+    def status_panel(self, memory) -> None:
+        # Render the current agent status: session panel, plan and statistics.
+        summary = memory.get_progress_summary()
+
+        # Main status panel
+        status_text = Text()
+        status_text.append("Session     ", style="muted")
+        status_text.append(f"{summary['session_id']}\n", style="accent")
+        status_text.append("Active task ", style="muted")
+        status_text.append(f"{summary.get('active_task') or '—'}", style="phase")
+        self.console.print(
+            Panel(
+                status_text,
+                title="[accent]Status[/accent]",
+                border_style="border",
+                padding=(1, 2),
+            )
+        )
+
+        # Plan (todo list)
+        if summary.get("todos"):
+            table = Table(
+                title="[accent]Plan[/accent]",
+                show_header=True,
+                header_style="muted",
+                border_style="border",
+                box=None,
+                padding=(0, 2, 0, 0),
+            )
+            table.add_column("#", style="muted", justify="right")
+            table.add_column("Status")
+            table.add_column("Task", style="info")
+            for i, todo in enumerate(summary.get("todos", []), 1):
+                status = todo.get("status", "pending")
+                status_icon = {
+                    "pending": "○",
+                    "in_progress": "◐",
+                    "completed": "●",
+                }.get(status, "○")
+                table.add_row(str(i), f"{status_icon} {status}", todo.get("content", ""))
+            self.console.print(table)
+
+        # Stats
+        stats_table = Table(show_header=False, box=None, padding=(0, 2, 0, 0))
+        stats_table.add_column("Metric", style="muted")
+        stats_table.add_column("Value", style="info", justify="right")
+        stats_table.add_row("Schemas created", str(summary.get("schemas_created", 0)))
+        stats_table.add_row("Tables created", str(summary.get("tables_created", 0)))
+        stats_table.add_row("Tables loaded", str(summary.get("tables_loaded", 0)))
+        stats_table.add_row("Total rows", str(summary.get("total_rows_loaded", 0)))
+        stats_table.add_row("Files discovered", str(summary.get("files_discovered", 0)))
+        stats_table.add_row("Errors", str(summary.get("errors_count", 0)))
+        self.console.print(
+            Panel(
+                stats_table,
+                title="[accent]Statistics[/accent]",
+                border_style="border",
+                padding=(1, 2),
+            )
+        )
+
+        if summary.get("last_error"):
+            self.console.print(f"[error]Last error:[/error] {summary['last_error']}")
+
     def history(self, messages: list[Any], limit: int = 20) -> None:
         for msg in messages[-limit:]:
             role = getattr(msg, "role", "?")

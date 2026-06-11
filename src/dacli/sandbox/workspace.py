@@ -14,6 +14,10 @@ import os
 import shutil
 from pathlib import Path
 
+from dacli.core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 
 class WorkspaceJailError(PermissionError):
     """Raised when a path resolves outside the session workspace jail."""
@@ -114,7 +118,7 @@ class SessionWorkspace:
             if not keep_journal:
                 shutil.rmtree(self.journal_dir, ignore_errors=True)
         except Exception:
-            pass
+            log.debug("workspace cleanup failed for %s", self.root, exc_info=True)
 
     def __str__(self) -> str:
         return str(self.root)

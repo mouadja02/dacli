@@ -66,7 +66,7 @@ class SlashCommandCompleter(Completer):
         it = iter(haystack)
         return all(ch in it for ch in needle)
 
-    def get_completions(self, document, complete_event):
+    def get_completions(self, document, _complete_event):
         text = document.text_before_cursor.lstrip()
         if not text.startswith("/") or " " in text:
             return  # not a command, or already past the command word
@@ -111,73 +111,6 @@ def build_completion_keybindings() -> KeyBindings:
 # -----------------------------------------
 #  UI components
 # -----------------------------------------
-def print_status(memory: AgentMemory, target: DacliUI | None = None):
-    # Print current agent status through the active themed UI.
-    out = target or ui
-    con = out.console
-    summary = memory.get_progress_summary()
-
-    # Main status panel
-    status_text = Text()
-    status_text.append("Session     ", style="muted")
-    status_text.append(f"{summary['session_id']}\n", style="accent")
-    status_text.append("Active task ", style="muted")
-    status_text.append(f"{summary.get('active_task') or '—'}", style="phase")
-    con.print(
-        Panel(
-            status_text,
-            title="[accent]Status[/accent]",
-            border_style="border",
-            padding=(1, 2),
-        )
-    )
-
-    # Plan (todo list)
-    if summary.get("todos"):
-        table = Table(
-            title="[accent]Plan[/accent]",
-            show_header=True,
-            header_style="muted",
-            border_style="border",
-            box=None,
-            padding=(0, 2, 0, 0),
-        )
-        table.add_column("#", style="muted", justify="right")
-        table.add_column("Status")
-        table.add_column("Task", style="info")
-        for i, todo in enumerate(summary.get("todos", []), 1):
-            status = todo.get("status", "pending")
-            status_icon = {
-                "pending": "○",
-                "in_progress": "◐",
-                "completed": "●",
-            }.get(status, "○")
-            table.add_row(str(i), f"{status_icon} {status}", todo.get("content", ""))
-        con.print(table)
-
-    # Stats
-    stats_table = Table(show_header=False, box=None, padding=(0, 2, 0, 0))
-    stats_table.add_column("Metric", style="muted")
-    stats_table.add_column("Value", style="info", justify="right")
-    stats_table.add_row("Schemas created", str(summary.get("schemas_created", 0)))
-    stats_table.add_row("Tables created", str(summary.get("tables_created", 0)))
-    stats_table.add_row("Tables loaded", str(summary.get("tables_loaded", 0)))
-    stats_table.add_row("Total rows", str(summary.get("total_rows_loaded", 0)))
-    stats_table.add_row("Files discovered", str(summary.get("files_discovered", 0)))
-    stats_table.add_row("Errors", str(summary.get("errors_count", 0)))
-    con.print(
-        Panel(
-            stats_table,
-            title="[accent]Statistics[/accent]",
-            border_style="border",
-            padding=(1, 2),
-        )
-    )
-
-    if summary.get("last_error"):
-        con.print(f"[error]Last error:[/error] {summary['last_error']}")
-
-
 def _fmt_int(n) -> str:
     try:
         return f"{int(n):,}"
@@ -1124,7 +1057,7 @@ async def _run_chat(
                         _init_dacli_md(settings)
 
                     elif cmd == "/status":
-                        print_status(memory, chat_ui)
+                        chat_ui.status_panel(memory)
 
                     elif cmd == "/usage":
                         print_usage(
