@@ -11,17 +11,64 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def _substitute_env_vars(value: Any) -> Any:
-    # Recursively substitute environment variables in config values.
+def _substitute_env_vars(value: Any, unresolved: set[str] | None = None) -> Any:
+    # Recursively substitute environment variables in config values. A missing
+    # ${VAR} still becomes "" (unchanged behaviour); its name is recorded in
+    # ``unresolved`` (when provided) so load_config can warn once.
     if isinstance(value, str):
         # Match the  ${VAR_NAME} pattern
         pattern = r"\$\{([^}]+)\}"
-        return re.sub(pattern, lambda match: os.environ.get(match.group(1), ""), value)
+
+        def _replace(match: re.Match[str]) -> str:
+            name = match.group(1)
+            resolved = os.environ.get(name)
+            if resolved is None:
+                if unresolved is not None:
+                    unresolved.add(name)
+                return ""
+            return resolved
+
+        return re.sub(pattern, _replace, value)
     if isinstance(value, dict):
-        return {k: _substitute_env_vars(v) for k, v in value.items()}
+        return {k: _substitute_env_vars(v, unresolved) for k, v in value.items()}
     if isinstance(value, list):
-        return [_substitute_env_vars(x) for x in value]
+        return [_substitute_env_vars(x, unresolved) for x in value]
     return value
+
+
+#: Env-var names already reported by :func:`_warn_unresolved_env_vars`, so
+#: repeated load_config calls don't re-spam the same warning (mirrors
+#: ``core.crypto._warned_secrets``).
+_warned_env_vars: set = set()
+
+
+def _warn_unresolved_env_vars(names: set[str]) -> str | None:
+    """Report, exactly once, ``${VAR}`` references with no matching env var.
+
+    Non-fatal: the fields were substituted with "" (a user may intentionally
+    leave some unset), but a typo'd name would otherwise fail opaquely
+    platform-side as an empty credential. Mirrors the decryption-failure UX in
+    ``core.crypto.surface_decryption_failures``.
+    """
+    import sys
+
+    new = sorted(n for n in names if n and n not in _warned_env_vars)
+    if not new:
+        return None
+    _warned_env_vars.update(new)
+    msg = (
+        "Unset environment variables referenced in config: "
+        + ", ".join(new)
+        + " — those fields will be empty."
+    )
+    try:
+        from dacli.core.logging_setup import get_logger
+
+        get_logger(__name__).warning("unset env vars in config: %s", ", ".join(new))
+    except Exception:
+        pass
+    print(msg, file=sys.stderr)
+    return msg
 
 
 class LLMSettings(BaseModel):
@@ -661,8 +708,11 @@ def load_config(config_path: str | None = None) -> Settings:
     if raw_config is None:
         return Settings()
 
-    # Substitute environment variables
-    config_data = _substitute_env_vars(raw_config)
+    # Substitute environment variables, warning once about unset ${VAR} names.
+    unresolved: set[str] = set()
+    config_data = _substitute_env_vars(raw_config, unresolved)
+    if unresolved:
+        _warn_unresolved_env_vars(unresolved)
 
     # Overlay credentials stored in .dacli/dacli.json (the setup wizard writes
     # them there); these fill any field left missing/placeholder by config+env.

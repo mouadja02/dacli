@@ -15,8 +15,11 @@ and the agent writes the code.
 
 from __future__ import annotations
 
-import importlib
+import json
+import os
 import re
+import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -216,6 +219,130 @@ def _extract_files(llm_response: str) -> dict[str, str]:
     return files
 
 
+#: Wall-clock budget for the sandboxed validation import of generated code.
+_VALIDATION_TIMEOUT_S = 30.0
+
+# Runs in a child python process (security: the connector module is
+# LLM-authored, so the validation import must never execute in the agent's
+# process). Loads the module by file path under its canonical dotted name,
+# locates the Connector subclass, instantiates it, and checks operations() +
+# post-conditions. Reports the verdict as a single JSON line on stdout; the
+# parent only ever parses that data. argv: <connector.py path> <module name>.
+_VALIDATION_SCRIPT = """\
+import importlib.util
+import json
+import sys
+
+
+def _verdict(ok, message):
+    print(json.dumps({"ok": ok, "message": message}))
+    sys.exit(0)
+
+
+path, module_name = sys.argv[1], sys.argv[2]
+
+from dacli.connectors.base import Connector, OperationSpec
+
+try:
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+except Exception as exc:
+    _verdict(False, f"Import failed: {exc}")
+
+connector_cls = None
+for attr_name in dir(mod):
+    attr = getattr(mod, attr_name)
+    if (
+        isinstance(attr, type)
+        and issubclass(attr, Connector)
+        and attr is not Connector
+        and attr.__module__ == mod.__name__
+    ):
+        connector_cls = attr
+        break
+if connector_cls is None:
+    _verdict(False, "No Connector subclass found in generated code")
+
+try:
+    from dacli.config.settings import Settings, load_config
+
+    try:
+        settings = load_config()
+    except Exception:
+        settings = Settings()
+    instance = connector_cls(settings)
+except Exception as exc:
+    _verdict(False, f"Connector failed to instantiate: {exc}")
+
+try:
+    ops = instance.operations()
+except Exception as exc:
+    _verdict(False, f"operations() raised: {exc}")
+if not isinstance(ops, list) or not ops:
+    _verdict(False, "operations() must return a non-empty list of OperationSpec")
+
+for op_spec in ops:
+    if not isinstance(op_spec, OperationSpec):
+        _verdict(
+            False,
+            f"operations() returned a {type(op_spec).__name__}, expected OperationSpec",
+        )
+    if not getattr(op_spec, "postconditions", None):
+        _verdict(
+            False,
+            f"operation '{op_spec.name}' declares no post-condition "
+            "(every operation must have at least one)",
+        )
+
+_verdict(True, f"Valid: {len(ops)} operation(s), manifest + import OK")
+"""
+
+
+def _validate_in_subprocess(name: str, connector_file: Path) -> tuple[bool, str]:
+    """Run the import/instantiate/operations checks in a child python process.
+
+    The connector module is untrusted LLM-generated code; executing its
+    module-level statements in-process would run it with the agent's
+    privileges. The child reports its verdict as JSON on stdout, so a
+    malicious or broken generation can at worst fail its own process.
+    """
+    module_name = f"dacli.connectors.{name}.connector"
+    # Make `dacli` importable in the child regardless of how the parent was
+    # launched (installed package or src layout).
+    package_root = str(Path(__file__).resolve().parent.parent.parent)
+    env = dict(os.environ)
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = (
+        package_root + os.pathsep + existing if existing else package_root
+    )
+    try:
+        proc = subprocess.run(  # fixed argv, no shell
+            [sys.executable, "-c", _VALIDATION_SCRIPT, str(connector_file), module_name],
+            capture_output=True,
+            text=True,
+            timeout=_VALIDATION_TIMEOUT_S,
+            env=env,
+        )
+    except subprocess.TimeoutExpired:
+        return False, (
+            f"Validation timed out after {_VALIDATION_TIMEOUT_S:.0f}s "
+            "(module-level code may be blocking)"
+        )
+    except Exception as exc:
+        return False, f"Validation subprocess could not run: {exc}"
+
+    # The verdict is the last stdout line; module-level prints may precede it.
+    for line in reversed((proc.stdout or "").strip().splitlines()):
+        try:
+            verdict = json.loads(line)
+            return bool(verdict.get("ok")), str(verdict.get("message", ""))
+        except (json.JSONDecodeError, ValueError):
+            continue
+    detail = (proc.stderr or proc.stdout or "").strip()
+    return False, f"Validation subprocess failed (exit {proc.returncode}): {detail[-500:]}"
+
+
 def validate_connector(name: str, settings: Any) -> tuple[bool, str]:
     """Structurally validate the connector at ``connectors/<name>/``.
 
@@ -226,9 +353,14 @@ def validate_connector(name: str, settings: Any) -> tuple[bool, str]:
     instantiates; ``operations()`` returns a non-empty list of ``OperationSpec``;
     and every operation declares at least one post-condition ("no post-condition,
     no acceptance"). Returns ``(ok, message)`` with a specific reason on failure.
+
+    SECURITY: the import/instantiate/operations checks run in a child python
+    subprocess (see :func:`_validate_in_subprocess`), never in this process —
+    the module is LLM-authored and must not execute with the agent's
+    privileges during validation. It only enters the host process via the
+    registry after the user runs ``/import-connector`` + restart.
     """
     import yaml
-    from dacli.connectors.base import Connector, OperationSpec
 
     connector_dir = _CONNECTORS_DIR / name
     connector_file = connector_dir / "connector.py"
@@ -251,52 +383,8 @@ def validate_connector(name: str, settings: Any) -> tuple[bool, str]:
             f"manifest id '{manifest.get('id')}' must match connector name '{name}'"
         )
 
-    # 2. Import + locate the Connector subclass.
-    module_name = f"dacli.connectors.{name}.connector"
-    try:
-        mod = importlib.import_module(module_name)
-        importlib.reload(mod)
-    except Exception as exc:
-        return False, f"Import failed: {exc}"
-
-    connector_cls = None
-    for attr_name in dir(mod):
-        attr = getattr(mod, attr_name)
-        if (
-            isinstance(attr, type)
-            and issubclass(attr, Connector)
-            and attr is not Connector
-            and attr.__module__ == mod.__name__
-        ):
-            connector_cls = attr
-            break
-    if connector_cls is None:
-        return False, "No Connector subclass found in generated code"
-
-    # 3. Instantiate and introspect its operations.
-    try:
-        instance = connector_cls(settings)
-    except Exception as exc:
-        return False, f"Connector failed to instantiate: {exc}"
-    try:
-        ops = instance.operations()
-    except Exception as exc:
-        return False, f"operations() raised: {exc}"
-    if not isinstance(ops, list) or not ops:
-        return False, "operations() must return a non-empty list of OperationSpec"
-
-    for spec in ops:
-        if not isinstance(spec, OperationSpec):
-            return False, (
-                f"operations() returned a {type(spec).__name__}, expected OperationSpec"
-            )
-        if not getattr(spec, "postconditions", None):
-            return False, (
-                f"operation '{spec.name}' declares no post-condition "
-                "(every operation must have at least one)"
-            )
-
-    return True, f"Valid: {len(ops)} operation(s), manifest + import OK"
+    # 2+3. Import, instantiate, and introspect — sandboxed in a subprocess.
+    return _validate_in_subprocess(name, connector_file)
 
 
 _TEMPLATES_DIR = _CONNECTORS_DIR / "templates"
