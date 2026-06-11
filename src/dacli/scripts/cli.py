@@ -1120,7 +1120,7 @@ async def _run_chat(
                             agent.store,
                             memory.session_id,
                             chat_ui,
-                            pricing=agent._pricing,
+                            pricing=agent._get_pricing(),
                         )
 
                     elif cmd == "/context":

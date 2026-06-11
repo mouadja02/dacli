@@ -77,10 +77,14 @@ class DACLI:
 
         # Usage/cost tracking: persistent .dacli/dacli.json + models.dev pricing
         # for the configured provider+model (None when offline -> tokens still
-        # tracked, cost reported as unknown).
+        # tracked, cost reported as unknown). Pricing is resolved lazily on the
+        # first read — a cold cache means a blocking network hit, and startup
+        # must never wait on that.
         _base_dir = str(Path(settings.agent.state_path).parent)
         self.store = store or DacliStore(base_dir=_base_dir)
-        self._pricing = fetch_pricing(settings.llm.provider, settings.llm.model, cache_dir=_base_dir)
+        self._pricing = None
+        self._pricing_loaded = False
+        self._pricing_base_dir = _base_dir
 
         # Built-in 'system' connector (always on) is injected into the registry
         # so request_user_input / update_plan flow through one dispatch path.
@@ -253,13 +257,29 @@ class DACLI:
             _state_dir = str(Path(settings.agent.state_path).parent)
             self._build_orchestration(settings, _state_dir)
 
+    def _get_pricing(self):
+        # Lazy, memoized pricing lookup. The first call may hit the network on a
+        # cold cache; failures degrade to None (cost unknown) and are not retried.
+        if not self._pricing_loaded:
+            self._pricing_loaded = True
+            try:
+                self._pricing = fetch_pricing(
+                    self.settings.llm.provider, self.settings.llm.model,
+                    cache_dir=self._pricing_base_dir,
+                )
+            except Exception:
+                log.debug("pricing fetch failed", exc_info=True)
+                self._pricing = None
+        return self._pricing
+
     def _usage_sink(self, usage_dict: dict[str, int], user_message: str) -> None:
         # Price one LLM call's token usage and fold it into the persistent store.
         # Best-effort: usage tracking must never break the control loop.
         usage = TokenUsage.from_dict(usage_dict)
         if usage.total == 0:
             return
-        cost = self._pricing.cost_for(usage) if self._pricing else 0.0
+        pricing = self._get_pricing()
+        cost = pricing.cost_for(usage) if pricing else 0.0
         try:
             self.store.record_usage(
                 self.memory.session_id,
