@@ -209,11 +209,20 @@ class MySQLConnector(CliConnector):
                               started, query=sql[:200])
         return self._ok("explain_mysql_query", {"plan": res.stdout.strip()}, started, query=sql[:200])
 
+    @staticmethod
+    def _escape_literal(value: str) -> str:
+        # MySQL treats backslash as an escape inside string literals (unless
+        # NO_BACKSLASH_ESCAPES), so quote-doubling alone is bypassable via
+        # `\'` — escape backslashes first, then double the quotes.
+        return value.replace("\\", "\\\\").replace("'", "''")
+
     async def _introspect(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         cfg = self._cfg()
-        schema = (args.get("schema") or (getattr(cfg, "database", "") if cfg else "")).replace("'", "''")
-        obj = (args.get("object") or "").replace("'", "''")
+        schema = self._escape_literal(
+            args.get("schema") or (getattr(cfg, "database", "") if cfg else "")
+        )
+        obj = self._escape_literal(args.get("object") or "")
         scope = {"schema": schema, "object": obj}
         sql = (
             "SELECT column_name, data_type FROM information_schema.columns "
