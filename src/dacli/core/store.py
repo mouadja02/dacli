@@ -11,22 +11,18 @@ Credentials in the ``secrets`` block are Fernet-encrypted (see :mod:`core.crypto
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from dacli.core.atomicio import write_json_atomic
 from dacli.core.logging_setup import get_logger
 from dacli.core.pricing import TokenUsage
+from dacli.core.timeutils import now_iso as _now_iso
 
 log = get_logger(__name__)
 
 # Config keys whose values must never be written to disk.
 _SECRET_KEYS = {"api_key", "password", "token", "secret", "access_key", "secret_key"}
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _empty_bucket() -> dict[str, Any]:

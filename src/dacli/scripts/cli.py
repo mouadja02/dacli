@@ -28,7 +28,7 @@ from dacli.core.store import DacliStore
 from dacli.governance.audit import AuditLedger
 from dacli.core.setup_wizard import SetupWizard, QuickSetup
 from dacli.prompts.system_prompt import (
-    load_system_prompt,
+    get_default_system_prompt,
     save_system_prompt,
     SYSTEM_PROMPT_FILE,
 )
@@ -840,8 +840,9 @@ def replay_cmd(scenario_file, as_json):
 @cli.command()
 @click.option("--output", "-o", type=click.Path(), help="Output file path")
 def prompt(output):
-    # View or edit the system prompt.
-    current_prompt = load_system_prompt()
+    # View or edit the system prompt. Shows the exact live source (the composed
+    # core.md) the agent runs on — one source of truth, no drift (07.E).
+    current_prompt = get_default_system_prompt()
 
     if output:
         # Save to file
@@ -1171,7 +1172,7 @@ async def _run_chat(
                             )
 
                     elif cmd == "/prompt":
-                        prompt_content = load_system_prompt()
+                        prompt_content = get_default_system_prompt()
                         chat_ui.panel(
                             Markdown(prompt_content[:2000] + "…"),
                             title="[accent]System prompt[/accent]",

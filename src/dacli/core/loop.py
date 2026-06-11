@@ -42,12 +42,12 @@ log = get_logger(__name__)
 import json
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 from collections.abc import Awaitable, Callable
 
 from dacli.core.planner import Subtask, TaskDAG, NodeStatus
+from dacli.core.timeutils import now_iso
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ class CorrectionAuditLog:
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def log(self, record: dict) -> None:
-        record = {"ts": datetime.now().isoformat(), **record}
+        record = {"ts": now_iso(), **record}
         with open(self.path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, default=str) + "\n")
             f.flush()

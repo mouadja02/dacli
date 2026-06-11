@@ -32,10 +32,11 @@ log = get_logger(__name__)
 import json
 import os
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
+
+from dacli.core.timeutils import now_iso
 
 
 class Tier(str, Enum):
@@ -91,7 +92,7 @@ class RoutingDecision:
     escalation_target: str | None = None
     surfaced_to_user: bool = False
     trail: list[str] = field(default_factory=list)
-    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+    timestamp: str = field(default_factory=now_iso)
 
     def to_dict(self) -> dict:
         return asdict(self)

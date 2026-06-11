@@ -20,19 +20,17 @@ audit trail can reconstruct exactly what the terminal showed.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from dacli.core.atomicio import write_json_atomic
+from dacli.core.atomicio import write_bytes_atomic
+from dacli.core.fastjson import dumps_bytes as _json_dumps_bytes
+from dacli.core.timeutils import now_iso as _now_iso
 import contextlib
 
 # How many head/tail lines the summary shows when output is spilled.
 SAMPLE_LINES = 8
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class ScrollbackStore:
@@ -69,7 +67,9 @@ class ScrollbackStore:
             "output": output,
         }
         with contextlib.suppress(Exception):
-            write_json_atomic(self._path(command_id), payload, default=str)
+            # orjson serializes the (potentially large) command output; bytes are
+            # written crash-safely via the atomic writer (P03).
+            write_bytes_atomic(self._path(command_id), _json_dumps_bytes(payload, default=str))
         if command_id not in self._order:
             self._order.append(command_id)
         return command_id
