@@ -20,7 +20,7 @@ class ToolStatus(Enum):
     # Status of the tool execution. DENIED/BLOCKED are governance verdicts
     #: DENIED = a human declined; BLOCKED = policy refused before any
     # human was asked (e.g. an irreversible op with no verified rollback path).
-    SUCCESS, ERROR, TIMEOUT, CANCELLED, PENDING_APPROVAL = "sucess", "error", "timeout", "cancelled", "pending_approval"
+    SUCCESS, ERROR, TIMEOUT, CANCELLED, PENDING_APPROVAL = "success", "error", "timeout", "cancelled", "pending_approval"
     DENIED, BLOCKED = "denied", "blocked"
 
 
@@ -37,14 +37,14 @@ class ToolResult:
 
     @property
     def success(self) -> bool:
-        # Check if the tool execution was succesful
+        # Check if the tool execution was successful
         return self.status == ToolStatus.SUCCESS
 
     def to_dict(self) -> dict[str, Any]:
         # Convert the result to dictionary for serialization
         return {
             "tool_name": self.tool_name,
-            "status": self.status,
+            "status": self.status.value,
             "data": self.data,
             "error": self.error,
             "execution_time_ms": self.execution_time_ms,

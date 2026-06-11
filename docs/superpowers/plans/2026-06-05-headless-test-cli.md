@@ -20,7 +20,7 @@
   - `agent.store.usage_summary(session_id) -> {numStartups, totals, byModel, session}`; `session` bucket keys: `input, output, cache_read, cache_creation, requests, costUSD`.
   - `agent.memory.session_id` is the live session id; `agent.memory.load_session(id) -> bool`.
 - The dispatcher (`connectors/dispatcher.py`) invokes callbacks `on_tool_start(tool_name, args_dict)` and `on_tool_end(tool_name, ToolResult)`. A governance-blocked call still fires `on_tool_end` with a `ToolResult` whose `status` is `ToolStatus.DENIED` or `ToolStatus.BLOCKED`.
-- `ToolResult` (`connectors/base.py:27`): `.tool_name`, `.status` (`ToolStatus` enum; `.status.value` is a string — note `ToolStatus.SUCCESS.value == "sucess"`, a known typo in the source — always compare via the enum), `.error`, `.data`, `.metadata`, `.success`.
+- `ToolResult` (`connectors/base.py:27`): `.tool_name`, `.status` (`ToolStatus` enum; `.status.value` is a string — `ToolStatus.SUCCESS.value == "success"` — always compare via the enum), `.error`, `.data`, `.metadata`, `.success`.
 - The LLM contract the kernel depends on (`core/kernel.py:184`): `await llm.generate(messages=..., tools=..., system_prompt=..., on_text=..., [model=...]) -> (content, tool_calls)`, plus `llm.last_usage: Dict[str,int]` read after each call. `tool_calls` is a list of `{"id": str, "name": str, "arguments": dict}`. An empty list ends the loop (final answer).
 - A safe built-in op for tests: `update_plan` (connector `system`, risk SAFE, mutates memory todos only). A deterministic offline governance **block**: `run_shell_command` with an irreversible command like `dd if=/dev/zero of=/tmp/zz bs=1M count=1` — the shell command classifier flags `dd` as irreversible (pure string parsing, never executed), and the shell tier's default scope is `write`, so governance blocks it before `invoke`.
 - `fetch_pricing` runs inside `DACLI.__init__` (`core/agent.py:77`) and does a bounded `httpx.get(timeout=10.0)` with a cache. **Unit tests must stub `core.agent.fetch_pricing` to return `None`** to stay fast and offline.
@@ -1055,7 +1055,7 @@ operating the terminal. Two commands return a stable JSON result.
       "error": null,
       "needs_user_input": false,
       "iterations": 2,
-      "tool_calls": [{"name": "update_plan", "args": {…}, "status": "sucess", "error": null}],
+      "tool_calls": [{"name": "update_plan", "args": {…}, "status": "success", "error": null}],
       "governance": [{"decision_id": "…", "tool_name": "…", "tier": "risky", "events": [...]}]
     }
   ],
@@ -1064,8 +1064,8 @@ operating the terminal. Two commands return a stable JSON result.
 }
 ```
 
-(`tool_calls[].status` mirrors the engine's `ToolStatus` value; success is spelled
-`"sucess"` in the engine — match the enum, not the literal, if you assert on it.)
+(`tool_calls[].status` mirrors the engine's `ToolStatus` value — prefer matching
+the enum over the literal if you assert on it.)
 
 ## Exit codes
 
