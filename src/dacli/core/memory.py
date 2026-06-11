@@ -25,6 +25,7 @@ from typing import Any
 
 from dacli.core.atomicio import write_json_atomic
 from dacli.core.logging_setup import get_logger
+from dacli.core.timeutils import now_iso
 from dacli.memory.store import MemoryStore, MemoryEntry
 from dacli.memory.catalog import CatalogCache
 
@@ -51,7 +52,7 @@ class Message:
     # A message in the conversation
     role: str # "user", "assistant", "system", "tool"
     content: str
-    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+    timestamp: str = field(default_factory=now_iso)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 @dataclass
@@ -144,7 +145,7 @@ class AgentMemory:
 
     def _create_new_state(self) -> AgentState:
         # Create a new agent state
-        now = datetime.now().isoformat()
+        now = now_iso()
         return AgentState(
             session_id=self.session_id,
             created_at=now,
@@ -157,7 +158,7 @@ class AgentMemory:
     # ========================
     def add_message(self, role: str, content: str, metadata: dict[str, Any] | None = None):
         # Add a message to the conversation history
-        message = Message(role=role, content=content, timestamp=datetime.now().isoformat(), metadata=metadata or {})
+        message = Message(role=role, content=content, timestamp=now_iso(), metadata=metadata or {})
         self._messages.append(message)
         self._save_history()
 
@@ -221,7 +222,7 @@ class AgentMemory:
         "completed"}``. The full list is replaced on every call.
         """
         self.state.todos = list(todos)
-        self.state.updated_at = datetime.now().isoformat()
+        self.state.updated_at = now_iso()
         self._save_state()
 
     def add_discovered_file(self, source: str, filename: str) -> None:
