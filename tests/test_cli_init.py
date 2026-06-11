@@ -1,12 +1,14 @@
 """Tests for `/init` DACLI.md draft generation and chat command autocompletion."""
 
 import unittest
+from pathlib import Path
 from types import SimpleNamespace as NS
 
+from click.testing import CliRunner
 from prompt_toolkit.document import Document
 
 from dacli.memory.priors import generate_dacli_md
-from dacli.scripts.cli import SlashCommandCompleter
+from dacli.scripts.cli import SlashCommandCompleter, cli
 from dacli.config import CLI_COMMANDS
 
 
@@ -75,6 +77,24 @@ class CompleterTest(unittest.TestCase):
     def test_args_stripped_from_completion(self):
         # "/load <id>" in CLI_COMMANDS completes to just "/load".
         self.assertIn("/load", self._complete("/lo"))
+
+
+class InitCommandTest(unittest.TestCase):
+    """`dacli init` must write a config.yaml in a clean directory, never raise."""
+
+    def test_init_writes_config_without_raising(self):
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            result = runner.invoke(cli, ["init"], obj={})
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertTrue(Path("config.yaml").exists())
+
+    def test_init_honours_custom_target_path(self):
+        runner = CliRunner()
+        with runner.isolated_filesystem():
+            result = runner.invoke(cli, ["init", "--config", "custom.yaml"], obj={})
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertTrue(Path("custom.yaml").exists())
 
 
 if __name__ == "__main__":

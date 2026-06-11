@@ -15,7 +15,7 @@ from prompt_toolkit.key_binding import KeyBindings
 
 from dacli.core import __author__, __version__
 from dacli.config import CLI_COMMANDS
-from dacli.config.settings import load_config, Settings
+from dacli.config.settings import load_config, Settings, is_llm_configured
 from dacli.connectors.registry import (
     ConnectorRegistry,
     save_connectors_config,
@@ -26,7 +26,7 @@ from dacli.core.logging_setup import setup_logging
 from dacli.core.memory import AgentMemory
 from dacli.core.store import DacliStore
 from dacli.governance.audit import AuditLedger
-from dacli.core.setup_wizard import SetupWizard, QuickSetup
+from dacli.core.setup_wizard import SetupWizard, QuickSetup, collect_llm_credentials
 from dacli.prompts.system_prompt import (
     get_default_system_prompt,
     save_system_prompt,
@@ -408,6 +408,16 @@ async def _run_setup_wizard(_config_path: str, settings: Settings) -> dict:
     return connectors_config
 
 
+def _find_config_template() -> Path | None:
+    # The commented template ships at the repo root; prefer it over a bare
+    # defaults dump. Check the cwd first, then the source checkout root.
+    candidates = [
+        Path("config_template.yaml"),
+        Path(__file__).resolve().parents[3] / "config_template.yaml",
+    ]
+    return next((p for p in candidates if p.exists()), None)
+
+
 @cli.command()
 @click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
 def init(config):
@@ -420,19 +430,21 @@ def init(config):
         console.print("Cancelled.")
         return
 
-    # Create default config
-    from dacli.config.settings import Settings
+    template = _find_config_template()
+    if template is not None:
+        target_path.write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
+    else:
+        import yaml
 
-    settings = Settings()
-
-    # Save to file
-    import yaml
-
-    with open(target_path, "w") as f:
-        yaml.dump(settings.model_dump(), f, default_flow_style=False)
+        target_path.write_text(
+            yaml.dump(Settings().model_dump(), default_flow_style=False),
+            encoding="utf-8",
+        )
 
     console.print(f"[success]Created {target_path}[/success]")
-    console.print("Edit this file to configure your credentials and settings.")
+    console.print(
+        "Edit it to set your provider/model, or just run `dacli` to use the setup wizard."
+    )
 
 
 @cli.command()
@@ -911,6 +923,14 @@ async def _run_chat(
 
     chat_ui.banner()
     chat_ui.status("Loading configuration…")
+
+    # First-run LLM bootstrap: with no usable provider/model/key, collect them
+    # interactively (key -> encrypted store, rest -> config.yaml) before any
+    # connector setup. Must run before the agent is built.
+    if not is_llm_configured(settings):
+        settings = collect_llm_credentials(
+            con, settings, store_base_dir=str(Path(settings.agent.state_path).parent)
+        )
 
     # Check if setup wizard should run
     registry = ConnectorRegistry(settings, config_path=CONNECTORS_CONFIG_PATH)
