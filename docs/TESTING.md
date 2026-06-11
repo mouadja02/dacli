@@ -27,7 +27,7 @@ operating the terminal. Two commands return a stable JSON result.
       "error": null,
       "needs_user_input": false,
       "iterations": 2,
-      "tool_calls": [{"name": "update_plan", "args": {}, "status": "sucess", "error": null}],
+      "tool_calls": [{"name": "update_plan", "args": {}, "status": "success", "error": null}],
       "governance": [{"decision_id": "…", "tool_name": "…", "tier": "risky", "events": []}]
     }
   ],
@@ -36,8 +36,8 @@ operating the terminal. Two commands return a stable JSON result.
 }
 ```
 
-(`tool_calls[].status` mirrors the engine's `ToolStatus` value; success is spelled
-`"sucess"` in the engine — match the enum, not the literal, if you assert on it.)
+(`tool_calls[].status` mirrors the engine's `ToolStatus` value — prefer matching
+the enum over the literal if you assert on it.)
 
 ## Exit codes
 
