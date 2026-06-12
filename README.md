@@ -250,9 +250,11 @@ executes step by step, and verifies each step against the platform before moving
 | Command | Description |
 |---|---|
 | `dacli` · `dacli chat` | Start the interactive chat (default). |
+| `dacli plan "<goal>"` | Preview the decomposed plan + per-step blast radius, policy decision and rollback primitive — **without executing** (no LLM, no network). |
+| `dacli diff <connector> <a> <b> [--sample N]` | Read-only data diff: row-count delta, per-column null rates over a bounded sample, sampled value comparison. The agent-side `data_diff` skill adds an approval-gated `mode=promote`. |
 | `dacli setup [--profile <name>]` | Connector setup wizard. Profiles: `full`, `none`, `<connector>_only`. |
 | `dacli validate` | Live-test every enabled connector's credentials. |
-| `dacli eval [--quick] [--regression] [--calibrate] [--json]` | Run the pass^k reliability suite + dashboard. |
+| `dacli eval [--quick] [--regression] [--calibrate] [--json] [--report <path>.md\|.html]` | Run the pass^k reliability suite + dashboard; `--report` writes a shareable Markdown/HTML scorecard. |
 | `dacli audit [--session <id>] [--full]` | Reconstruct governance decisions ("why did it act?"). |
 | `dacli context [--task <t>] [--explain]` | Inspect the assembled context (sources, tokens, budget). |
 | `dacli sessions` · `dacli load <id>` | List / resume previous sessions. |
@@ -276,6 +278,9 @@ dacli refuses to ask the model *"did that work?"* — it asks the platform. This
   is confirmed by `run_results.json`. Fluent success is never accepted as proof.
 - **Rollback** — irreversible actions are **blocked unless a native undo path is *verified to exist***
   (versioning enabled, retention window open, snapshot taken) — not merely assumed.
+- **Cost as blast radius** — set `governance.cost_confirm_usd` and any action whose connector-estimated
+  cost (e.g. BigQuery `dry_run` bytes) exceeds it requires a human confirm, with the estimate shown in
+  the approval panel.
 - **pass^k** — reliability is measured as success across *k repeated* rollouts, not a single lucky run.
   The destructive-action gate is held to the highest bar.
 
