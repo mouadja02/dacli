@@ -659,6 +659,37 @@ def _print_audit(ledger, session_id, *, full=False, limit=20, header=None, targe
         con.print()
 
 
+@cli.command(name="export-run")
+@click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
+@click.option("--session", "-s", type=str, default=None,
+              help="Session ID to export (defaults to the most recent session)")
+@click.option("--out", "-o", type=click.Path(), default=None,
+              help="Output zip path (defaults to dacli_run_<session>.zip)")
+def export_run(config, session, out):
+    """Export a session as a compliance bundle (transcript + audit + usage).
+
+    The zip contains history.json, state.json, the session's audit-ledger
+    slice, the usage summary and a manifest. Secret-keyed values are redacted.
+    """
+    from dacli.core.export_run import export_run_bundle
+
+    settings = load_config(config)
+    try:
+        manifest = export_run_bundle(settings, session, out)
+    except FileNotFoundError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise SystemExit(1) from exc
+    console.print(
+        f"[success]Exported session {manifest['session_id']} → "
+        f"{manifest['path']}[/success]"
+    )
+    console.print(
+        f"[muted]contents: {', '.join(manifest['contents'])}  ·  "
+        f"{manifest['counts']['messages']} message(s), "
+        f"{manifest['counts']['audit_events']} audit event(s)[/muted]"
+    )
+
+
 @cli.command(name="eval")
 @click.option(
     "--quick", is_flag=True, help="Fast run: scale pass^k k down (destructive stays ≥2)"
