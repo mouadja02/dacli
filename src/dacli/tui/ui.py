@@ -631,6 +631,16 @@ class DacliUI:
                     style="muted",
                 )
             grid.add_row("Rollback", rollback)
+        estimate = getattr(request, "cost_estimate", None)
+        if estimate:
+            bits = []
+            if estimate.get("bytes") is not None:
+                bits.append(f"{estimate['bytes']:,} bytes scanned")
+            if estimate.get("credits") is not None:
+                bits.append(f"{estimate['credits']} credits")
+            if estimate.get("usd") is not None:
+                bits.append(f"≈ ${estimate['usd']:,.2f}")
+            grid.add_row("Est. cost", Text("  ·  ".join(bits), style="warning"))
 
         parts: list[RenderableType] = [grid]
         preview = getattr(request, "dry_run_preview", None)

@@ -175,6 +175,16 @@ class Connector(ABC):
         """Check connectivity / readiness. Replaces ad-hoc validate()."""
         raise NotImplementedError
 
+    async def estimate_cost(self, op: str, args: dict[str, Any]) -> dict[str, Any] | None:
+        """Optional pre-execution cost preview for ``op``.
+
+        Connectors with a native estimator (BigQuery ``dry_run``) return e.g.
+        ``{"bytes": ..., "usd": ...}`` (keys: ``bytes``/``credits``/``usd``,
+        all optional). ``None`` means no estimate is available. The Governor
+        consults this only when ``governance.cost_confirm_usd`` is configured.
+        """
+        return None
+
     async def connect(self) -> bool:
         """Establish a connection if needed. Default: mark healthy via health()."""
         result = await self.health()

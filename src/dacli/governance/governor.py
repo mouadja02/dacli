@@ -23,6 +23,7 @@ silently executed.
 
 from __future__ import annotations
 
+import inspect
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -59,6 +60,7 @@ class ApprovalRequest:
     args: dict[str, Any]
     dry_run_preview: str | None = None
     shadow: ShadowResult | None = None
+    cost_estimate: dict[str, Any] | None = None
 
     def describe(self) -> str:
         lines = [
@@ -71,11 +73,24 @@ class ApprovalRequest:
             + (f"  (verified: {self.rollback_plan.verify_detail})"
                if self.rollback_plan.primitive not in ("noop", "none") else ""),
         ]
+        if self.cost_estimate:
+            lines.append(f"Est. cost   : {_format_cost_estimate(self.cost_estimate)}")
         if self.dry_run_preview:
             lines.append(f"Dry-run     : {self.dry_run_preview}")
         if self.shadow and self.shadow.ran:
             lines.append(f"Shadow      : {self.shadow.summary()}")
         return "\n".join(lines)
+
+
+def _format_cost_estimate(estimate: dict[str, Any]) -> str:
+    bits = []
+    if estimate.get("bytes") is not None:
+        bits.append(f"{estimate['bytes']:,} bytes scanned")
+    if estimate.get("credits") is not None:
+        bits.append(f"{estimate['credits']} credits")
+    if estimate.get("usd") is not None:
+        bits.append(f"≈ ${estimate['usd']:,.2f}")
+    return "  ·  ".join(bits) or "(no detail)"
 
 
 @dataclass
@@ -107,6 +122,7 @@ class Governor:
         env_resolver: EnvResolver | None = None,
         enforce: bool = True,
         use_shadow: bool = True,
+        cost_confirm_usd: float | None = None,
     ):
         self.classifier = classifier or ActionClassifier(
             prod_markers=(policy.prod_markers if policy else None) or None
@@ -122,6 +138,10 @@ class Governor:
         self._env_resolver = env_resolver
         self.enforce = enforce
         self.use_shadow = use_shadow
+        #: F-4 cost gate. When set, a connector-provided estimate above this
+        # many USD raises the effective tier so the confirm path fires. None
+        # (the default) never consults the estimator — zero behaviour change.
+        self.cost_confirm_usd = cost_confirm_usd
 
     # ------------------------------------------------------------------
     # helpers
@@ -213,6 +233,22 @@ class Governor:
                     f"tier={tier.value}", classification=classification.to_dict(),
                     environment=environment)
 
+        # 1b. Cost gate (F-4): when configured, an estimate above the
+        # threshold raises the effective tier so the confirm path fires —
+        # cost is a blast-radius dimension. Best-effort: a failing estimator
+        # never breaks review (the action is then judged on tier alone).
+        cost_estimate = await self._estimate_cost(spec, args, connector)
+        usd = (cost_estimate or {}).get("usd")
+        if usd is not None and self.cost_confirm_usd is not None and usd > self.cost_confirm_usd:
+            reason = (f"estimated cost ${usd:,.2f} exceeds the "
+                      f"cost_confirm_usd threshold (${self.cost_confirm_usd:,.2f}) → confirm")
+            if tier in (Tier.SAFE, Tier.WRITE):
+                tier = Tier.RISKY
+                classification.tier = tier
+            classification.reasons.append(reason)
+            self._audit("cost", tool_name, decision_id, actor, tier.value,
+                        reason, estimate=cost_estimate)
+
         # 2. Permission / least-privilege scope.
         scope_check = self.permissions.check(connector_id, tier)
         self._audit("permission", tool_name, decision_id, actor, tier.value,
@@ -275,7 +311,7 @@ class Governor:
         request = ApprovalRequest(
             tool_name=tool_name, tier=tier, classification=classification,
             policy=policy, rollback_plan=plan, args=args,
-            dry_run_preview=preview, shadow=shadow,
+            dry_run_preview=preview, shadow=shadow, cost_estimate=cost_estimate,
         )
         approved = self._ask_human(request)
         self._audit("approval", tool_name, decision_id, "human", tier.value,
@@ -327,6 +363,29 @@ class Governor:
     # ------------------------------------------------------------------
     # internals
     # ------------------------------------------------------------------
+    async def _estimate_cost(self, spec: Any, args: dict[str, Any],
+                             connector: Any) -> dict[str, Any] | None:
+        """Best-effort cost preview via the connector's optional hook.
+
+        Only consulted when the cost gate is configured, so the default posture
+        adds no calls. Any estimator error is swallowed (with a breadcrumb) —
+        a side concern never breaks the governance spine.
+        """
+        if self.cost_confirm_usd is None:
+            return None
+        hook = getattr(connector, "estimate_cost", None)
+        if not callable(hook):
+            return None
+        op = getattr(spec, "name", None) or ""
+        try:
+            estimate = hook(op, dict(args or {}))
+            if inspect.isawaitable(estimate):
+                estimate = await estimate
+        except Exception:
+            log.debug("estimate_cost hook raised", exc_info=True)
+            return None
+        return estimate if isinstance(estimate, dict) else None
+
     def _dry_run(self, connector: Any, tool_name: str, args: dict[str, Any]) -> str | None:
         if self._dry_run_fn is not None:
             try:
