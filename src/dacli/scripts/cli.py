@@ -427,6 +427,48 @@ def load(session_id, config):
     asyncio.run(_run_chat(config, session_id))
 
 
+def _open_catalog(config):
+    # The catalog cache the agent reads/writes (no agent construction needed).
+    from dacli.memory.catalog import CatalogCache
+
+    load_config(config)  # surface config warnings exactly like other commands
+    return CatalogCache()
+
+
+@cli.command()
+@click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
+@click.option("--connector", type=str, default=None, help="Filter by connector id")
+def catalog(config, connector):
+    """List known data objects from the catalog cache (F-6)."""
+    entries = _open_catalog(config).list_objects(connector=connector)
+    entries.sort(key=lambda e: (e.connector, e.object_type, e.key()))
+    ui.catalog_table(entries)
+
+
+def _print_schema(target_ui, cache, object_name, connector=None) -> None:
+    # Shared by `dacli schema` and the in-chat /schema command.
+    matches = cache.find(object_name, connector=connector)
+    if not matches:
+        target_ui.notice(
+            f"No catalog entry for '{object_name}'. The catalog fills in as the "
+            "agent introspects — ask it about the object, or run /catalog to "
+            "see what is known.",
+            style="warning",
+        )
+        return
+    for entry in matches:
+        target_ui.schema_panel(entry)
+
+
+@cli.command()
+@click.argument("object_name")
+@click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
+@click.option("--connector", type=str, default=None, help="Filter by connector id")
+def schema(object_name, config, connector):
+    """Show cached columns/row-count/last-verified for one object (F-6)."""
+    _print_schema(ui, _open_catalog(config), object_name, connector)
+
+
 @cli.command()
 @click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
 @click.option("--session", "-s", type=str, help="Session ID to inspect")
@@ -1118,6 +1160,25 @@ async def _run_chat(
 
                     elif cmd == "/sessions":
                         chat_ui.sessions_table(memory.list_sessions())
+
+                    elif cmd == "/catalog":
+                        entries = memory.catalog.list_objects(
+                            connector=args[0] if args else None
+                        )
+                        entries.sort(
+                            key=lambda e: (e.connector, e.object_type, e.key())
+                        )
+                        chat_ui.catalog_table(entries)
+
+                    elif cmd == "/schema":
+                        if not args:
+                            chat_ui.notice(
+                                "Usage: /schema <object>  (e.g. /schema orders or "
+                                "/schema db.schema.orders)",
+                                style="muted",
+                            )
+                        else:
+                            _print_schema(chat_ui, memory.catalog, args[0])
 
                     elif cmd == "/load" and args:
                         if memory.load_session(args[0]):

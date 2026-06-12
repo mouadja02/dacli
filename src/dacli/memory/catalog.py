@@ -238,6 +238,39 @@ class CatalogCache:
         entry = self.get(connector, object_type, scope)
         return entry is not None and not entry.is_stale()
 
+    def find(
+        self,
+        name: str,
+        connector: str | None = None,
+    ) -> list[CatalogEntry]:
+        """Find entries whose (possibly qualified) object name matches ``name``.
+
+        Accepts ``object``, ``schema.object`` or ``db.schema.object``; matching
+        is canonicalized (case/quote-insensitive), so ``dacli schema orders``
+        finds ``ANALYTICS.MARTS.ORDERS``.
+        """
+        parts = [_canonical(p) for p in str(name).split(".") if p.strip()]
+        if not parts:
+            return []
+        want_db, want_schema, want_object = "", "", parts[-1]
+        if len(parts) >= 2:
+            want_schema = parts[-2]
+        if len(parts) >= 3:
+            want_db = parts[-3]
+
+        out = []
+        for entry in self._entries.values():
+            if connector is not None and entry.connector != connector:
+                continue
+            if _canonical(entry.scope.get("object")) != want_object:
+                continue
+            if want_schema and _canonical(entry.scope.get("schema")) != want_schema:
+                continue
+            if want_db and _canonical(entry.scope.get("database")) != want_db:
+                continue
+            out.append(entry)
+        return out
+
     def list_objects(
         self,
         connector: str | None = None,
