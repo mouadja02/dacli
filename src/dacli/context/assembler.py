@@ -101,6 +101,15 @@ def _now_iso() -> str:
 
 
 def _format_catalog_entry(entry: Any) -> str:
+    # Entries that know how to render themselves (e.g. dbt manifest models,
+    # which carry docs/lineage a generic scope line can't show) supply their
+    # own bounded line; plain catalog entries keep the original rendering.
+    line = getattr(entry, "context_line", None)
+    if callable(line):
+        try:
+            return str(line())
+        except Exception:
+            pass
     scope = getattr(entry, "scope", {}) or {}
     name = ".".join(
         str(scope[k]) for k in ("database", "schema", "object") if scope.get(k)

@@ -1,0 +1,51 @@
+{
+  "metadata": {"project_name": "jaffle", "dbt_version": "1.7.0"},
+  "nodes": {
+    "model.jaffle.stg_orders": {
+      "resource_type": "model",
+      "name": "stg_orders",
+      "database": "analytics",
+      "schema": "staging",
+      "description": "Staged raw orders, one row per order.",
+      "columns": {
+        "order_id": {"name": "order_id", "description": "Primary key of the order.", "data_type": "integer"},
+        "ordered_at": {"name": "ordered_at", "description": "When the order was placed.", "data_type": "timestamp"}
+      },
+      "depends_on": {"nodes": ["source.jaffle.raw.orders"]}
+    },
+    "model.jaffle.orders": {
+      "resource_type": "model",
+      "name": "orders",
+      "database": "analytics",
+      "schema": "marts",
+      "description": "Orders fact table at order grain, enriched with customer revenue.",
+      "columns": {
+        "order_id": {"name": "order_id", "description": "Primary key.", "data_type": "integer"},
+        "customer_id": {"name": "customer_id", "description": "FK to customers.", "data_type": "integer"},
+        "amount": {"name": "amount", "description": "Order total in USD.", "data_type": "numeric"}
+      },
+      "depends_on": {"nodes": ["model.jaffle.stg_orders"]}
+    },
+    "model.jaffle.customers": {
+      "resource_type": "model",
+      "name": "customers",
+      "database": "analytics",
+      "schema": "marts",
+      "description": "One row per customer with lifetime value.",
+      "columns": {
+        "customer_id": {"name": "customer_id", "description": "Primary key.", "data_type": "integer"}
+      },
+      "depends_on": {"nodes": ["model.jaffle.orders"]}
+    },
+    "test.jaffle.unique_orders_order_id.5a2b1c": {
+      "resource_type": "test",
+      "name": "unique_orders_order_id",
+      "depends_on": {"nodes": ["model.jaffle.orders"]}
+    },
+    "test.jaffle.not_null_orders_order_id.9f8e7d": {
+      "resource_type": "test",
+      "name": "not_null_orders_order_id",
+      "depends_on": {"nodes": ["model.jaffle.orders"]}
+    }
+  }
+}
