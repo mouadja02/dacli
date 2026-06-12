@@ -200,5 +200,42 @@ class OrchestratedRoutingE2ETest(unittest.TestCase):
         self.assertIsInstance(resp, AgentResponse)
 
 
+class UniformReturnContractTest(unittest.TestCase):
+    """A-5: ``process_goal`` always returns an :class:`AgentResponse` — the
+    orchestrated outcome (including an unapproved plan) is folded into the
+    contract at the orchestrator boundary, never an intermediate type."""
+
+    def setUp(self):
+        self._pricing = mock.patch("dacli.core.agent.fetch_pricing", return_value=None)
+        self._pricing.start()
+        self.addCleanup(self._pricing.stop)
+
+    def _agent_with_approval(self, approve: bool):
+        from dacli.core.agent import DACLI
+        settings = _settings(orchestration={"enabled": True, "require_plan_approval": True})
+        return DACLI(settings=settings, llm=_Sentinel(), on_approval=lambda _dag: approve)
+
+    def test_unapproved_plan_returns_agent_response(self):
+        agent = self._agent_with_approval(approve=False)
+        resp = _run(agent.process_message("/plan create x then load y then validate z"))
+        self.assertIsInstance(resp, AgentResponse)
+        self.assertTrue(resp.needs_user_input)
+        self.assertIn("Proposed plan (not approved — nothing executed):", resp.content)
+
+    def test_approved_plan_returns_agent_response(self):
+        agent = self._agent_with_approval(approve=True)
+
+        async def fake_orchestrate(msg, model=None):
+            return AgentResponse(content=f"did: {msg}", tool_calls=[])
+
+        agent.kernel.orchestrate = fake_orchestrate
+        resp = _run(agent.process_message(
+            "create the bronze table then load the crm source then validate the result"
+        ))
+        self.assertIsInstance(resp, AgentResponse)
+        self.assertIsNone(resp.error)
+        self.assertIn("completed", resp.content)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -615,13 +615,12 @@ class DACLI:
     async def process_message(self, user_message: str) -> AgentResponse:
         """The live entry point. A conservative **complexity gate** keeps common
         turns on the cheap single-step kernel loop; a genuinely multi-step goal
-        (or an explicit ``/plan``) is escalated to the orchestrated planner path,
-        whose result is folded back into an :class:`AgentResponse` so the UI /
-        headless callers see one stable contract.
+        (or an explicit ``/plan``) is escalated to the orchestrated planner path.
+        Both paths return the same :class:`AgentResponse` contract, so the UI /
+        headless callers never see an intermediate orchestration type.
         """
         if self._should_orchestrate(user_message):
-            result = await self.process_goal(user_message)
-            return self._as_response(result)
+            return await self.process_goal(user_message)
         return await self.kernel.orchestrate(user_message)
 
     def _should_orchestrate(self, message: str) -> bool:
@@ -637,7 +636,7 @@ class DACLI:
             return True
         return self.planner.is_complex(stripped)
 
-    async def process_goal(self, goal: str):
+    async def process_goal(self, goal: str) -> AgentResponse:
         """Orchestrated entry point for complex, multi-step goals.
 
         The **complexity gate** decides: a goal that does not decompose into
@@ -647,9 +646,9 @@ class DACLI:
         not left implicit to the LLM picking a tool), decomposed into an
         inspectable DAG, presented for approval (plan-approve-execute), then
         driven by the plan→act→observe→verify controller with bounded
-        self-correction. Returns the kernel's :class:`AgentResponse` for the
-        simple path, or the :class:`~core.loop.OrchestrationResult` for the
-        orchestrated path.
+        self-correction. Always returns an :class:`AgentResponse` — the
+        orchestrated outcome is folded into the contract here, at the
+        orchestrator boundary, so every caller sees one stable shape (A-5).
         """
         if not self._orchestration_on or self.planner is None:
             return await self.kernel.orchestrate(goal)
@@ -683,43 +682,32 @@ class DACLI:
                 approved = False
             if not approved:
                 self._emit_status("Plan not approved — not executing.")
-                return dag
+                return AgentResponse(
+                    content="Proposed plan (not approved — nothing executed):\n" + dag.render(),
+                    tool_calls=[],
+                    needs_user_input=True,
+                )
         self.blackboard.record_decision(f"approved plan for goal: {clean}", agent="lead")
-        return await self.orchestrator.run_dag(dag)
-
-    def _as_response(self, result) -> AgentResponse:
-        """Fold an orchestrated outcome back into the :class:`AgentResponse`
-        contract the live callers (CLI / headless) expect.
-        """
-        if isinstance(result, AgentResponse):
-            return result  # simple path already returned a kernel response
-        from dacli.core.planner import TaskDAG
-        from dacli.core.loop import OrchestrationResult
-        if isinstance(result, TaskDAG):
-            return AgentResponse(
-                content="Proposed plan (not approved — nothing executed):\n" + result.render(),
-                tool_calls=[],
-                needs_user_input=True,
-            )
-        if isinstance(result, OrchestrationResult):
-            parts = [result.summary()]
-            parts.extend(
-                f"- {outcome.node_id}: {outcome.detail}"
-                for outcome in result.outcomes
-                if getattr(outcome, "detail", None)
-            )
-            error = (
-                f"{len(result.escalated)} step(s) escalated to human review"
-                if result.escalated else None
-            )
-            return AgentResponse(
-                content="\n".join(parts),
-                tool_calls=[],
-                error=error,
-                needs_user_input=bool(result.paused),
-            )
-        # Defensive: anything else stringifies into a plain response.
-        return AgentResponse(content=str(result), tool_calls=[])
+        result = await self.orchestrator.run_dag(dag)
+        # Fold the orchestrated outcome into the AgentResponse contract right
+        # here at the boundary; the output text is what the CLI / headless
+        # callers have always rendered.
+        parts = [result.summary()]
+        parts.extend(
+            f"- {outcome.node_id}: {outcome.detail}"
+            for outcome in result.outcomes
+            if getattr(outcome, "detail", None)
+        )
+        error = (
+            f"{len(result.escalated)} step(s) escalated to human review"
+            if result.escalated else None
+        )
+        return AgentResponse(
+            content="\n".join(parts),
+            tool_calls=[],
+            error=error,
+            needs_user_input=bool(result.paused),
+        )
 
     def get_progress(self) -> dict:
         # Get current progress summary
