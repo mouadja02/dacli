@@ -686,7 +686,9 @@ def _print_audit(ledger, session_id, *, full=False, limit=20, header=None, targe
     "--calibrate", is_flag=True, help="Print data-driven threshold recommendations"
 )
 @click.option("--json", "as_json", is_flag=True, help="Machine-readable output")
-def eval_cmd(quick, regression, calibrate, as_json):
+@click.option("--report", "report_path", type=click.Path(), default=None,
+              help="Write a shareable reliability report (.md or .html, inferred from the extension)")
+def eval_cmd(quick, regression, calibrate, as_json, report_path):
     """Run the reliability eval (pass^k) against the simulated platforms.
 
     Offline: deterministic simulated warehouses/object-stores, no credentials,
@@ -705,6 +707,8 @@ def eval_cmd(quick, regression, calibrate, as_json):
         argv.append("--calibrate")
     if as_json:
         argv.append("--json")
+    if report_path:
+        argv.extend(["--report", report_path])
     raise SystemExit(eval_main(argv))
 
 
