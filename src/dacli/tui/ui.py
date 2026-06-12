@@ -752,6 +752,69 @@ class DacliUI:
             )
         )
 
+    def diff_panel(self, data: dict[str, Any]) -> None:
+        """Render a data-diff result (`dacli diff` / the data-diff skill)."""
+        data = data or {}
+        a, b = data.get("row_count_a", "?"), data.get("row_count_b", "?")
+        delta = data.get("row_delta", "?")
+
+        counts = Table(
+            show_header=True, header_style="muted", box=None, padding=(0, 2, 0, 0)
+        )
+        counts.add_column(data.get("table_a", "a"), justify="right", style="info")
+        counts.add_column(data.get("table_b", "b"), justify="right", style="info")
+        counts.add_column("Δ rows", justify="right", style="accent")
+        counts.add_row(str(a), str(b), str(delta))
+
+        parts: list[RenderableType] = [counts]
+        changed = [
+            c for c in (data.get("columns") or []) if c.get("delta")
+        ]
+        if changed:
+            cols = Table(
+                title="[muted]null-rate deltas (sampled)[/muted]",
+                title_justify="left",
+                show_header=True, header_style="muted", box=None,
+                padding=(0, 2, 0, 0),
+            )
+            cols.add_column("column", style="step")
+            cols.add_column("null% a", justify="right", style="info")
+            cols.add_column("null% b", justify="right", style="info")
+            cols.add_column("Δ", justify="right", style="warning")
+            for c in changed:
+                cols.add_row(
+                    str(c.get("name")),
+                    f"{c.get('null_rate_a', 0):.1%}",
+                    f"{c.get('null_rate_b', 0):.1%}",
+                    f"{c.get('delta', 0):+.1%}",
+                )
+            parts.append(cols)
+
+        sample = data.get("sample") or {}
+        summary = Text()
+        summary.append(
+            f"sample: {sample.get('rows_compared', 0)} row(s) compared, ",
+            style="muted",
+        )
+        differing = sample.get("rows_differing", 0)
+        summary.append(
+            f"{differing} differing",
+            style="warning" if differing else "success",
+        )
+        parts.append(summary)
+        if data.get("method"):
+            parts.append(Text(str(data["method"]), style="muted"))
+
+        self.console.print(
+            Panel(
+                Group(*parts),
+                title="[accent]data diff[/accent] · [muted]read-only[/muted]",
+                title_align="left",
+                border_style="border",
+                padding=(1, 2),
+            )
+        )
+
     # ------------------------------------------------------------------
     # Slash-command tables
     # ------------------------------------------------------------------

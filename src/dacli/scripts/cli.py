@@ -552,6 +552,43 @@ def plan_cmd(goal, config):
     ui.plan_panel(preview)
 
 
+@cli.command(name="diff")
+@click.argument("connector")
+@click.argument("table_a")
+@click.argument("table_b")
+@click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
+@click.option("--sample", "-n", type=int, default=100,
+              help="Rows sampled per side for the null-rate / value comparison")
+def diff_cmd(connector, table_a, table_b, config, sample):
+    """Read-only data diff between TABLE_A and TABLE_B on CONNECTOR.
+
+    Row-count delta, per-column null-rate delta over a bounded sample, and a
+    sampled value comparison — all via the connector's governed query op.
+    Never mutates anything (promotion is the agent-side `data_diff` skill with
+    mode=promote, which is approval-gated).
+    """
+    settings = load_config(config)
+    memory = AgentMemory(
+        state_path=settings.agent.state_path,
+        history_path=settings.agent.history_path,
+        memory_window=settings.agent.memory_window,
+    )
+    # Build the agent (no initialize() -> no network) just for its governed
+    # dispatcher — the same pattern as the `context` command.
+    agent = DACLI(settings=settings, memory=memory)
+    result = asyncio.run(agent.dispatcher.execute("data_diff", {
+        "connector": connector,
+        "table_a": table_a,
+        "table_b": table_b,
+        "sample_size": sample,
+        "mode": "diff",
+    }))
+    if not result.success:
+        ui.error(f"diff failed: {result.error}")
+        raise SystemExit(1)
+    ui.diff_panel(result.data)
+
+
 @cli.command()
 @click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
 @click.option("--session", "-s", type=str, help="Only show decisions for this session")
