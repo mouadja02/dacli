@@ -70,6 +70,9 @@ pty       = [
     "pywinpty>=2,<3 ; sys_platform == 'win32'",
     "ptyprocess>=0.7,<1 ; sys_platform != 'win32'",
 ]
+# Opt-in MCP *client* bridge (P11/F-7). Lazy-imported inside the mcp_bridge
+# connector's connect(); a default install never imports (or speaks) MCP.
+mcp       = ["mcp>=1,<2"]
 dev       = ["pytest>=8,<10", "ruff>=0.15,<0.16", "vulture>=2,<3"]
 # Convenience aggregate: every Python-SDK connector at once.
 all       = ["dacli[snowflake,pinecone]"]

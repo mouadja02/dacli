@@ -944,6 +944,106 @@ class DacliUI:
         self.console.print(table)
         self.console.print()
 
+    def catalog_table(self, entries: list[Any]) -> None:
+        """Known objects from the catalog cache (F-6: `dacli catalog`)."""
+        if not entries:
+            self.console.print(
+                "[muted]Catalog cache is empty — objects appear here once the "
+                "agent introspects or creates them.[/muted]\n"
+            )
+            return
+        table = Table(
+            title="[accent]Catalog[/accent]",
+            show_header=True,
+            header_style="muted",
+            border_style="border",
+            box=None,
+            padding=(0, 2, 0, 0),
+        )
+        table.add_column("Connector", style="info")
+        table.add_column("Type", style="step")
+        table.add_column("Object", style="accent")
+        table.add_column("~Rows", justify="right", style="step")
+        table.add_column("Verified", style="muted")
+        table.add_column("", style="warning")
+        for entry in entries:
+            scope = getattr(entry, "scope", {}) or {}
+            name = ".".join(
+                str(scope[k]) for k in ("database", "schema", "object") if scope.get(k)
+            ) or "(unscoped)"
+            rce = getattr(entry, "row_count_estimate", None)
+            verified = getattr(entry, "last_verified", None)
+            stale = entry.is_stale() if hasattr(entry, "is_stale") else False
+            table.add_row(
+                getattr(entry, "connector", "?"),
+                getattr(entry, "object_type", "?"),
+                name,
+                str(rce) if rce is not None else "—",
+                verified.isoformat(timespec="seconds")
+                if hasattr(verified, "isoformat") else "—",
+                "stale" if stale else "",
+            )
+        self.console.print(table)
+        self.console.print(
+            "[muted]Stale entries are hints — the agent re-verifies them before "
+            "acting. /schema <object> shows columns.[/muted]\n"
+        )
+
+    def schema_panel(self, entry: Any) -> None:
+        """Columns/types/row-count/last-verified for one object (F-6)."""
+        scope = getattr(entry, "scope", {}) or {}
+        name = ".".join(
+            str(scope[k]) for k in ("database", "schema", "object") if scope.get(k)
+        ) or "(unscoped)"
+        header = Text()
+        header.append(f"{name}\n", style="accent")
+        header.append("Connector   ", style="muted")
+        header.append(f"{getattr(entry, 'connector', '?')}\n", style="info")
+        header.append("Type        ", style="muted")
+        header.append(f"{getattr(entry, 'object_type', '?')}\n", style="info")
+        rce = getattr(entry, "row_count_estimate", None)
+        header.append("~Rows       ", style="muted")
+        header.append(f"{rce if rce is not None else '—'}\n", style="info")
+        verified = getattr(entry, "last_verified", None)
+        header.append("Verified    ", style="muted")
+        header.append(
+            verified.isoformat(timespec="seconds")
+            if hasattr(verified, "isoformat") else "—",
+            style="info",
+        )
+        if hasattr(entry, "is_stale") and entry.is_stale():
+            header.append("  (stale — re-verify before relying on it)", style="warning")
+        self.console.print(
+            Panel(header, title="[accent]Schema[/accent]",
+                  border_style="border", padding=(1, 2))
+        )
+
+        columns = getattr(entry, "columns", None) or []
+        if not columns:
+            self.console.print(
+                "[muted]No cached columns for this object — ask the agent to "
+                "introspect it to fill them in.[/muted]\n"
+            )
+            return
+        table = Table(
+            show_header=True,
+            header_style="muted",
+            border_style="border",
+            box=None,
+            padding=(0, 2, 0, 0),
+        )
+        table.add_column("Column", style="info")
+        table.add_column("Type", style="step")
+        table.add_column("Description", style="muted")
+        for col in columns:
+            table.add_row(
+                str(col.get("name", "?")),
+                str(col.get("type") or col.get("data_type") or ""),
+                str(col.get("description", "")),
+            )
+        self.console.print(table)
+        self.console.print()
+
     def status_panel(self, memory) -> None:
         # Render the current agent status: session panel, plan and statistics.
         summary = memory.get_progress_summary()

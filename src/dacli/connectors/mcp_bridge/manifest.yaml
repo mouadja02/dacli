@@ -1,0 +1,15 @@
+id: mcp_bridge
+name: MCP Bridge
+description: Opt-in client bridge that proxies one external MCP server's tools through dacli's governed dispatch path. Off by default — dacli core does not speak MCP.
+icon: "🔌"
+class: dacli.connectors.mcp_bridge.connector.McpBridgeConnector
+required_config: []
+enabled: false
+# Proxied tools default to the 'risky' tier, so the scope ceiling must admit
+# them as far as the policy/approval gate (which still confirms every call).
+default_scope: risky
+golden_task:
+  name: Discover the MCP server's tools
+  op: mcp_list_tools
+  description: Connect to the configured MCP server and list the tools it exposes (live introspection; re-verifies what the bridge proxies).
+  expectation: the lists_tools post-condition passes with a non-empty tool inventory.

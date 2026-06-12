@@ -427,6 +427,48 @@ def load(session_id, config):
     asyncio.run(_run_chat(config, session_id))
 
 
+def _open_catalog(config):
+    # The catalog cache the agent reads/writes (no agent construction needed).
+    from dacli.memory.catalog import CatalogCache
+
+    load_config(config)  # surface config warnings exactly like other commands
+    return CatalogCache()
+
+
+@cli.command()
+@click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
+@click.option("--connector", type=str, default=None, help="Filter by connector id")
+def catalog(config, connector):
+    """List known data objects from the catalog cache (F-6)."""
+    entries = _open_catalog(config).list_objects(connector=connector)
+    entries.sort(key=lambda e: (e.connector, e.object_type, e.key()))
+    ui.catalog_table(entries)
+
+
+def _print_schema(target_ui, cache, object_name, connector=None) -> None:
+    # Shared by `dacli schema` and the in-chat /schema command.
+    matches = cache.find(object_name, connector=connector)
+    if not matches:
+        target_ui.notice(
+            f"No catalog entry for '{object_name}'. The catalog fills in as the "
+            "agent introspects — ask it about the object, or run /catalog to "
+            "see what is known.",
+            style="warning",
+        )
+        return
+    for entry in matches:
+        target_ui.schema_panel(entry)
+
+
+@cli.command()
+@click.argument("object_name")
+@click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
+@click.option("--connector", type=str, default=None, help="Filter by connector id")
+def schema(object_name, config, connector):
+    """Show cached columns/row-count/last-verified for one object (F-6)."""
+    _print_schema(ui, _open_catalog(config), object_name, connector)
+
+
 @cli.command()
 @click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
 @click.option("--session", "-s", type=str, help="Session ID to inspect")
@@ -673,6 +715,64 @@ def _print_audit(ledger, session_id, *, full=False, limit=20, header=None, targe
             if full and ev.get("detail"):
                 con.print(Text(f"        {ev['detail']}", style="muted"))
         con.print()
+
+
+@cli.group()
+def connector():
+    """Manage shared connectors from a community index (F-8)."""
+
+
+@connector.command(name="install")
+@click.argument("name")
+@click.option("--index", "index_source", required=True,
+              help="Connector index: a local path or http(s) URL to a "
+                   "JSON/YAML file with a 'connectors' mapping")
+@click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
+@click.option("--force", is_flag=True, help="Overwrite an existing connectors/<name>/")
+def connector_install(name, index_source, config, force):
+    """Fetch a connector from an index into connectors/<name>/ (disabled).
+
+    The download is validated in a sandboxed subprocess and registered
+    disabled; run /connect <name> and restart dacli to enable it.
+    """
+    from dacli.core.connector_index import install_connector
+
+    settings = load_config(config)
+    ok, msg = install_connector(name, settings, index_source, force=force)
+    console.print(f"[{'success' if ok else 'error'}]{msg}[/{'success' if ok else 'error'}]")
+    if not ok:
+        raise SystemExit(1)
+
+
+@cli.command(name="export-run")
+@click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
+@click.option("--session", "-s", type=str, default=None,
+              help="Session ID to export (defaults to the most recent session)")
+@click.option("--out", "-o", type=click.Path(), default=None,
+              help="Output zip path (defaults to dacli_run_<session>.zip)")
+def export_run(config, session, out):
+    """Export a session as a compliance bundle (transcript + audit + usage).
+
+    The zip contains history.json, state.json, the session's audit-ledger
+    slice, the usage summary and a manifest. Secret-keyed values are redacted.
+    """
+    from dacli.core.export_run import export_run_bundle
+
+    settings = load_config(config)
+    try:
+        manifest = export_run_bundle(settings, session, out)
+    except FileNotFoundError as exc:
+        console.print(f"[error]{exc}[/error]")
+        raise SystemExit(1) from exc
+    console.print(
+        f"[success]Exported session {manifest['session_id']} → "
+        f"{manifest['path']}[/success]"
+    )
+    console.print(
+        f"[muted]contents: {', '.join(manifest['contents'])}  ·  "
+        f"{manifest['counts']['messages']} message(s), "
+        f"{manifest['counts']['audit_events']} audit event(s)[/muted]"
+    )
 
 
 @cli.command(name="eval")
@@ -1180,6 +1280,25 @@ async def _run_chat(
 
                     elif cmd == "/sessions":
                         chat_ui.sessions_table(memory.list_sessions())
+
+                    elif cmd == "/catalog":
+                        entries = memory.catalog.list_objects(
+                            connector=args[0] if args else None
+                        )
+                        entries.sort(
+                            key=lambda e: (e.connector, e.object_type, e.key())
+                        )
+                        chat_ui.catalog_table(entries)
+
+                    elif cmd == "/schema":
+                        if not args:
+                            chat_ui.notice(
+                                "Usage: /schema <object>  (e.g. /schema orders or "
+                                "/schema db.schema.orders)",
+                                style="muted",
+                            )
+                        else:
+                            _print_schema(chat_ui, memory.catalog, args[0])
 
                     elif cmd == "/load" and args:
                         if memory.load_session(args[0]):

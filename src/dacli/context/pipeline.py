@@ -10,6 +10,7 @@ wiring object.
 
 from dacli.context.assembler import build_context
 from dacli.context.budget import Budget
+from dacli.context.sources.dbt_manifest import DbtManifestSource
 from dacli.context.compaction import compact, needs_compaction
 from dacli.context.disclosure import disclose
 from dacli.context.spill import ResultStore, summarize_or_inline
@@ -43,6 +44,22 @@ def build_context_pipeline(settings, memory, registry, llm, system_connector) ->
     # toolbar's ctx % can read the real budget snapshot without re-assembling.
     last: dict = {"ctx": None}
 
+    # Live-env layer (F-5): catalog cache entries plus, when a dbt project is
+    # configured, models parsed from its target/manifest.json (mtime-cached).
+    # With no dbt project this provider is exactly the assembler's default
+    # catalog path, so existing behaviour is unchanged.
+    dbt_project_dir = getattr(getattr(settings, "dbt", None), "project_dir", "") or ""
+    dbt_source = DbtManifestSource(dbt_project_dir) if dbt_project_dir else None
+
+    def _live_entries(_task):
+        entries = []
+        catalog = getattr(memory, "catalog", None)
+        if catalog is not None:
+            entries.extend(catalog.list_objects())
+        if dbt_source is not None:
+            entries.extend(dbt_source.entries())
+        return entries
+
     def _build(task, working, disclosed):
         effective = disclose(task, registry, already_disclosed=disclosed)
         base = compose_system_prompt(task, effective)
@@ -55,6 +72,7 @@ def build_context_pipeline(settings, memory, registry, llm, system_connector) ->
             budget=budget,
             disclosed=effective,
             base_system_prompt=base,
+            live_provider=_live_entries,
         )
         last["ctx"] = ctx
         return ctx

@@ -18,6 +18,8 @@ CLI_COMMANDS = [
     ("/setup", "Run the tool configuration wizard"),
     ("/history", "Show conversation history"),
     ("/sessions", "List available sessions"),
+    ("/catalog [connector]", "List known data objects from the catalog cache"),
+    ("/schema <object>", "Show cached columns/row-count for one object"),
     ("/load <id>", "Load a previous session"),
     ("/export", "Export current state to JSON"),
     ("/config", "Show current configuration"),
