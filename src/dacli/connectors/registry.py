@@ -183,6 +183,15 @@ class ConnectorRegistry:
             for spec in connector.operations():
                 self._op_index[spec.name] = (connector_id, spec.name)
 
+    def rebuild_index(self) -> None:
+        """Re-scan every connector's operations into the tool-name index.
+
+        Needed after startup connects: a connector that discovers its
+        operations at ``connect()`` time (e.g. the MCP bridge) only knows its
+        tools now. Idempotent and cheap for static connectors.
+        """
+        self._build_index()
+
     # ------------------------------------------------------------------
     # Enable/disable state
     # ------------------------------------------------------------------

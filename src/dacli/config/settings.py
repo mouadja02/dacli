@@ -310,6 +310,26 @@ class DbtSettings(BaseModel):
     timeout: int = Field(default=900, ge=1)
 
 
+class McpSettings(BaseModel):
+    # Opt-in MCP *client* bridge (F-7). dacli does NOT adopt MCP internally —
+    # tools-as-code stays the core architecture. These settings only point the
+    # (default-disabled) mcp_bridge connector at one external MCP server whose
+    # tools are then proxied through the governed dispatch path. A default
+    # install never speaks MCP: no command/url -> the bridge is inert.
+    command: str = ""  # stdio transport: executable that serves MCP on stdio
+    args: list = Field(default_factory=list)  # argv for the stdio command
+    url: str = ""  # streamable-http endpoint (alternative to command)
+    default_risk: str = Field(
+        default="risky",
+        description="Risk assigned to proxied MCP tools unless pinned in risk_overrides: safe | write | risky | irreversible. Conservative by default — MCP tools cannot declare environment-anchored post-conditions, so they are held to the generic gate.",
+    )
+    risk_overrides: dict = Field(
+        default_factory=dict,
+        description="Per-tool risk pins, e.g. {list_models: safe}. Unknown values fall back to 'risky'.",
+    )
+    timeout: int = Field(default=60, ge=1)
+
+
 class AgentSettings(BaseModel):
     # Agent configuration
     max_iterations: int = Field(default=100, ge=1)
@@ -560,6 +580,8 @@ class Settings(BaseModel):
     # Wave 3 — orchestration.
     airflow: AirflowSettings = Field(default_factory=AirflowSettings)
     dagster: DagsterSettings = Field(default_factory=DagsterSettings)
+    # Opt-in MCP client bridge (F-7); inert unless configured AND enabled.
+    mcp: McpSettings = Field(default_factory=McpSettings)
     embeddings: EmbeddingsSettings = Field(default_factory=EmbeddingsSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)

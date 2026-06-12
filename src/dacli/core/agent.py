@@ -422,6 +422,14 @@ class DACLI:
                 self._emit_status(f"Failed to initialize {display}: {error}")
                 failed_initializations.append(display)
 
+        # Connectors that discover their operations at connect() time (e.g.
+        # the MCP bridge) only know their tools now — refresh the tool-name
+        # index so the dispatcher can resolve them. Idempotent for the rest.
+        try:
+            self.registry.rebuild_index()
+        except Exception:
+            log.debug("registry index rebuild failed", exc_info=True)
+
         skipped = [
             meta.get("name", cid)
             for cid, meta in catalog.items() if cid not in enabled_ids
