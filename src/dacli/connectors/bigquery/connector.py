@@ -261,6 +261,27 @@ class BigQueryConnector(CliConnector):
         return []
 
     # ------------------------------------------------------------------
+    # Governance: cost preview (F-4)
+    # ------------------------------------------------------------------
+    # BigQuery on-demand list price per TiB scanned (the free monthly TiB is
+    # deliberately not modeled — the gate should see the worst case).
+    _USD_PER_TIB = 6.25
+
+    async def estimate_cost(self, op: str, args: dict[str, Any]) -> dict[str, Any] | None:
+        """Exact bytes-scanned preview via the native `bq --dry_run`."""
+        if op != "execute_bigquery_query":
+            return None
+        sql = (args or {}).get("query", "")
+        if not sql:
+            return None
+        res = await self._dry_run_query(sql)
+        data = getattr(res, "data", None) or {}
+        scanned = data.get("bytes_processed")
+        if not data.get("valid") or scanned is None:
+            return None
+        return {"bytes": scanned, "usd": round(scanned / 2**40 * self._USD_PER_TIB, 6)}
+
+    # ------------------------------------------------------------------
     # Governance: rollback-path verification (DoD)
     # ------------------------------------------------------------------
     async def verify_rollback(self, plan, args: dict[str, Any]):

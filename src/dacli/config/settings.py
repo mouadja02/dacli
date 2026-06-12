@@ -373,6 +373,10 @@ class GovernanceSettings(BaseModel):
         default=True,
         description="Run risky transforms on a zero-copy clone and diff before promoting (where the connector supports it).",
     )
+    cost_confirm_usd: float | None = Field(
+        default=None,
+        description="Cost gate: when a connector can estimate an action's cost (e.g. BigQuery dry_run bytes) and the estimate exceeds this many USD, require a human confirm. None disables the gate.",
+    )
 
 
 class SandboxSettings(BaseModel):

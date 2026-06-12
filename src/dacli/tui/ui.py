@@ -631,6 +631,16 @@ class DacliUI:
                     style="muted",
                 )
             grid.add_row("Rollback", rollback)
+        estimate = getattr(request, "cost_estimate", None)
+        if estimate:
+            bits = []
+            if estimate.get("bytes") is not None:
+                bits.append(f"{estimate['bytes']:,} bytes scanned")
+            if estimate.get("credits") is not None:
+                bits.append(f"{estimate['credits']} credits")
+            if estimate.get("usd") is not None:
+                bits.append(f"≈ ${estimate['usd']:,.2f}")
+            grid.add_row("Est. cost", Text("  ·  ".join(bits), style="warning"))
 
         parts: list[RenderableType] = [grid]
         preview = getattr(request, "dry_run_preview", None)
@@ -676,6 +686,144 @@ class DacliUI:
         table.add_column("Δ", justify="right", style="accent")
         table.add_row(str(diff["rows_before"]), str(diff["rows_after"]), str(delta))
         return table
+
+    def plan_panel(self, preview) -> None:
+        """Render a static plan + governance preview (`dacli plan`).
+
+        One row per DAG step: tier (blast radius), the policy decision that
+        would fire, and the rollback primitive that would be attached. Nothing
+        here executes — it is the inspectable plan-approve-execute front half.
+        """
+        table = Table(
+            show_header=True,
+            header_style="muted",
+            border_style="border",
+            box=None,
+            padding=(0, 2, 0, 0),
+        )
+        table.add_column("#", justify="right", style="muted")
+        table.add_column("step", style="step", overflow="fold")
+        table.add_column("tier", no_wrap=True)
+        table.add_column("decision", style="info", no_wrap=True)
+        table.add_column("rollback", style="muted", overflow="fold")
+
+        needs_approval = 0
+        for i, step in enumerate(preview.steps, 1):
+            tier = getattr(step.tier, "value", str(step.tier))
+            tier_text = Text(tier, style=TIER_STYLE.get(tier, "muted"))
+            cls = step.classification
+            if getattr(cls, "is_prod", False):
+                tier_text.append(f" (PROD: {cls.prod_marker})", style="error")
+
+            desc = Text(step.node.description)
+            deps = step.node.depends_on
+            if deps:
+                desc.append(f"  (after {', '.join(deps)})", style="muted")
+            if step.node.breadth_first:
+                desc.append(
+                    f"  [breadth-first ×{len(step.node.items) or '?'}]", style="info"
+                )
+
+            decision = getattr(step.policy.decision, "value", "?")
+            if step.policy.requires_human:
+                needs_approval += 1
+                decision += " — needs approval"
+
+            rollback = step.rollback
+            if rollback.primitive == "noop":
+                undo = "nothing to undo (read-only)"
+            elif rollback.available:
+                undo = rollback.primitive
+                if not rollback.verified:
+                    undo += " (verified at execution)"
+            else:
+                undo = "no native undo — would be refused unless verified"
+            if step.platform:
+                undo += f" · {step.platform}"
+
+            table.add_row(str(i), desc, tier_text, decision, undo)
+
+        summary = Text()
+        summary.append(f"{len(preview.steps)} step(s)", style="info")
+        summary.append("  ·  ", style="muted")
+        if needs_approval:
+            summary.append(f"{needs_approval} need(s) approval", style="warning")
+        else:
+            summary.append("no approvals needed", style="success")
+        summary.append("  ·  nothing was executed", style="muted")
+
+        self.console.print(
+            Panel(
+                Group(Text(preview.goal, style="accent"), Text(), table, Text(), summary),
+                title="[accent]plan preview[/accent] · [muted]dry — no execution[/muted]",
+                title_align="left",
+                border_style="border",
+                padding=(1, 2),
+            )
+        )
+
+    def diff_panel(self, data: dict[str, Any]) -> None:
+        """Render a data-diff result (`dacli diff` / the data-diff skill)."""
+        data = data or {}
+        a, b = data.get("row_count_a", "?"), data.get("row_count_b", "?")
+        delta = data.get("row_delta", "?")
+
+        counts = Table(
+            show_header=True, header_style="muted", box=None, padding=(0, 2, 0, 0)
+        )
+        counts.add_column(data.get("table_a", "a"), justify="right", style="info")
+        counts.add_column(data.get("table_b", "b"), justify="right", style="info")
+        counts.add_column("Δ rows", justify="right", style="accent")
+        counts.add_row(str(a), str(b), str(delta))
+
+        parts: list[RenderableType] = [counts]
+        changed = [
+            c for c in (data.get("columns") or []) if c.get("delta")
+        ]
+        if changed:
+            cols = Table(
+                title="[muted]null-rate deltas (sampled)[/muted]",
+                title_justify="left",
+                show_header=True, header_style="muted", box=None,
+                padding=(0, 2, 0, 0),
+            )
+            cols.add_column("column", style="step")
+            cols.add_column("null% a", justify="right", style="info")
+            cols.add_column("null% b", justify="right", style="info")
+            cols.add_column("Δ", justify="right", style="warning")
+            for c in changed:
+                cols.add_row(
+                    str(c.get("name")),
+                    f"{c.get('null_rate_a', 0):.1%}",
+                    f"{c.get('null_rate_b', 0):.1%}",
+                    f"{c.get('delta', 0):+.1%}",
+                )
+            parts.append(cols)
+
+        sample = data.get("sample") or {}
+        summary = Text()
+        summary.append(
+            f"sample: {sample.get('rows_compared', 0)} row(s) compared, ",
+            style="muted",
+        )
+        differing = sample.get("rows_differing", 0)
+        summary.append(
+            f"{differing} differing",
+            style="warning" if differing else "success",
+        )
+        parts.append(summary)
+        if data.get("method"):
+            parts.append(Text(str(data["method"]), style="muted"))
+
+        self.console.print(
+            Panel(
+                Group(*parts),
+                title="[accent]data diff[/accent] · [muted]read-only[/muted]",
+                title_align="left",
+                border_style="border",
+                padding=(1, 2),
+            )
+        )
 
     # ------------------------------------------------------------------
     # Slash-command tables

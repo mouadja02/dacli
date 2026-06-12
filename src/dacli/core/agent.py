@@ -353,6 +353,7 @@ class DACLI:
             env_resolver=self._resolve_environment,
             enforce=True,
             use_shadow=bool(getattr(gov, "shadow_execution", True)) if gov else True,
+            cost_confirm_usd=getattr(gov, "cost_confirm_usd", None) if gov else None,
         )
 
     def _resolve_environment(self, connector_id: str, args: dict, connector) -> str | None:

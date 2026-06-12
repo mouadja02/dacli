@@ -34,6 +34,9 @@ async def _main(argv=None) -> int:
     parser.add_argument("--calibrate", action="store_true",
                         help="print data-driven threshold recommendations")
     parser.add_argument("--json", action="store_true", help="machine-readable output")
+    parser.add_argument("--report", default=None, metavar="PATH",
+                        help="write a shareable reliability report; format inferred "
+                             "from the extension (.md / .html)")
     parser.add_argument("--no-persist", action="store_true",
                         help="do not append this run to history")
     parser.add_argument("--history", default=".dacli/eval/history.jsonl")
@@ -49,6 +52,12 @@ async def _main(argv=None) -> int:
     dashboard = Dashboard.from_report(report)
     regression = compare(prev, report) if (args.regression and prev is not None) else None
     recommendation = calibrate(report) if args.calibrate else None
+
+    if args.report:
+        from dacli.eval.report import write_report
+
+        target = write_report(args.report, dashboard, regression)
+        print(f"report written to {target}", file=sys.stderr)
 
     if args.json:
         out = {"dashboard": dashboard.to_dict()}

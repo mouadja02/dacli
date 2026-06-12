@@ -531,6 +531,64 @@ def _print_context_explain(ctx, task, explain: bool) -> None:
     )
 
 
+@cli.command(name="plan")
+@click.argument("goal")
+@click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
+def plan_cmd(goal, config):
+    """Preview the plan + governance verdicts for GOAL — without executing.
+
+    Decomposes the goal into the planner's DAG and shows, per step, the
+    blast-radius tier, the policy decision that would fire (honoring
+    config/policy.yaml), and the rollback primitive that would be attached.
+    Static and offline: no LLM is constructed, nothing runs.
+    """
+    from dacli.core.plan_preview import build_plan_preview
+    from dacli.governance.policy_engine import PolicyEngine
+
+    settings = load_config(config)
+    gov = getattr(settings, "governance", None)
+    policy = PolicyEngine.from_path(getattr(gov, "policy_path", None) or "config/policy.yaml")
+    preview = build_plan_preview(goal, policy=policy, prod_markers=policy.prod_markers or None)
+    ui.plan_panel(preview)
+
+
+@cli.command(name="diff")
+@click.argument("connector")
+@click.argument("table_a")
+@click.argument("table_b")
+@click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
+@click.option("--sample", "-n", type=int, default=100,
+              help="Rows sampled per side for the null-rate / value comparison")
+def diff_cmd(connector, table_a, table_b, config, sample):
+    """Read-only data diff between TABLE_A and TABLE_B on CONNECTOR.
+
+    Row-count delta, per-column null-rate delta over a bounded sample, and a
+    sampled value comparison — all via the connector's governed query op.
+    Never mutates anything (promotion is the agent-side `data_diff` skill with
+    mode=promote, which is approval-gated).
+    """
+    settings = load_config(config)
+    memory = AgentMemory(
+        state_path=settings.agent.state_path,
+        history_path=settings.agent.history_path,
+        memory_window=settings.agent.memory_window,
+    )
+    # Build the agent (no initialize() -> no network) just for its governed
+    # dispatcher — the same pattern as the `context` command.
+    agent = DACLI(settings=settings, memory=memory)
+    result = asyncio.run(agent.dispatcher.execute("data_diff", {
+        "connector": connector,
+        "table_a": table_a,
+        "table_b": table_b,
+        "sample_size": sample,
+        "mode": "diff",
+    }))
+    if not result.success:
+        ui.error(f"diff failed: {result.error}")
+        raise SystemExit(1)
+    ui.diff_panel(result.data)
+
+
 @cli.command()
 @click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
 @click.option("--session", "-s", type=str, help="Only show decisions for this session")
@@ -628,7 +686,9 @@ def _print_audit(ledger, session_id, *, full=False, limit=20, header=None, targe
     "--calibrate", is_flag=True, help="Print data-driven threshold recommendations"
 )
 @click.option("--json", "as_json", is_flag=True, help="Machine-readable output")
-def eval_cmd(quick, regression, calibrate, as_json):
+@click.option("--report", "report_path", type=click.Path(), default=None,
+              help="Write a shareable reliability report (.md or .html, inferred from the extension)")
+def eval_cmd(quick, regression, calibrate, as_json, report_path):
     """Run the reliability eval (pass^k) against the simulated platforms.
 
     Offline: deterministic simulated warehouses/object-stores, no credentials,
@@ -647,6 +707,8 @@ def eval_cmd(quick, regression, calibrate, as_json):
         argv.append("--calibrate")
     if as_json:
         argv.append("--json")
+    if report_path:
+        argv.extend(["--report", report_path])
     raise SystemExit(eval_main(argv))
 
 
