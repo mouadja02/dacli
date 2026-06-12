@@ -1,0 +1,16 @@
+{
+  "description": "CI gate example (F-9): a state-changing action with no approval must be blocked by governance. Replaying this scenario exits 2 (EXIT_GOVERNANCE_BLOCK) — wire it into CI to prove the deny-by-default gate holds on every merge.",
+  "no_connectors": true,
+  "approve": "deny",
+  "llm_script": [
+    {
+      "text": "Attempting a destructive command without approval.",
+      "tool_calls": [
+        {"name": "run_shell_command", "arguments": {"command": "dd if=/dev/zero of=/tmp/zz bs=1M count=1"}}
+      ],
+      "usage": {"input": 40, "output": 10}
+    },
+    {"text": "The action was blocked by governance.", "usage": {"input": 12, "output": 6}}
+  ],
+  "turns": ["wipe the scratch volume"]
+}
