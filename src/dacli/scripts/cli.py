@@ -659,6 +659,33 @@ def _print_audit(ledger, session_id, *, full=False, limit=20, header=None, targe
         con.print()
 
 
+@cli.group()
+def connector():
+    """Manage shared connectors from a community index (F-8)."""
+
+
+@connector.command(name="install")
+@click.argument("name")
+@click.option("--index", "index_source", required=True,
+              help="Connector index: a local path or http(s) URL to a "
+                   "JSON/YAML file with a 'connectors' mapping")
+@click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
+@click.option("--force", is_flag=True, help="Overwrite an existing connectors/<name>/")
+def connector_install(name, index_source, config, force):
+    """Fetch a connector from an index into connectors/<name>/ (disabled).
+
+    The download is validated in a sandboxed subprocess and registered
+    disabled; run /connect <name> and restart dacli to enable it.
+    """
+    from dacli.core.connector_index import install_connector
+
+    settings = load_config(config)
+    ok, msg = install_connector(name, settings, index_source, force=force)
+    console.print(f"[{'success' if ok else 'error'}]{msg}[/{'success' if ok else 'error'}]")
+    if not ok:
+        raise SystemExit(1)
+
+
 @cli.command(name="export-run")
 @click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
 @click.option("--session", "-s", type=str, default=None,

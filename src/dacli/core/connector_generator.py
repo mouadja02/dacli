@@ -343,7 +343,9 @@ def _validate_in_subprocess(name: str, connector_file: Path) -> tuple[bool, str]
     return False, f"Validation subprocess failed (exit {proc.returncode}): {detail[-500:]}"
 
 
-def validate_connector(name: str, settings: Any) -> tuple[bool, str]:
+def validate_connector(
+    name: str, settings: Any, connectors_dir: Path | None = None
+) -> tuple[bool, str]:
     """Structurally validate the connector at ``connectors/<name>/``.
 
     The single validator shared by generation, ``/import-connector``, and the
@@ -362,7 +364,7 @@ def validate_connector(name: str, settings: Any) -> tuple[bool, str]:
     """
     import yaml
 
-    connector_dir = _CONNECTORS_DIR / name
+    connector_dir = (connectors_dir or _CONNECTORS_DIR) / name
     connector_file = connector_dir / "connector.py"
     manifest_file = connector_dir / "manifest.yaml"
     if not connector_file.exists():
