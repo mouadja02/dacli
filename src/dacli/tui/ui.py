@@ -677,6 +677,81 @@ class DacliUI:
         table.add_row(str(diff["rows_before"]), str(diff["rows_after"]), str(delta))
         return table
 
+    def plan_panel(self, preview) -> None:
+        """Render a static plan + governance preview (`dacli plan`).
+
+        One row per DAG step: tier (blast radius), the policy decision that
+        would fire, and the rollback primitive that would be attached. Nothing
+        here executes — it is the inspectable plan-approve-execute front half.
+        """
+        table = Table(
+            show_header=True,
+            header_style="muted",
+            border_style="border",
+            box=None,
+            padding=(0, 2, 0, 0),
+        )
+        table.add_column("#", justify="right", style="muted")
+        table.add_column("step", style="step", overflow="fold")
+        table.add_column("tier", no_wrap=True)
+        table.add_column("decision", style="info", no_wrap=True)
+        table.add_column("rollback", style="muted", overflow="fold")
+
+        needs_approval = 0
+        for i, step in enumerate(preview.steps, 1):
+            tier = getattr(step.tier, "value", str(step.tier))
+            tier_text = Text(tier, style=TIER_STYLE.get(tier, "muted"))
+            cls = step.classification
+            if getattr(cls, "is_prod", False):
+                tier_text.append(f" (PROD: {cls.prod_marker})", style="error")
+
+            desc = Text(step.node.description)
+            deps = step.node.depends_on
+            if deps:
+                desc.append(f"  (after {', '.join(deps)})", style="muted")
+            if step.node.breadth_first:
+                desc.append(
+                    f"  [breadth-first ×{len(step.node.items) or '?'}]", style="info"
+                )
+
+            decision = getattr(step.policy.decision, "value", "?")
+            if step.policy.requires_human:
+                needs_approval += 1
+                decision += " — needs approval"
+
+            rollback = step.rollback
+            if rollback.primitive == "noop":
+                undo = "nothing to undo (read-only)"
+            elif rollback.available:
+                undo = rollback.primitive
+                if not rollback.verified:
+                    undo += " (verified at execution)"
+            else:
+                undo = "no native undo — would be refused unless verified"
+            if step.platform:
+                undo += f" · {step.platform}"
+
+            table.add_row(str(i), desc, tier_text, decision, undo)
+
+        summary = Text()
+        summary.append(f"{len(preview.steps)} step(s)", style="info")
+        summary.append("  ·  ", style="muted")
+        if needs_approval:
+            summary.append(f"{needs_approval} need(s) approval", style="warning")
+        else:
+            summary.append("no approvals needed", style="success")
+        summary.append("  ·  nothing was executed", style="muted")
+
+        self.console.print(
+            Panel(
+                Group(Text(preview.goal, style="accent"), Text(), table, Text(), summary),
+                title="[accent]plan preview[/accent] · [muted]dry — no execution[/muted]",
+                title_align="left",
+                border_style="border",
+                padding=(1, 2),
+            )
+        )
+
     # ------------------------------------------------------------------
     # Slash-command tables
     # ------------------------------------------------------------------

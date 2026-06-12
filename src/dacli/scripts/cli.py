@@ -531,6 +531,27 @@ def _print_context_explain(ctx, task, explain: bool) -> None:
     )
 
 
+@cli.command(name="plan")
+@click.argument("goal")
+@click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
+def plan_cmd(goal, config):
+    """Preview the plan + governance verdicts for GOAL — without executing.
+
+    Decomposes the goal into the planner's DAG and shows, per step, the
+    blast-radius tier, the policy decision that would fire (honoring
+    config/policy.yaml), and the rollback primitive that would be attached.
+    Static and offline: no LLM is constructed, nothing runs.
+    """
+    from dacli.core.plan_preview import build_plan_preview
+    from dacli.governance.policy_engine import PolicyEngine
+
+    settings = load_config(config)
+    gov = getattr(settings, "governance", None)
+    policy = PolicyEngine.from_path(getattr(gov, "policy_path", None) or "config/policy.yaml")
+    preview = build_plan_preview(goal, policy=policy, prod_markers=policy.prod_markers or None)
+    ui.plan_panel(preview)
+
+
 @cli.command()
 @click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
 @click.option("--session", "-s", type=str, help="Only show decisions for this session")
