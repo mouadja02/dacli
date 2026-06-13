@@ -1,0 +1,133 @@
+name: Release
+
+# Cut a release by pushing a version tag:
+#
+#     python tools/bump_version.py 0.2.0   # edits the single version literal
+#     git commit -am "release: v0.2.0"
+#     git tag v0.2.0 && git push --follow-tags
+#
+# The tag (vX.Y.Z) must match dacli.__version__ — the gate below fails loudly on
+# drift so a mis-tagged build never ships. On a clean run this:
+#   1. re-runs the CI gate (lint + tests + DoD + docs + eval + headless smoke),
+#   2. builds the sdist + wheel,
+#   3. creates a GitHub Release with auto-generated notes and the artifacts,
+#   4. publishes to PyPI via trusted publishing (OIDC — no API token).
+#
+# One-time PyPI setup is documented in RELEASING.md.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  # Gate + build in one job so the artifacts that ship are the exact ones the
+  # full test suite passed against. Mirrors .github/workflows/ci.yml's test job,
+  # plus a tag/version-agreement guard.
+  build:
+    name: Gate and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # full history so release notes can diff against the last tag
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
+          pip install -e . --no-deps
+          pip install build
+
+      # Fail fast if the tag and the packaged version disagree — a mis-tagged
+      # release is worse than no release (wrong wheel name, confused users).
+      - name: Verify tag matches package version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(python -c 'import dacli; print(dacli.__version__)')"
+          echo "tag=$TAG package=$PKG"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match dacli.__version__ ($PKG). Bump the version or fix the tag."
+            exit 1
+          fi
+
+      - name: ruff check
+        run: pip install ruff==0.15.16 && ruff check .
+
+      - name: Connector Definition-of-Done gate
+        run: python -m unittest tests.test_connector_dod -v
+
+      - name: Full test suite
+        run: pytest tests/ -q
+
+      - name: Docs drift gate
+        run: python tools/check_docs.py
+
+      - name: Reliability eval (sim suite, pass^k)
+        run: python -m dacli.eval --quick
+
+      - name: Headless e2e smoke (scripted LLM, offline)
+        run: python run.py replay scenarios/smoke_headless.json --json
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: Check artifact metadata
+        run: pip install twine && twine check dist/*
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  github-release:
+    name: GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create the release + upload assets
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true   # auto changelog from merged PRs since the last tag
+          files: dist/*
+          fail_on_unmatched_files: true
+
+  pypi-publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    # The `pypi` environment is where the trusted-publisher link is configured on
+    # pypi.org and where you can require a manual approval before a publish.
+    environment:
+      name: pypi
+      url: https://pypi.org/project/dacli/
+    permissions:
+      id-token: write   # OIDC token for trusted publishing — no API token/secret
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

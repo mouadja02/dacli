@@ -429,6 +429,7 @@ end-to-end smoke, and the docs drift gate on every pull request.
 | [docs/EVALUATION.md](docs/EVALUATION.md) | pass^k, golden suites, regression detection, the dashboard, and self-improvement. |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | The full `config.yaml` reference, env vars, and connector enablement. |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup, the DoD checklist, and contribution workflow. |
+| [RELEASING.md](RELEASING.md) | The tag-driven release process: version bump, GitHub Release, and PyPI trusted publishing. |
 
 ---
 

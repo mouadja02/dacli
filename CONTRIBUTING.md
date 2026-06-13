@@ -75,29 +75,19 @@ paths get a high pass^k bar; include adversarial/destructive-edge tasks delibera
 
 ## Releasing (maintainers)
 
-dacli is not yet on PyPI; these are the steps when cutting a release. **Never publish without explicit
-maintainer sign-off.**
+Releases are **tag-driven and automated** — see **[RELEASING.md](RELEASING.md)** for the full process
+(including the one-time PyPI trusted-publisher setup). The short version:
 
-1. Bump `version` in `pyproject.toml` and make sure `main` is green (CI runs the full gate).
-2. Build from a clean tree (`build` and `twine` are release-time tools, not project deps):
+```bash
+python tools/bump_version.py minor      # single-sourced version literal
+git commit -am "release: v0.2.0"
+git tag -a v0.2.0 -m "v0.2.0" && git push --follow-tags
+```
 
-   ```bash
-   pip install build twine
-   python -m build                  # writes dist/dacli-<version>.tar.gz + .whl
-   ```
-
-3. Verify the wheel ships the non-Python runtime assets (prompts, connector manifests + SKILL.md,
-   config yaml) — `[tool.setuptools.package-data]` declares them, but trust the artifact, not the
-   config:
-
-   ```bash
-   python -m zipfile -l dist/dacli-*.whl | grep -E "manifest.yaml|SKILL.md|prompts/|config/"
-   ```
-
-4. `twine check dist/*`, then publish: `twine upload dist/*` (TestPyPI first:
-   `twine upload -r testpypi dist/*` and smoke-test `pipx install -i https://test.pypi.org/simple/ dacli`).
-5. Tag the release (`git tag v<version> && git push --tags`) and update the README install section —
-   once published, `pipx install dacli` / `uv tool install dacli` becomes the primary install.
+Pushing the `vX.Y.Z` tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml), which
+re-runs the full CI gate, guards that the tag matches `dacli.__version__`, builds + `twine check`s the
+sdist/wheel, creates a GitHub Release with auto-generated notes, and publishes to PyPI from the protected
+`pypi` environment. The PyPI publish can require a maintainer's approval via that environment's reviewers.
 
 ## Reporting issues
 
