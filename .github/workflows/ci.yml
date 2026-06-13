@@ -63,6 +63,12 @@ jobs:
       - name: Full test suite
         run: pytest tests/ -q
 
+      # Docs drift gate (P12/D-7): the README's tests badge, eval sample, and
+      # command reference once rotted ("200 passing" vs a 368-test suite).
+      # Enforce them against the working tree so they can't go stale again.
+      - name: Docs drift gate
+        run: python tools/check_docs.py
+
       # Prove reliability, don't assert it: run the offline pass^k golden suite
       # against the simulated platforms on every PR. Fails loudly on an unguarded
       # destructive execution (the DROP-guard must hold across k runs).

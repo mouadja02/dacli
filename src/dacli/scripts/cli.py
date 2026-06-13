@@ -258,7 +258,11 @@ def _init_dacli_md(settings: Settings) -> None:
 # ============================================================
 
 
-@click.group(invoke_without_command=True)
+@click.group(
+    invoke_without_command=True,
+    epilog="First time? Just run `dacli` — the setup wizard walks you through "
+           "provider, model, key, and connectors.",
+)
 @click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
 @click.option("--session", "-s", type=str, help="Session ID to resume")
 @click.option("--version", "-v", is_flag=True, help="Show version")
