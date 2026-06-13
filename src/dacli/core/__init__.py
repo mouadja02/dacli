@@ -2,10 +2,14 @@
 DACLI: Data Engineer Agent CLI Tool
 =======================================
 Author: mouadja02
-Version: 0.1.0
+
+The version is single-sourced from the top-level package (``dacli.__version__``,
+read at build time by setuptools); re-exported here so ``from dacli.core import
+__version__`` keeps working without a second literal to drift.
 """
 
-__version__ = "0.1.0"
+from dacli import __version__
+
 __author__ = "mouadja02"
 
 __all__ = [
