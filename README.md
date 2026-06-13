@@ -80,6 +80,7 @@ zero-copy clones, `dbt test`, row counts) rather than to the model's own say-so.
 | 📊 **pass^k reliability eval** | An offline golden suite measures consistency across *repeated* rollouts (not single-shot luck), with regression detection and a reliability dashboard. |
 | 🔍 **Fully auditable** | Append-only ledgers record every classification, policy decision, rollback plan, approval, and post-condition verdict — `dacli audit` reconstructs *why* the agent acted. |
 | 🤖 **Multi-provider LLM** | OpenAI, Anthropic, or OpenRouter (Google Gemini planned), with cheap/strong **model tiering** and confidence-aware escalation. |
+| 🎨 **Elite terminal UX** | Pure Rich + prompt-toolkit: live formatted Markdown streaming, tier-colored tool cards, a real context gauge, a first-class approval panel, and seven themes — fully accessible (`NO_COLOR`, ASCII glyphs, reduced motion, high contrast) and scrollback-native. |
 
 ---
 
@@ -445,6 +446,7 @@ dacli is actively developed, with all six harness components implemented and exe
 | Plan-act-observe-verify orchestration + multi-agent | 𝒪 / ℛ | ✅ |
 | 14 platform connectors | 𝒮 / 𝒢 | ✅ |
 | pass^k evaluation, regression detection & gated self-improvement | all | ✅ |
+| Accessible Rich/prompt-toolkit TUI (streaming Markdown, gauges, themes, NO_COLOR/ASCII/reduced-motion) | — | ✅ |
 
 ---
 
