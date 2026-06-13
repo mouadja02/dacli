@@ -49,6 +49,8 @@ class Glyphs:
     dot: str            # separator dot in summaries ("· 340ms")
     dash: str           # placeholder dash in empty table cells
     arrows: str         # history-keys hint in the welcome tips
+    delta: str          # change marker in diff/plan tables ("Δ rows")
+    mult: str           # breadth-first multiplier ("×3")
     # Bottom-bar segment icons (empty in ASCII mode; labels carry meaning).
     bar_conn: str
     bar_ctx: str
@@ -65,7 +67,7 @@ UNICODE = Glyphs(
     ok="✓", warn="⚠", err="✗", info="ℹ", pending="○", running="◐", paused="⏸",
     enabled="●", disabled="○",
     caret="▌", hint="↳", gauge_on="▰", gauge_off="▱", ellipsis="…",
-    dot="·", dash="—", arrows="↑↓",
+    dot="·", dash="—", arrows="↑↓", delta="Δ", mult="×",
     bar_conn="⛁ ", bar_ctx="◴ ", bar_session="⎇ ", bar_sep="│",
     spinner_frames="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏",
     box=box.ROUNDED,
@@ -76,7 +78,7 @@ ASCII = Glyphs(
     ok="+", warn="!", err="x", info="i", pending="o", running="~", paused="=",
     enabled="*", disabled="o",
     caret="|", hint="->", gauge_on="#", gauge_off="-", ellipsis="...",
-    dot=".", dash="-", arrows="Up/Down",
+    dot=".", dash="-", arrows="Up/Down", delta="d", mult="x",
     bar_conn="", bar_ctx="", bar_session="", bar_sep="|",
     spinner_frames="|/-\\",
     box=box.ASCII,

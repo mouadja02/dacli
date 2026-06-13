@@ -814,8 +814,7 @@ class DacliUI:
                 parts.append(Text(f"Shadow: {shadow.summary()}", style="step"))
         return Group(*parts) if len(parts) > 1 else parts[0]
 
-    @staticmethod
-    def _shadow_delta_table(diff: dict[str, Any]) -> Table:
+    def _shadow_delta_table(self, diff: dict[str, Any]) -> Table:
         # Tiny before/after table for a shadow row-count delta.
         delta = diff.get("row_delta")
         if delta is None:
@@ -833,7 +832,7 @@ class DacliUI:
         )
         table.add_column("rows before", justify="right", style="info")
         table.add_column("rows after", justify="right", style="info")
-        table.add_column("Δ", justify="right", style="accent")
+        table.add_column(self.glyphs.delta, justify="right", style="accent")
         table.add_row(str(diff["rows_before"]), str(diff["rows_after"]), str(delta))
         return table
 
@@ -871,13 +870,14 @@ class DacliUI:
                 desc.append(f"  (after {', '.join(deps)})", style="muted")
             if step.node.breadth_first:
                 desc.append(
-                    f"  [breadth-first ×{len(step.node.items) or '?'}]", style="info"
+                    f"  [breadth-first {self.glyphs.mult}{len(step.node.items) or '?'}]",
+                    style="info",
                 )
 
             decision = getattr(step.policy.decision, "value", "?")
             if step.policy.requires_human:
                 needs_approval += 1
-                decision += " — needs approval"
+                decision += " - needs approval"
 
             rollback = step.rollback
             if rollback.primitive == "noop":
@@ -887,20 +887,20 @@ class DacliUI:
                 if not rollback.verified:
                     undo += " (verified at execution)"
             else:
-                undo = "no native undo — would be refused unless verified"
+                undo = "no native undo - would be refused unless verified"
             if step.platform:
-                undo += f" · {step.platform}"
+                undo += f" {self.glyphs.dot} {step.platform}"
 
             table.add_row(str(i), desc, tier_text, decision, undo)
 
         summary = Text()
         summary.append(f"{len(preview.steps)} step(s)", style="info")
-        summary.append("  ·  ", style="muted")
+        summary.append(f"  {self.glyphs.dot}  ", style="muted")
         if needs_approval:
             summary.append(f"{needs_approval} need(s) approval", style="warning")
         else:
             summary.append("no approvals needed", style="success")
-        summary.append("  ·  nothing was executed", style="muted")
+        summary.append(f"  {self.glyphs.dot}  nothing was executed", style="muted")
 
         self.console.print(
             Panel(
@@ -1082,7 +1082,7 @@ class DacliUI:
         )
         counts.add_column(data.get("table_a", "a"), justify="right", style="info")
         counts.add_column(data.get("table_b", "b"), justify="right", style="info")
-        counts.add_column("Δ rows", justify="right", style="accent")
+        counts.add_column(f"{self.glyphs.delta} rows", justify="right", style="accent")
         counts.add_row(str(a), str(b), str(delta))
 
         parts: list[RenderableType] = [counts]
@@ -1099,7 +1099,7 @@ class DacliUI:
             cols.add_column("column", style="step")
             cols.add_column("null% a", justify="right", style="info")
             cols.add_column("null% b", justify="right", style="info")
-            cols.add_column("Δ", justify="right", style="warning")
+            cols.add_column(self.glyphs.delta, justify="right", style="warning")
             for c in changed:
                 cols.add_row(
                     str(c.get("name")),

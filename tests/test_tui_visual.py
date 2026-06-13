@@ -670,6 +670,29 @@ def test_banner_full_on_capable_terminal():
     assert "█" in ui.console.export_text()
 
 
+def test_diff_panel_delta_glyph_degrades_to_ascii():
+    ui = _ui(glyphs="ascii")
+    ui.diff_panel({
+        "table_a": "orders_v1", "table_b": "orders_v2",
+        "row_count_a": 100, "row_count_b": 90, "row_delta": -10,
+        "columns": [{"name": "status", "delta": 0.05,
+                     "null_rate_a": 0.01, "null_rate_b": 0.06}],
+        "sample": {"rows_compared": 50, "rows_differing": 3},
+        "method": "sampled",
+    })
+    out = ui.console.export_text()
+    assert "Δ" not in out          # no unicode delta in ascii mode
+    assert "d rows" in out         # ascii delta marker
+    out.encode("ascii")            # whole panel is ascii-safe
+
+
+def test_diff_panel_unicode_keeps_delta_glyph():
+    ui = _ui(glyphs="unicode")
+    ui.diff_panel({"row_count_a": 1, "row_count_b": 2, "row_delta": 1,
+                   "sample": {"rows_compared": 1, "rows_differing": 0}})
+    assert "Δ rows" in ui.console.export_text()
+
+
 def test_approval_panel_border_tracks_tier():
     console = Console(record=True, width=100, force_terminal=True)
     settings = types.SimpleNamespace(
