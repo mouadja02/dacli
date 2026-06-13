@@ -222,7 +222,103 @@ _MONO = ThemeSpec(
     code_theme="bw",
 )
 
-THEMES: dict[str, ThemeSpec] = {t.name: t for t in (_DARK, _LIGHT, _OCEAN, _MONO)}
+_NORD = ThemeSpec(
+    name="nord",
+    styles={
+        "info": "#88c0d0",
+        "warning": "#ebcb8b",
+        "error": "bold #bf616a",
+        "success": "bold #a3be8c",
+        "prompt": "bold #81a1c1",
+        "tool": "#b48ead",
+        "sql": "#a3be8c",
+        "user": "bold #eceff4",
+        "assistant": "#88c0d0",
+        "phase": "bold #ebcb8b",
+        "step": "#d8dee9",
+        "accent": "#81a1c1",
+        "muted": "#616e88",
+        "gutter": "#81a1c1",
+        "border": "#4c566a",
+        "ok": "bold #a3be8c",
+        "bad": "bold #bf616a",
+    },
+    banner_gradient=["#5e81ac", "#81a1c1", "#88c0d0", "#8fbcbb", "#a3be8c"],
+    banner_palettes=(
+        ["#5e81ac", "#81a1c1", "#88c0d0", "#8fbcbb", "#a3be8c", "#81a1c1"],
+        ["#bf616a", "#d08770", "#ebcb8b", "#a3be8c", "#b48ead", "#bf616a"],
+    ),
+    toolbar_fg="#88c0d0",
+    toolbar_bg="#2e3440",
+    code_theme="nord",
+)
+
+_GRUVBOX = ThemeSpec(
+    name="gruvbox",
+    styles={
+        "info": "#83a598",
+        "warning": "#fabd2f",
+        "error": "bold #fb4934",
+        "success": "bold #b8bb26",
+        "prompt": "bold #fe8019",
+        "tool": "#d3869b",
+        "sql": "#b8bb26",
+        "user": "bold #ebdbb2",
+        "assistant": "#83a598",
+        "phase": "bold #fabd2f",
+        "step": "#d5c4a1",
+        "accent": "#fe8019",
+        "muted": "#928374",
+        "gutter": "#fe8019",
+        "border": "#504945",
+        "ok": "bold #b8bb26",
+        "bad": "bold #fb4934",
+    },
+    banner_gradient=["#fb4934", "#fe8019", "#fabd2f", "#b8bb26", "#8ec07c"],
+    banner_palettes=(
+        ["#fb4934", "#fe8019", "#fabd2f", "#b8bb26", "#8ec07c", "#fe8019"],
+        ["#83a598", "#8ec07c", "#b8bb26", "#fabd2f", "#fe8019", "#83a598"],
+    ),
+    toolbar_fg="#fabd2f",
+    toolbar_bg="#282828",
+    code_theme="gruvbox-dark",
+)
+
+# High-contrast theme (``ui.high_contrast`` forces it). WCAG-minded: no dim
+# styles, near-white body text, saturated accents on a black background.
+# Colorblind-safe by construction: every status color is paired with a glyph
+# (the design-system invariant), and warning/info lean yellow/cyan rather
+# than a red/green-only axis.
+_CONTRAST = ThemeSpec(
+    name="contrast",
+    styles={
+        "info": "bold #00ffff",
+        "warning": "bold #ffff00",
+        "error": "bold #ff5050",
+        "success": "bold #00ff00",
+        "prompt": "bold #ffffff",
+        "tool": "bold #ff80ff",
+        "sql": "#00ff00",
+        "user": "bold #ffffff",
+        "assistant": "#ffffff",
+        "phase": "bold #ffff00",
+        "step": "#f0f0f0",
+        "accent": "bold #00ffff",
+        "muted": "#c0c0c0",
+        "gutter": "bold #00ffff",
+        "border": "#ffffff",
+        "ok": "bold #00ff00",
+        "bad": "bold #ff5050",
+    },
+    banner_gradient=["#ffffff", "#00ffff", "#ffffff", "#00ffff", "#ffffff"],
+    toolbar_fg="#ffffff",
+    toolbar_bg="#000000",
+    code_theme="github-dark",
+)
+
+THEMES: dict[str, ThemeSpec] = {
+    t.name: t for t in (_DARK, _LIGHT, _OCEAN, _MONO, _NORD, _GRUVBOX, _CONTRAST)
+}
 DEFAULT_THEME = "dark"
 
 

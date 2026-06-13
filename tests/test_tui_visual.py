@@ -598,6 +598,77 @@ def test_turn_header_renders_rule_with_context():
     assert "sess_1" in out and "12s" in out
 
 
+# ---------------------------------------------------------------------------
+# M7 — accessibility, themes, banner restraint
+# ---------------------------------------------------------------------------
+def test_new_themes_are_registered_and_complete():
+    from dacli.tui import THEMES
+    from dacli.tui.theme import STYLE_KEYS
+
+    for name in ("nord", "gruvbox", "contrast"):
+        assert name in THEMES
+        for key in STYLE_KEYS:
+            assert key in THEMES[name].styles, f"{name} missing '{key}'"
+        assert THEMES[name].code_theme
+
+
+def test_contrast_theme_has_no_dim_styles():
+    # WCAG-minded: "dim" destroys contrast; the high-contrast theme bans it.
+    from dacli.tui import THEMES
+
+    for key, style in THEMES["contrast"].styles.items():
+        assert "dim" not in style, f"contrast.{key} uses dim"
+
+
+def test_high_contrast_knob_forces_contrast_theme():
+    ui = _ui(high_contrast=True, theme="dark")
+    assert ui.theme.name == "contrast"
+
+
+def test_no_color_knob_disables_color():
+    settings = types.SimpleNamespace(
+        ui=types.SimpleNamespace(glyphs="ascii", no_color=True, max_render_rows=120)
+    )
+    ui = DacliUI(settings=settings)  # builds its own console
+    assert ui.console.no_color is True
+
+
+@pytest.mark.parametrize("theme_name", ["nord", "gruvbox", "contrast"])
+def test_new_themes_render_a_full_transcript(theme_name):
+    console = Console(record=True, width=100, force_terminal=True)
+    settings = types.SimpleNamespace(
+        ui=types.SimpleNamespace(glyphs="unicode", max_render_rows=120)
+    )
+    ui = DacliUI(settings=settings, theme_name=theme_name, console=console)
+    assert ui.theme.name == theme_name
+    out = _drive_transcript(ui)
+    assert "execute_query" in out
+
+
+def test_banner_ascii_mode_is_ascii_safe():
+    ui = _ui(glyphs="ascii")
+    ui.banner()
+    ui.console.export_text().encode("ascii")
+
+
+def test_banner_compact_on_tiny_terminal():
+    console = Console(record=True, width=44, height=10, force_terminal=False)
+    settings = types.SimpleNamespace(
+        ui=types.SimpleNamespace(glyphs="unicode", max_render_rows=120)
+    )
+    ui = DacliUI(settings=settings, version="1.0", console=console)
+    ui.banner()
+    out = ui.console.export_text()
+    assert "DACLI" in out
+    assert "█" not in out  # the full wordmark stays away from small screens
+
+
+def test_banner_full_on_capable_terminal():
+    ui = _ui(glyphs="unicode", width=100)
+    ui.banner()
+    assert "█" in ui.console.export_text()
+
+
 def test_approval_panel_border_tracks_tier():
     console = Console(record=True, width=100, force_terminal=True)
     settings = types.SimpleNamespace(

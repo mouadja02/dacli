@@ -39,6 +39,7 @@ from rich.table import Table
 from rich.text import Text
 
 from dacli.connectors.base import ToolResult
+from .design import ASCII as ASCII_GLYPHS
 from .design import SPACING, TIER_STYLE, Glyphs, gauge, resolve_glyphs
 from .theme import ThemeSpec, get_theme
 import contextlib
@@ -286,15 +287,43 @@ class DacliUI:
     # ------------------------------------------------------------------
     # Banner / welcome
     # ------------------------------------------------------------------
+    _ART_UNICODE = (
+        "██████╗   █████╗   ██████╗ ██╗      ██╗",
+        "██╔══██╗ ██╔══██╗ ██╔════╝ ██║      ██║",
+        "██║  ██║ ███████║ ██║      ██║      ██║",
+        "██║  ██║ ██╔══██║ ██║      ██║      ██║",
+        "██████╔╝ ██║  ██║ ╚██████╗ ███████╗ ██║",
+        "╚═════╝  ╚═╝  ╚═╝  ╚═════╝ ╚══════╝ ╚═╝",
+    )
+    _ART_ASCII = (
+        " ____    _    ____ _     ___ ",
+        "|  _ \\  / \\  / ___| |   |_ _|",
+        "| | | |/ _ \\| |   | |    | | ",
+        "| |_| / ___ \\ |___| |___ | | ",
+        "|____/_/   \\_\\____|_____|___|",
+    )
+
     def banner(self) -> None:
-        art = [
-            "██████╗   █████╗   ██████╗ ██╗      ██╗",
-            "██╔══██╗ ██╔══██╗ ██╔════╝ ██║      ██║",
-            "██║  ██║ ███████║ ██║      ██║      ██║",
-            "██║  ██║ ██╔══██║ ██║      ██║      ██║",
-            "██████╔╝ ██║  ██║ ╚██████╗ ███████╗ ██║",
-            "╚═════╝  ╚═╝  ╚═╝  ╚═════╝ ╚══════╝ ╚═╝",
-        ]
+        """The ASCII wordmark — gradient on capable terminals, plain ASCII art
+        otherwise, and a compact one-liner when the terminal is too small for
+        the full mark to read calm."""
+        try:
+            width = self.console.width
+            height = self.console.height
+        except Exception:
+            width, height = 80, 24
+        if width < 48 or height < 14:
+            line = Text()
+            line.append("DACLI", style="bold accent")
+            line.append(
+                f"  {self.glyphs.dot}  data-engineering CLI agent", style="muted"
+            )
+            if self.version:
+                line.append(f"  {self.glyphs.dot}  v{self.version}", style="muted")
+            self.console.print(Padding(line, (1, 2, 0, 2)))
+            return
+
+        art = self._ART_UNICODE if self.glyphs is not ASCII_GLYPHS else self._ART_ASCII
         # Pick a different color (solid or gradient) for each run from a predefined set
         gradient = self.theme.banner_gradients
         lines = Text()
@@ -1204,7 +1233,10 @@ class DacliUI:
 
     def sessions_table(self, sessions: list[dict[str, Any]], limit: int = 10) -> None:
         if not sessions:
-            self.console.print("[muted]No sessions found.[/muted]\n")
+            self.console.print(
+                "[muted]No sessions yet — one is created the first time you "
+                "chat. `dacli chat --session <id>` resumes a saved one.[/muted]\n"
+            )
             return
         table = Table(
             title="[accent]Sessions[/accent]",
