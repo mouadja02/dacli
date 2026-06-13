@@ -100,6 +100,20 @@ TIER_STYLE = {
 }
 
 
+def gauge(pct: Any, glyphs: Glyphs, cells: int = 5) -> str:
+    """Render a percentage as a tiny bar gauge, e.g. ``▰▰▰▱▱ 58%``.
+
+    Defensive: a non-numeric ``pct`` renders as an empty gauge rather than
+    raising (the status bar must never crash the input loop).
+    """
+    try:
+        clamped = min(100, max(0, int(pct)))
+    except Exception:
+        clamped = 0
+    filled = round(cells * clamped / 100)
+    return glyphs.gauge_on * filled + glyphs.gauge_off * (cells - filled) + f" {clamped}%"
+
+
 def _console_can_encode(console: Any, probe: str = "⏺⎿✓▰") -> bool:
     """Best-effort: can this console's encoding represent our glyphs?"""
     try:

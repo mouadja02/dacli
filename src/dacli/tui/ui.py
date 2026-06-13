@@ -39,7 +39,7 @@ from rich.table import Table
 from rich.text import Text
 
 from dacli.connectors.base import ToolResult
-from .design import SPACING, TIER_STYLE, Glyphs, resolve_glyphs
+from .design import SPACING, TIER_STYLE, Glyphs, gauge, resolve_glyphs
 from .theme import ThemeSpec, get_theme
 import contextlib
 
@@ -1429,6 +1429,14 @@ class DacliUI:
     # ------------------------------------------------------------------
     # Persistent bottom status bar (prompt-toolkit)
     # ------------------------------------------------------------------
+    def turn_header(self, *, model: str, session: str, elapsed: str = "") -> None:
+        """A slim one-line context rule above a turn (``ui.show_header``)."""
+        bits = [model, session]
+        if elapsed:
+            bits.append(elapsed)
+        label = f"  {self.glyphs.dot}  ".join(b for b in bits if b)
+        self.console.print(Rule(f"[muted]{label}[/muted]", style="border"))
+
     def bottom_toolbar(
         self,
         *,
@@ -1439,8 +1447,15 @@ class DacliUI:
         session: str,
         test_mode: str = "",
         cost: str = "",
+        width: int | None = None,
     ):
-        """Return prompt-toolkit formatted text for the bottom bar."""
+        """Return prompt-toolkit formatted text for the bottom bar.
+
+        Responsive: under ~80 columns the bar collapses to the essentials
+        (model, context gauge, cost, test-mode); segments are dropped before
+        they could ever wrap. ``ctx_pct`` renders as a real gauge driven by
+        the assembler's budget snapshot (see ``_ctx_pct`` in cli.py).
+        """
         from prompt_toolkit.formatted_text import HTML
 
         def esc(s: str) -> str:
@@ -1452,25 +1467,56 @@ class DacliUI:
             )
 
         g = self.glyphs
+        try:
+            bar_width = int(width if width is not None else self.console.width)
+        except Exception:
+            bar_width = 100
+
         conns = ",".join(connectors) if connectors else "none"
         if len(conns) > 28:
             conns = conns[:27] + g.ellipsis
-        sep = g.bar_sep
-        test_seg = (
-            f' {sep}  <b><style fg="ansired">{esc(test_mode)}</style></b>'
-            if test_mode
-            else ""
-        )
-        cost_seg = f" {sep}  {esc(cost)} " if cost else ""
-        text = (
-            f" <b>{esc(provider)}</b>{g.dot}{esc(model)} "
-            f" {sep}  {g.bar_conn}{esc(conns)} "
-            f" {sep}  {g.bar_ctx}ctx {ctx_pct}% "
-            f"{cost_seg}"
-            f" {sep}  {g.bar_session}{esc(session)} "
-            f"{test_seg}"
-            f" {sep}  /help "
-        )
+        ctx_gauge = gauge(ctx_pct, g)
+
+        # Display-order segments as (plain, markup, drop_rank). The bar must
+        # *never* exceed the terminal width (a wrapped bottom bar is the
+        # ugliest failure a TUI can have), so segments are dropped by rank —
+        # highest first — until the plain text fits. Rank 0 never drops:
+        # model, the context gauge, and test-mode (it changes semantics).
+        segments: list[tuple[str, str, int]] = [
+            (
+                f"{provider}{g.dot}{model}",
+                f"<b>{esc(provider)}</b>{g.dot}{esc(model)}",
+                0,
+            ),
+            (f"{g.bar_conn}{conns}", f"{g.bar_conn}{esc(conns)}", 4),
+            (f"{g.bar_ctx}ctx {ctx_gauge}", f"{g.bar_ctx}ctx {esc(ctx_gauge)}", 0),
+        ]
+        if cost:
+            segments.append((cost, esc(cost), 2))
+        segments.append((f"{g.bar_session}{session}", f"{g.bar_session}{esc(session)}", 3))
+        if test_mode:
+            segments.append(
+                (test_mode, f'<b><style fg="ansired">{esc(test_mode)}</style></b>', 0)
+            )
+        segments.append(("/help", "/help", 5))
+
+        sep_plain = f" {g.bar_sep}  "
+
+        def fits(segs: list[tuple[str, str, int]]) -> bool:
+            plain = " " + sep_plain.join(p for p, _m, _r in segs) + " "
+            return len(plain) <= bar_width
+
+        for rank in (5, 4, 3, 2, 1):
+            if fits(segments):
+                break
+            segments = [s for s in segments if s[2] != rank]
+        if not fits(segments):
+            # Last resort: drop the provider prefix from the model segment.
+            plain0, _markup0, _ = segments[0]
+            short = plain0.split(g.dot, 1)[-1]
+            segments[0] = (short, f"<b>{esc(short)}</b>", 0)
+
+        text = " " + sep_plain.join(m for _p, m, _r in segments) + " "
         # prompt-toolkit parses these colors itself and raises (crashing the
         # input loop) on anything that isn't hex/ansi — so only pass colors we
         # know are valid, otherwise fall back to its default bar styling.

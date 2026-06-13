@@ -524,6 +524,80 @@ def test_approval_panel_write_without_diff_stays_lightweight():
     assert "[y]es / [N]o" in out
 
 
+# ---------------------------------------------------------------------------
+# M6 — responsive status bar + context gauge + turn header
+# ---------------------------------------------------------------------------
+def _toolbar_text(ui, **kw):
+    from prompt_toolkit.formatted_text import to_formatted_text
+
+    defaults = {
+        "provider": "anthropic", "model": "claude-sonnet-4-6",
+        "connectors": ["snowflake", "bigquery", "dbt"],
+        "ctx_pct": 58, "session": "session_20260613",
+    }
+    defaults.update(kw)
+    tb = ui.bottom_toolbar(**defaults)
+    return "".join(t[1] for t in to_formatted_text(tb))
+
+
+def test_toolbar_ctx_renders_as_real_gauge():
+    ui = _ui(glyphs="unicode")
+    text = _toolbar_text(ui, ctx_pct=58)
+    assert "▰▰▰▱▱ 58%" in text
+
+
+def test_gauge_is_defensive():
+    from dacli.tui.design import UNICODE, gauge
+
+    assert gauge(0, UNICODE) == "▱▱▱▱▱ 0%"
+    assert gauge(100, UNICODE) == "▰▰▰▰▰ 100%"
+    assert gauge(250, UNICODE) == "▰▰▰▰▰ 100%"   # clamped
+    assert gauge(-5, UNICODE) == "▱▱▱▱▱ 0%"      # clamped
+    assert gauge("garbage", UNICODE) == "▱▱▱▱▱ 0%"  # never raises
+
+
+@pytest.mark.parametrize("width", [60, 100, 160])
+def test_toolbar_never_exceeds_width(width):
+    ui = _ui(width=width)
+    text = _toolbar_text(
+        ui, width=width, cost="$0.42", test_mode="[TEST mongodb]"
+    )
+    assert len(text) <= width
+
+
+def test_toolbar_narrow_collapses_to_essentials():
+    ui = _ui(width=60)
+    text = _toolbar_text(ui, width=60, cost="$0.42")
+    assert "claude-sonnet-4-6" in text     # model survives
+    assert "58%" in text                   # gauge survives
+    assert "$0.42" in text                 # cost survives
+    assert "snowflake" not in text         # connectors dropped
+    assert "session_20260613" not in text  # session dropped
+    assert "/help" not in text
+
+
+def test_toolbar_wide_keeps_everything():
+    ui = _ui(width=160)
+    text = _toolbar_text(ui, width=160, cost="$0.42")
+    assert "snowflake" in text
+    assert "session_20260613" in text
+    assert "/help" in text
+
+
+def test_toolbar_test_mode_survives_narrow():
+    ui = _ui(width=60)
+    text = _toolbar_text(ui, width=60, test_mode="[TEST x]")
+    assert "[TEST x]" in text
+
+
+def test_turn_header_renders_rule_with_context():
+    ui = _ui()
+    ui.turn_header(model="claude-sonnet-4-6", session="sess_1", elapsed="12s")
+    out = ui.console.export_text()
+    assert "claude-sonnet-4-6" in out
+    assert "sess_1" in out and "12s" in out
+
+
 def test_approval_panel_border_tracks_tier():
     console = Console(record=True, width=100, force_terminal=True)
     settings = types.SimpleNamespace(

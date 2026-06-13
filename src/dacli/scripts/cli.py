@@ -1485,6 +1485,10 @@ async def _run_chat(
                 # (prompt_toolkit already leaves the typed "❯ …" line in the
                 # scrollback, so we don't re-echo it.)
                 con.print()
+                if getattr(settings.ui, "show_header", False):
+                    chat_ui.turn_header(
+                        model=settings.llm.model, session=memory.session_id
+                    )
 
                 try:
                     response = await agent.process_message(user_input)
