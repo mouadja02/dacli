@@ -664,7 +664,8 @@ class DacliUI:
                     kv.add_row(gap, gap)
                     continue
                 k, v = item
-                kv.add_row(str(k), _compact_preview(v, ellipsis=gap))
+                # Text() so data containing [brackets] is never eaten as markup.
+                kv.add_row(Text(str(k)), Text(_compact_preview(v, ellipsis=gap)))
             body = Group(kv, footer) if footer else kv
         elif data is None:
             summary.append("done", style="success")
@@ -1028,8 +1029,9 @@ class DacliUI:
                     label.append("  irreversible", style=TIER_STYLE["irreversible"])
                 if getattr(node, "breadth_first", False):
                     items = list(getattr(node, "items", None) or [])
+                    mult = "x" if g is ASCII_GLYPHS else "×"
                     label.append(
-                        f"  [breadth-first ×{len(items) or '?'}]", style="info"
+                        f"  [breadth-first {mult}{len(items) or '?'}]", style="info"
                     )
                 if len(deps) > 1:
                     label.append(

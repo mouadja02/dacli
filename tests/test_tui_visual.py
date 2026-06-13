@@ -302,6 +302,7 @@ def test_dict_result_renders_as_aligned_key_values_not_json():
     # Nested values are compact previews with truthful sizes, not JSON dumps.
     assert "(5 keys)" in out
     assert "(4 items)" in out
+    assert "a.csv" in out  # [brackets] in data must not be eaten as markup
     assert '"id": "int"' not in out
 
 
