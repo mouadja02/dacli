@@ -365,3 +365,173 @@ def test_dispatcher_tags_tier_for_the_ui():
     result = asyncio.run(dispatcher.execute("echo_say", {"text": "x"}))
     assert result.success
     assert result.metadata.get("tier") == "write"
+
+
+# ---------------------------------------------------------------------------
+# M4 — progress, plan tree, text diff
+# ---------------------------------------------------------------------------
+def test_progress_advances_through_five_steps():
+    ui = _ui()
+    with ui.progress("connector init", total=5) as advance:
+        for i in range(5):
+            advance(f"step {i + 1}")
+    # Transient bar leaves nothing behind, and nothing raised headless.
+    assert ui.console is not None
+
+
+def test_progress_reduced_motion_prints_static_steps():
+    ui = _ui(reduced_motion=True)
+    with ui.progress("dbt run", total=3) as advance:
+        advance("compile")
+        advance("run models")
+        advance("test")
+    out = ui.console.export_text()
+    assert "dbt run" in out
+    assert "step 1/3" in out and "step 3/3" in out
+
+
+def test_progress_never_raises_without_total_or_console_quirks():
+    ui = _ui()
+    with ui.progress("poll airflow") as advance:
+        advance()
+        advance("still polling")
+
+
+def _sample_dag():
+    from dacli.core.planner import NodeStatus, Subtask, TaskDAG
+
+    dag = TaskDAG("stand up bronze->silver->gold")
+    dag.add(Subtask(id="a", description="create bronze schema",
+                    status=NodeStatus.COMPLETED))
+    dag.add(Subtask(id="b", description="load raw files", depends_on=["a"],
+                    status=NodeStatus.RUNNING))
+    dag.add(Subtask(id="c", description="profile all tables", depends_on=["b"],
+                    breadth_first=True, items=["t1", "t2", "t3"]))
+    dag.add(Subtask(id="d", description="drop legacy schema", depends_on=["b"],
+                    irreversible=True, status=NodeStatus.PAUSED))
+    return dag
+
+
+def test_plan_tree_renders_statuses_dependencies_and_tiers():
+    ui = _ui(glyphs="unicode")
+    ui.plan_tree(_sample_dag())
+    out = ui.console.export_text()
+    assert "stand up bronze->silver->gold" in out
+    assert "✓" in out          # completed
+    assert "◐" in out          # running
+    assert "⏸" in out          # paused
+    assert "irreversible" in out
+    assert "breadth-first ×3" in out
+    # Dependents are nested under their dependency, deeper than the root.
+    root_indent = out.index("create bronze schema") - out.rindex(
+        "\n", 0, out.index("create bronze schema"))
+    child_indent = out.index("load raw files") - out.rindex(
+        "\n", 0, out.index("load raw files"))
+    assert child_indent > root_indent
+
+
+def test_plan_tree_never_raises_on_malformed_dag():
+    ui = _ui()
+    ui.plan_tree(None)
+    ui.plan_tree(object())
+    ui.plan_tree(types.SimpleNamespace(goal="g", nodes=[object(), None]))
+
+
+def test_text_diff_renders_red_green_lines():
+    console = Console(record=True, width=100, force_terminal=True)
+    settings = types.SimpleNamespace(
+        ui=types.SimpleNamespace(glyphs="unicode", max_render_rows=120)
+    )
+    ui = DacliUI(settings=settings, console=console)
+    ui.text_diff("a\nb\nc\n", "a\nB\nc\n", title="shadow diff")
+    plain = ui.console.export_text()
+    assert "shadow diff" in plain
+    assert "-b" in plain and "+B" in plain
+
+
+def test_text_diff_identical_inputs_say_no_differences():
+    ui = _ui()
+    ui.text_diff("same", "same")
+    assert "no differences" in ui.console.export_text()
+
+
+def test_text_diff_never_raises_on_weird_input():
+    ui = _ui()
+    ui.text_diff(None, None)
+    ui.text_diff("", "x" * 100_000)
+    ui.text_diff("héllo\x00", b"bytes".decode(errors="ignore"))
+
+
+# ---------------------------------------------------------------------------
+# M5 — governance approval panel
+# ---------------------------------------------------------------------------
+def _approval_request(**overrides):
+    base = {
+        "tool_name": "execute_snowflake_query",
+        "tier": types.SimpleNamespace(value="irreversible"),
+        "classification": types.SimpleNamespace(
+            is_prod=True, prod_marker="PROD_DB", reasons=["DROP on orders"]
+        ),
+        "policy": types.SimpleNamespace(
+            decision=types.SimpleNamespace(value="require_approval"),
+            source="default",
+        ),
+        "rollback_plan": types.SimpleNamespace(
+            strategy="snapshot restore", primitive="snapshot",
+            verify_detail="snapshot taken",
+        ),
+        "args": {},
+        "dry_run_preview": None,
+        "shadow": None,
+        "cost_estimate": None,
+    }
+    base.update(overrides)
+    request = types.SimpleNamespace(**base)
+    request.describe = lambda: "Action      : execute_snowflake_query"
+    return request
+
+
+def test_approval_panel_irreversible_shows_all_five_elements():
+    ui = _ui(glyphs="unicode")
+    shadow = types.SimpleNamespace(
+        ran=True, diff={"before": "rows: 100", "after": "rows: 0"}
+    )
+    ui.approval_panel(_approval_request(
+        dry_run_preview="DROP TABLE orders", shadow=shadow))
+    out = ui.console.export_text()
+    assert "approval needed" in out
+    assert "irreversible" in out                 # blast radius + tier
+    assert "PROD: PROD_DB" in out                # prod badge
+    assert "DROP on orders" in out               # why
+    assert "snapshot restore" in out             # rollback
+    assert "snapshot taken" in out               # ...and that it's verified
+    assert "DROP TABLE" in out                   # dry-run preview
+    assert "-rows: 100" in out and "+rows: 0" in out  # shadow text diff
+    assert "[y]es / [N]o" in out                 # decision affordance, N default
+
+
+def test_approval_panel_write_without_diff_stays_lightweight():
+    ui = _ui()
+    ui.approval_panel(_approval_request(
+        tier=types.SimpleNamespace(value="write"),
+        classification=types.SimpleNamespace(
+            is_prod=False, prod_marker="", reasons=["INSERT into staging"]),
+    ))
+    out = ui.console.export_text()
+    assert "write" in out
+    assert "PROD" not in out
+    assert "Shadow" not in out
+    assert "[y]es / [N]o" in out
+
+
+def test_approval_panel_border_tracks_tier():
+    console = Console(record=True, width=100, force_terminal=True)
+    settings = types.SimpleNamespace(
+        ui=types.SimpleNamespace(glyphs="unicode", max_render_rows=120)
+    )
+    ui = DacliUI(settings=settings, console=console)
+    ui.approval_panel(_approval_request())  # irreversible
+    exported = ui.console.export_text(styles=True)
+    # dark theme: error = bold red → the border row carries red.
+    top_border = next(line for line in exported.splitlines() if "approval" in line)
+    assert "31m" in top_border

@@ -667,7 +667,14 @@ class DacliUI:
         it falls back to ``describe()`` text, then to ``str()``.
         """
         tier = getattr(getattr(request, "tier", None), "value", "?")
-        border = "error" if tier == "irreversible" else "warning"
+        # Border weight follows blast radius: irreversible screams, a safe
+        # action stays lightweight. The strongest tier always wins visually.
+        border = {
+            "irreversible": "error",
+            "risky": "warning",
+            "write": "info",
+            "safe": "border",
+        }.get(tier, "warning")
         try:
             body = self._approval_body(request, tier)
         except Exception:
@@ -677,10 +684,16 @@ class DacliUI:
             except Exception:
                 text = str(request)
             body = Text(text, style="step")
+
+        decision = Text()
+        decision.append("Proceed?  ", style="bold" if tier == "irreversible" else "prompt")
+        decision.append("[y]es / [N]o", style="accent")
+        decision.append("  (No is the safe default)", style="muted")
+
         tier_style = TIER_STYLE.get(tier, "muted")
         self.console.print(
             Panel(
-                body,
+                Group(body, Text(), decision),
                 title=(
                     f"[{border}]approval needed[/{border}] {self.glyphs.dot} "
                     f"[{tier_style}]{tier}[/{tier_style}]"
@@ -756,7 +769,16 @@ class DacliUI:
         shadow = getattr(request, "shadow", None)
         if shadow is not None and getattr(shadow, "ran", False):
             diff = getattr(shadow, "diff", None) or {}
-            if "rows_before" in diff and "rows_after" in diff:
+            if "before" in diff or "after" in diff:
+                # Textual before/after from the shadow run → red/green diff
+                # (the same renderer `dacli diff` and dry-run previews use).
+                parts.append(Text("Shadow diff (on a clone)", style="muted"))
+                parts.append(
+                    _unified_diff_text(
+                        str(diff.get("before", "")), str(diff.get("after", ""))
+                    )
+                )
+            elif "rows_before" in diff and "rows_after" in diff:
                 parts.append(self._shadow_delta_table(diff))
             else:
                 parts.append(Text(f"Shadow: {shadow.summary()}", style="step"))
@@ -857,6 +879,160 @@ class DacliUI:
                     f"[accent]plan preview[/accent] {self.glyphs.dot} "
                     "[muted]dry run, no execution[/muted]"
                 ),
+                title_align="left",
+                box=self.glyphs.box,
+                border_style="border",
+                padding=SPACING["panel_pad"],
+            )
+        )
+
+    # ------------------------------------------------------------------
+    # Long-running-work feedback (M4): progress, plan tree, text diff
+    # ------------------------------------------------------------------
+    @contextlib.contextmanager
+    def progress(self, description: str, total: int | None = None):
+        """Reusable progress for multi-step work (init fan-out, dbt, polls).
+
+        Yields an ``advance(label)`` callable. With a known ``total`` it draws
+        a real bar; without one, an indeterminate spinner line. Under
+        ``reduced_motion`` it prints static ``step n/total`` lines instead —
+        no animation. Rendering failures degrade to silence; the context
+        manager itself never raises into the caller.
+        """
+        if self.reduced_motion:
+            done = {"n": 0}
+
+            def advance_static(label: str = "") -> None:
+                done["n"] += 1
+                of = f"/{total}" if total else ""
+                suffix = f"  {label}" if label else ""
+                with contextlib.suppress(Exception):
+                    self.console.print(
+                        f"  [muted]step {done['n']}{of}[/muted]"
+                        f"[step]{suffix}[/step]"
+                    )
+
+            with contextlib.suppress(Exception):
+                self.console.print(f"  [muted]{description}[/muted]")
+            yield advance_static
+            return
+
+        from rich.progress import (
+            BarColumn,
+            Progress,
+            SpinnerColumn,
+            TaskProgressColumn,
+            TextColumn,
+            TimeElapsedColumn,
+        )
+
+        columns: list[Any] = [
+            SpinnerColumn(style="accent"),
+            TextColumn("[step]{task.description}[/step]"),
+        ]
+        if total is not None:
+            columns += [BarColumn(), TaskProgressColumn()]
+        columns.append(TimeElapsedColumn())
+
+        progress = Progress(*columns, console=self.console, transient=True)
+        task_id = None
+        try:
+            self._clear_progress()  # one live region owns the console
+            progress.start()
+            task_id = progress.add_task(description, total=total)
+        except Exception:
+            progress = None
+
+        def advance(label: str = "") -> None:
+            if progress is None or task_id is None:
+                return
+            with contextlib.suppress(Exception):
+                progress.advance(task_id)
+                if label:
+                    progress.update(task_id, description=label)
+
+        try:
+            yield advance
+        finally:
+            if progress is not None:
+                with contextlib.suppress(Exception):
+                    progress.stop()
+
+    def plan_tree(self, dag: Any) -> None:
+        """Render a :class:`TaskDAG` as a status tree (reused by `dacli plan`).
+
+        Per node: a status icon (pending/running/done/paused/failed, color
+        paired with the glyph), its dependencies, and the irreversible /
+        breadth-first markers in the shared tier palette. Malformed DAGs
+        render best-effort — never raise.
+        """
+        from rich.tree import Tree
+
+        g = self.glyphs
+        try:
+            goal = str(getattr(dag, "goal", "") or "plan")
+            nodes = list(getattr(dag, "nodes", None) or [])
+        except Exception:
+            self.console.print(Text(str(dag), style="step"))
+            return
+
+        icon_style = {
+            "pending": (g.pending, "muted"),
+            "running": (g.running, "info"),
+            "completed": (g.ok, "success"),
+            "failed": (g.err, "error"),
+            "paused": (g.paused, "warning"),
+        }
+        tree = Tree(Text(goal, style="accent"), guide_style="border")
+        branches: dict[str, Any] = {}
+        for node in nodes:
+            try:
+                status = getattr(getattr(node, "status", None), "value", None) or str(
+                    getattr(node, "status", "pending")
+                )
+                icon, style = icon_style.get(status, (g.pending, "muted"))
+                label = Text()
+                label.append(f"{icon} ", style=style)
+                label.append(str(getattr(node, "description", node)), style="step")
+                deps = list(getattr(node, "depends_on", None) or [])
+                if getattr(node, "irreversible", False):
+                    label.append("  irreversible", style=TIER_STYLE["irreversible"])
+                if getattr(node, "breadth_first", False):
+                    items = list(getattr(node, "items", None) or [])
+                    label.append(
+                        f"  [breadth-first ×{len(items) or '?'}]", style="info"
+                    )
+                if len(deps) > 1:
+                    label.append(
+                        f"  (also after {', '.join(deps[1:])})", style="muted"
+                    )
+                parent = branches.get(deps[0]) if deps else tree
+                branch = (parent if parent is not None else tree).add(label)
+                node_id = str(getattr(node, "id", "") or "")
+                if node_id:
+                    branches[node_id] = branch
+            except Exception:
+                continue
+        self.console.print(tree)
+        self.console.print()
+
+    def text_diff(
+        self,
+        before: str,
+        after: str,
+        *,
+        title: str = "diff",
+        from_label: str = "before",
+        to_label: str = "after",
+    ) -> None:
+        """Render a red/green unified diff panel (shadow previews, `dacli diff`)."""
+        body = _unified_diff_text(
+            before, after, from_label=from_label, to_label=to_label
+        )
+        self.console.print(
+            Panel(
+                body,
+                title=f"[accent]{title}[/accent]",
                 title_align="left",
                 box=self.glyphs.box,
                 border_style="border",
@@ -1327,6 +1503,40 @@ def _cell(value: Any) -> str:
     if value is None:
         return ""
     return str(value)
+
+
+def _unified_diff_text(
+    before: str,
+    after: str,
+    *,
+    from_label: str = "before",
+    to_label: str = "after",
+) -> Text:
+    """Red/green unified diff as Rich ``Text`` (color paired with +/- glyphs)."""
+    import difflib
+
+    a = str(before or "").splitlines()
+    b = str(after or "").splitlines()
+    body = Text()
+    lines = list(
+        difflib.unified_diff(a, b, fromfile=from_label, tofile=to_label, lineterm="")
+    )
+    if not lines:
+        body.append("no differences", style="muted")
+        return body
+    for line in lines:
+        if line.startswith(("+++", "---")):
+            body.append(line + "\n", style="muted")
+        elif line.startswith("@@"):
+            body.append(line + "\n", style="accent")
+        elif line.startswith("+"):
+            body.append(line + "\n", style="success")
+        elif line.startswith("-"):
+            body.append(line + "\n", style="error")
+        else:
+            body.append(line + "\n", style="step")
+    body.rstrip()
+    return body
 
 
 def _compact_preview(value: Any, max_len: int = 80, ellipsis: str = "…") -> str:
