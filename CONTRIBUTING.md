@@ -12,26 +12,35 @@ for contributions reflects that. The one non-negotiable rule:
 git clone https://github.com/mouadja02/dacli.git
 cd dacli
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-pip install -e .   # editable — required so the `dacli` command runs your working tree, not a stale site-packages copy
+pip install -e ".[dev]"   # editable + pytest/ruff/vulture — one command; deps come from pyproject.toml
 ```
+
+The editable install (`-e`) is required so the `dacli` command runs your working tree, not a stale
+site-packages copy. For the exact pinned environment CI uses:
+`pip install -r requirements.lock && pip install -e . --no-deps`.
 
 ## Before you open a PR
 
 Run the same checks CI runs:
 
 ```bash
-# 1. Connector Definition-of-Done gate (governance-debt guard)
+# 1. Lint
+ruff check .
+
+# 2. Connector Definition-of-Done gate (governance-debt guard)
 python -m unittest tests.test_connector_dod -v
 
-# 2. Full test suite
-python -m unittest discover -s tests -p "test_*.py"
+# 3. Full test suite (pytest — `unittest discover` silently skips bare-function tests)
+pytest tests -q
 
-# 3. Offline reliability suite (pass^k) against simulated platforms
+# 4. Offline reliability suite (pass^k) against simulated platforms
 python -m dacli.eval --quick
+
+# 5. Docs drift gate (README badge / eval sample / command reference vs. reality)
+python tools/check_docs.py
 ```
 
-All three must pass. The `eval --quick` run exits non-zero on any unguarded destructive execution.
+All five must pass. The `eval --quick` run exits non-zero on any unguarded destructive execution.
 
 ## Project conventions
 
@@ -63,6 +72,32 @@ paths get a high pass^k bar; include adversarial/destructive-edge tasks delibera
 - Branch from `main`; do not commit directly to `main`.
 - Don't commit secrets or local state — `config.yaml`, `.env`, `config/connectors.yaml`, and `.dacli/` are
   git-ignored for a reason.
+
+## Releasing (maintainers)
+
+dacli is not yet on PyPI; these are the steps when cutting a release. **Never publish without explicit
+maintainer sign-off.**
+
+1. Bump `version` in `pyproject.toml` and make sure `main` is green (CI runs the full gate).
+2. Build from a clean tree (`build` and `twine` are release-time tools, not project deps):
+
+   ```bash
+   pip install build twine
+   python -m build                  # writes dist/dacli-<version>.tar.gz + .whl
+   ```
+
+3. Verify the wheel ships the non-Python runtime assets (prompts, connector manifests + SKILL.md,
+   config yaml) — `[tool.setuptools.package-data]` declares them, but trust the artifact, not the
+   config:
+
+   ```bash
+   python -m zipfile -l dist/dacli-*.whl | grep -E "manifest.yaml|SKILL.md|prompts/|config/"
+   ```
+
+4. `twine check dist/*`, then publish: `twine upload dist/*` (TestPyPI first:
+   `twine upload -r testpypi dist/*` and smoke-test `pipx install -i https://test.pypi.org/simple/ dacli`).
+5. Tag the release (`git tag v<version> && git push --tags`) and update the README install section —
+   once published, `pipx install dacli` / `uv tool install dacli` becomes the primary install.
 
 ## Reporting issues
 

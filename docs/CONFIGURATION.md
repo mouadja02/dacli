@@ -1,8 +1,14 @@
 # Configuration
 
-dacli reads a `config.yaml` and overlays secrets from environment variables (`${VAR}` placeholders), so
-credentials never live in the config file. Connector **enablement** lives separately in
-`config/connectors.yaml` (written by the setup wizard), and governance **policy** in `config/policy.yaml`.
+**The default path is the wizard, not files.** The first `dacli` run collects provider, model, and API
+key interactively, encrypts secrets into `.dacli/dacli.json`, and writes connector enablement to
+`config/connectors.yaml` — no `config.yaml` or `.env` required. Re-run it any time with `dacli setup`
+(connectors) or `/connect` (credentials).
+
+Everything below is the **advanced, file-based path** for power users and CI: dacli reads a
+`config.yaml` and overlays secrets from environment variables (`${VAR}` placeholders), so credentials
+never live in the config file. Connector **enablement** lives separately in `config/connectors.yaml`
+(written by the setup wizard), and governance **policy** in `config/policy.yaml`.
 
 ```bash
 cp config_template.yaml config.yaml
@@ -11,7 +17,7 @@ cp .env.example .env
 
 ## Resolution order
 
-1. `config.yaml` (searched: `./config.yaml`, then `~/.dacli/config.yaml`).
+1. `config.yaml` (searched: `./config.yaml`, then `~/.dacli/config.yaml`); absent → built-in defaults.
 2. `${VAR}` placeholders resolved from the environment / `.env`.
 3. Any field still empty is filled from the `secrets` block of `.dacli/dacli.json` (written by the wizard).
 
@@ -26,7 +32,8 @@ runtime directory.
 
 ```yaml
 llm:
-  provider: "openrouter"          # openai | anthropic | google | openrouter
+  provider: "openrouter"          # openai | anthropic | openrouter ("google" is declared but
+                                  # rejected at configure time: Gemini lacks the tool calling dacli requires)
   model: "x-ai/grok-4.1-fast"
   fallback_model: "x-ai/grok-4.1-fast"
   cheap_model: null               # optional cheap tier (classification, summaries)
@@ -97,6 +104,8 @@ governance:
   audit_path: null                # defaults to <state_dir>/audit.jsonl
   default_scope: read_only        # least-privilege scope when a profile declares none
   shadow_execution: true          # run risky transforms on a clone + diff before promoting
+  cost_confirm_usd: null          # cost gate: actions whose connector-estimated cost (e.g. BigQuery
+                                  # dry_run bytes) exceeds this many USD require a human confirm
 ```
 
 The tier → decision table and per-connector/per-environment overrides live in `config/policy.yaml`.
@@ -137,6 +146,25 @@ on `host.docker.internal`, authenticates with a per-session token, and every
 (credentials never enter the container). Installing packages needs egress, so set
 `network: open` (or an allowlist covering your package index) for `pip install`.
 The image (`sandbox/docker/Dockerfile`) bakes `pandas`, `numpy`, and `pyarrow`.
+
+### `mcp` — opt-in MCP client bridge
+
+dacli's core never speaks MCP; this section only points the **default-disabled** `mcp_bridge`
+connector (`pip install -e ".[mcp]"`) at one external MCP server whose tools are then proxied through
+the governed dispatch path. With no `command`/`url` the bridge is inert.
+
+```yaml
+mcp:
+  command: ""                     # stdio transport: executable serving MCP on stdio
+  args: []                        # argv for the stdio command
+  url: ""                         # streamable-http endpoint (alternative to command)
+  default_risk: risky             # tier for proxied tools unless pinned: safe | write | risky | irreversible
+  risk_overrides: {}              # per-tool pins, e.g. {list_models: safe}
+  timeout: 60
+```
+
+Proxied MCP tools cannot declare environment-anchored post-conditions, so they default to the
+conservative `risky` tier and are held to the generic governance gate.
 
 ### `orchestration` — Orchestration & multi-agent (𝒪)
 

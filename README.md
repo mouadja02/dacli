@@ -9,7 +9,7 @@ orchestrates jobs, and draws diagrams across 14 platforms, with governance and v
 
 [![CI](https://github.com/mouadja02/dacli/actions/workflows/ci.yml/badge.svg)](https://github.com/mouadja02/dacli/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-200%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-546-brightgreen.svg)](#testing)
 [![Reliability](https://img.shields.io/badge/reliability-pass%5Ek-orange.svg)](docs/EVALUATION.md)
 [![Architecture](https://img.shields.io/badge/architecture-six--component%20harness-8A2BE2.svg)](docs/ARCHITECTURE.md)
 
@@ -59,8 +59,10 @@ So dacli is engineered as a **six-component harness** (ℛ Reasoning · ℳ Memo
 and rollback are anchored to native platform features (transactions, Time Travel/`UNDROP`, `EXPLAIN`/`dry_run`,
 zero-copy clones, `dbt test`, row counts) rather than to the model's own say-so.
 
-> Built **from scratch** — no agent frameworks (no LangChain/LangGraph) and **no MCP**. Tools are plain
-> Python/CLI the agent composes as code, which keeps context lean and execution auditable.
+> Built **from scratch** — no agent frameworks (no LangChain/LangGraph) and an **MCP-free core**. Tools are
+> plain Python/CLI the agent composes as code, which keeps context lean and execution auditable. (An opt-in
+> **MCP client bridge** can proxy one external MCP server's tools through the same governed dispatch path —
+> the core itself never speaks MCP.)
 
 ---
 
@@ -151,13 +153,25 @@ python -m venv .venv
 # macOS / Linux
 source .venv/bin/activate
 
-pip install -r requirements.txt
-pip install -e .            # editable: puts the `dacli` command on your PATH AND runs your working tree
+pip install -e .            # one command — dependencies come from pyproject.toml
+```
+
+Optional extras:
+
+```bash
+pip install -e ".[all]"     # + every Python-SDK connector (snowflake, pinecone)
+pip install -e ".[dev]"     # contributors: pytest, ruff, vulture
+pip install -e ".[mcp]"     # the opt-in MCP client bridge
+pip install -e ".[pty]"     # faithful TTY for the governed terminal
 ```
 
 > Use the **editable** install (`-e`). A plain `pip install .` copies the
 > sources into `site-packages`, so the `dacli` command then runs that frozen
 > copy and silently diverges from your working tree as you edit.
+
+> For a byte-for-byte reproducible environment (what CI uses), install the pinned closure instead:
+> `pip install -r requirements.lock && pip install -e . --no-deps`. Once dacli is published to PyPI,
+> `pipx install dacli` / `uv tool install dacli` will be the primary one-line install.
 
 For CLI-first connectors, install the relevant platform CLIs and authenticate them as you normally would:
 
@@ -173,8 +187,19 @@ For CLI-first connectors, install the relevant platform CLIs and authenticate th
 
 ## Configuration
 
-dacli reads a `config.yaml` and substitutes secrets from environment variables (`${VAR}` placeholders),
-which you supply via a `.env` file. Credentials never live in the config file.
+**There is nothing to configure by hand.** The first `dacli` run launches the setup wizard: pick a
+provider and model, paste an API key, choose connectors — secrets are encrypted at rest into
+`.dacli/dacli.json` (see the [security model](#security-model)). No `config.yaml`, no `.env` needed.
+
+```bash
+dacli        # first run → wizard → chatting
+```
+
+### Advanced: file-based configuration (power users & CI)
+
+dacli also reads a `config.yaml` (searched at `./config.yaml`, then `~/.dacli/config.yaml`) and
+substitutes secrets from environment variables (`${VAR}` placeholders), which you can supply via a
+`.env` file. Credentials never live in the config file.
 
 ```bash
 cp config_template.yaml config.yaml     # set provider/model + account identifiers
@@ -232,8 +257,8 @@ dacli eval --quick    # run the offline reliability suite (pass^k) against simul
 python run.py
 ```
 
-On first run the **setup wizard** asks which connectors to enable and validates each with a live health check.
-Then just describe what you want:
+On first run the **setup wizard** walks you through provider, model, and API key, then asks which
+connectors to enable — validating each with a live health check. Then just describe what you want:
 
 > *"Stand up a Bronze→Silver pipeline for the CRM source in Snowflake, then run the dbt models and confirm
 > every test passes."*
@@ -257,15 +282,24 @@ executes step by step, and verifies each step against the platform before moving
 | `dacli eval [--quick] [--regression] [--calibrate] [--json] [--report <path>.md\|.html]` | Run the pass^k reliability suite + dashboard; `--report` writes a shareable Markdown/HTML scorecard. |
 | `dacli audit [--session <id>] [--full]` | Reconstruct governance decisions ("why did it act?"). |
 | `dacli context [--task <t>] [--explain]` | Inspect the assembled context (sources, tokens, budget). |
+| `dacli catalog [--connector <id>]` | List known data objects from the catalog cache. |
+| `dacli schema <object>` | Show cached columns / row count for one object. |
+| `dacli run "<message>" [--json] [--approve approve\|deny] [--llm-script <file>]` | One headless agent turn with a machine-readable JSON result and a stable exit-code contract. |
+| `dacli replay <scenario.json> [--json]` | Replay a scenario file (ordered user turns + optional scripted LLM) headlessly — what the [CI gate](#extending-dacli) runs. |
+| `dacli connector install <name> --index <path\|url> [--force]` | Fetch a shared connector from an index, validate it in a sandboxed subprocess, register it **disabled**. |
+| `dacli export-run [--session <id>] [--out <zip>]` | Export a session as a compliance bundle: transcript + audit slice + usage, secrets redacted. |
 | `dacli sessions` · `dacli load <id>` | List / resume previous sessions. |
 | `dacli init` | Write a fresh default `config.yaml`. |
 | `dacli prompt` | View the active system prompt. |
+| `dacli chat` | Start the interactive chat explicitly (same as bare `dacli`). |
 | `dacli --version` | Show the version. |
 
 ### In-chat slash commands
 
-`/help` · `/status` · `/usage` · `/context` · `/audit` · `/tools` · `/setup` · `/history` · `/sessions` ·
-`/load <id>` · `/export` · `/config` · `/theme <name>` · `/prompt` · `/init` · `/clear` · `/reset` · `/exit`
+`/help` · `/keys` · `/init` · `/status` · `/usage` · `/context` · `/audit` · `/tools` · `/connect [tool]` ·
+`/new-connector` · `/testmode [tool]` · `/import-connector` · `/push-connector` · `/debug-connector <name>` ·
+`/setup` · `/history` · `/sessions` · `/catalog [connector]` · `/schema <object>` · `/load <id>` · `/export` ·
+`/config` · `/theme <name>` · `/prompt` · `/clear` · `/cls` · `/reset` · `/exit`
 
 ---
 
@@ -292,9 +326,10 @@ connector          tasks  pass@1  pass^k   succ    esc   corr    gov  unguard   
 ----------------------------------------------------------------------------------------------
 bigquery               3    1.00    1.00   1.00   0.00   0.00   0.00        0       0      0.1
 s3                     3    1.00    1.00   1.00   0.00   0.00   0.00        0       0      0.1
+shell                  7    1.00    1.00   1.00   0.00   0.00   0.29        0       0     19.5
 spine                  5    1.00    1.00   1.00   0.00   0.20   0.20        0       0      1.0
 ...
-OVERALL               26    1.00    1.00   1.00   0.00   0.04   0.04        0       0     29.1
+OVERALL               34    1.00    1.00   1.00   0.00   0.03   0.09        0       0     11.0
 ----------------------------------------------------------------------------------------------
 ✓ zero unguarded destructive executions.
 ```
@@ -346,22 +381,40 @@ schemas, ≥1 **environment-anchored** post-condition per mutating op, a registe
 an introspection op, a least-privilege scope, and a verifiable golden task. Full guide:
 **[docs/CONNECTORS.md](docs/CONNECTORS.md)**.
 
+### Ecosystem surfaces
+
+- **Install shared connectors** — `dacli connector install <name> --index <path-or-url>` fetches a
+  connector from a community index, validates it in a sandboxed subprocess, and registers it
+  **disabled**; enable it with `/connect <name>` and a restart.
+- **Bridge an MCP server** — the opt-in `mcp_bridge` connector (`pip install -e ".[mcp]"` + an `mcp:`
+  config section) proxies one external MCP server's tools through the same classify → policy → audit
+  path as every native tool; proxied tools default to the conservative `risky` tier.
+- **Gate your own CI** — the `.github/actions/dacli-gate` composite action replays a scenario file
+  headlessly (`dacli replay`) and fails the build on a non-zero exit (`2` = governance block). See
+  `scenarios/ci_governance_gate.json` for a scripted, secret-free example.
+- **Export a run for compliance** — `dacli export-run` zips a session's transcript, audit-ledger slice
+  and usage summary, with secret-keyed values redacted.
+
 ---
 
 ## Testing
 
 ```bash
-# Full suite (200 tests)
-python -m unittest discover -s tests -p "test_*.py"
+# Full suite (pytest — `unittest discover` silently skips the bare-function tests)
+pytest tests -q
 
 # Connector Definition-of-Done gate (governance debt guard)
 python -m unittest tests.test_connector_dod
 
 # Offline reliability suite (pass^k) against simulated platforms
 python -m dacli.eval --quick
+
+# Docs drift gate (test badge / eval sample / command reference vs. reality)
+python tools/check_docs.py
 ```
 
-CI runs the DoD gate, the full suite (Python 3.10–3.12), and the pass^k sim suite on every pull request.
+CI runs ruff, the DoD gate, the full suite (Python 3.10–3.12), the pass^k sim suite, a headless
+end-to-end smoke, and the docs drift gate on every pull request.
 
 ---
 
@@ -412,5 +465,5 @@ please contact the author before reuse or redistribution.
 
 <div align="center">
 <sub>Grounded in the six-component harness framework — <a href="https://arxiv.org/abs/2605.26112">arXiv:2605.26112</a>.
-Built from scratch: no agent frameworks, no MCP, reliability first.</sub>
+Built from scratch: no agent frameworks, an MCP-free core, reliability first.</sub>
 </div>
