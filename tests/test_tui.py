@@ -99,7 +99,8 @@ def test_bottom_toolbar_is_formatted_text():
                            ctx_pct=42, session="sess")
     frags = to_formatted_text(tb)
     text = "".join(t[1] for t in frags)
-    assert "ctx 42%" in text
+    # ctx renders as a gauge now (P13/M6): "ctx ▰▰▱▱▱ 42%".
+    assert "ctx" in text and "42%" in text
     assert "sess" in text
 
 

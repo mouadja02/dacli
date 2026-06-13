@@ -28,7 +28,6 @@ import time
 from typing import Any
 from collections.abc import Iterable
 
-from rich import box
 from rich.console import Console, Group, RenderableType
 from rich.markdown import Markdown
 from rich.live import Live
@@ -40,13 +39,13 @@ from rich.table import Table
 from rich.text import Text
 
 from dacli.connectors.base import ToolResult
+from .design import ASCII as ASCII_GLYPHS
+from .design import SPACING, TIER_STYLE, Glyphs, gauge, resolve_glyphs
 from .theme import ThemeSpec, get_theme
 import contextlib
 
 __author__ = ""  # populated by caller if needed
 
-# Braille spinner frames + rotating verbs for the thinking indicator.
-_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 # The spinner glyph shimmers through this short palette for a subtle animation.
 _SHIMMER = ("accent", "tool", "info", "ok", "assistant")
 _VERBS = (
@@ -64,48 +63,23 @@ _VERBS = (
     "Distilling",
 )
 
-# Glyphs (gutter markers borrowed from the Claude Code transcript style).
-G_AGENT = "⏺"
-G_TOOL = "⏺"
-G_RESULT = "⎿"
-G_USER = "❯"
-
-# Leading icon per notice style — a small visual cue so success/warning/error
-# read at a glance without reading the text.
-_NOTICE_ICONS = {
-    "success": "✓",
-    "warning": "⚠",
-    "error": "✗",
-    "bad": "✗",
-    "info": "ℹ",
-}
-
-# Blast-radius tier → style. Shared by the audit view and the approval panel so
-# "risky" reads the same color everywhere.
-TIER_STYLE = {
-    "safe": "success",
-    "write": "info",
-    "risky": "warning",
-    "irreversible": "error",
-}
-
 # Error remediation hints: substring of the error → a one-line next step.
 # Deliberately a small lookup (the startup path attaches hints the same way for
 # failed connectors); first match wins.
 _REMEDIATION_HINTS: tuple[tuple[str, str], ...] = (
     ("not healthy", "Try /debug-connector <name> to diagnose, or /connect to reconfigure."),
     ("health check", "Try /debug-connector <name> to diagnose, or /connect to reconfigure."),
-    ("decrypt", "Stored secrets could not be read — re-enter them via /connect."),
+    ("decrypt", "Stored secrets could not be read - re-enter them via /connect."),
     ("unknown tool", "See /tools for what's enabled; /setup to enable more."),
     ("blocked by governance", "See /audit for the decision; adjust config/policy.yaml if intended."),
-    ("permission denied", "Scope too narrow — see /audit; widen it in config/policy.yaml if intended."),
-    ("unauthorized", "Credentials look invalid — update them via /connect."),
-    ("forbidden", "Credentials look invalid — update them via /connect."),
-    ("401", "Credentials look invalid — update them via /connect."),
-    ("403", "Credentials look invalid — update them via /connect."),
-    ("rate limit", "Provider rate limit — wait a moment and retry."),
-    ("429", "Provider rate limit — wait a moment and retry."),
-    ("timed out", "The platform didn't answer in time — check connectivity, then retry."),
+    ("permission denied", "Scope too narrow - see /audit; widen it in config/policy.yaml if intended."),
+    ("unauthorized", "Credentials look invalid - update them via /connect."),
+    ("forbidden", "Credentials look invalid - update them via /connect."),
+    ("401", "Credentials look invalid - update them via /connect."),
+    ("403", "Credentials look invalid - update them via /connect."),
+    ("rate limit", "Provider rate limit - wait a moment and retry."),
+    ("429", "Provider rate limit - wait a moment and retry."),
+    ("timed out", "The platform didn't answer in time - check connectivity, then retry."),
 )
 
 
@@ -124,16 +98,31 @@ class StreamView:
     """A transient Rich ``Live`` region for one LLM ``generate`` call.
 
     While the model is producing tokens this shows a thinking spinner (with
-    elapsed time + current activity) and then the streaming text. On
-    :meth:`end` it tears the live region down and re-prints the completed text
-    as polished markdown so it stays in the scrollback.
+    elapsed time + current activity) and then the streaming text — rendered as
+    *live Markdown* so headings, lists and code blocks appear formatted while
+    the model types. On :meth:`end` it tears the live region down and
+    re-prints the completed text as polished markdown so it stays in the
+    scrollback.
+
+    Reliability: the markdown pass is throttled (re-parsed only on a newline
+    or every ``_MD_REPARSE_CHARS`` chars), trial-rendered off-screen, and on
+    any failure the view falls back to the plain-text stream for the rest of
+    the turn. Reduced motion always streams plain text.
     """
+
+    # Re-parse markdown when this many chars arrived since the last parse
+    # (a newline always triggers a re-parse). Parsing per token is too costly.
+    _MD_REPARSE_CHARS = 40
 
     def __init__(self, ui: DacliUI):
         self._ui = ui
         self._live: Live | None = None
         self._buffer = ""
         self._start = 0.0
+        # Incremental-markdown state (reset per turn).
+        self._md_cache: RenderableType | None = None
+        self._md_seen = 0
+        self._md_failed = False
 
     @property
     def active(self) -> bool:
@@ -142,6 +131,9 @@ class StreamView:
     def begin(self) -> None:
         self._buffer = ""
         self._start = time.monotonic()
+        self._md_cache = None
+        self._md_seen = 0
+        self._md_failed = False
         self._live = Live(
             self,
             console=self._ui.console,
@@ -176,24 +168,72 @@ class StreamView:
 
     def __rich__(self) -> RenderableType:
         elapsed = time.monotonic() - self._start
+        glyphs = self._ui.glyphs
         if not self._buffer:
-            frame = _FRAMES[int(elapsed * 10) % len(_FRAMES)]
-            verb = _VERBS[int(elapsed / 3) % len(_VERBS)]
-            shimmer = _SHIMMER[int(elapsed * 3) % len(_SHIMMER)]
+            reduced = self._ui.reduced_motion
+            frames = glyphs.spinner_frames
+            frame = frames[0] if reduced else frames[int(elapsed * 10) % len(frames)]
+            verb = _VERBS[0] if reduced else _VERBS[int(elapsed / 3) % len(_VERBS)]
+            shimmer = "accent" if reduced else _SHIMMER[int(elapsed * 3) % len(_SHIMMER)]
             line = Text()
             line.append(f"{frame} ", style=f"bold {shimmer}")
             line.append(f"{verb}", style="assistant")
             # Animated trailing dots so the line breathes even mid-token-wait.
-            dots = "." * (1 + int(elapsed * 2) % 3)
+            dots = "." if reduced else "." * (1 + int(elapsed * 2) % 3)
             line.append(f"{dots} ", style="muted")
             if self._ui.activity:
                 line.append(f"{self._ui.activity} ", style="muted")
-            line.append(f"({elapsed:.0f}s · ctrl-c to interrupt)", style="muted")
+            line.append(
+                f"({elapsed:.0f}s {glyphs.dot} ctrl-c to interrupt)", style="muted"
+            )
             return line
-        body = Text(f"{G_AGENT} ", style="gutter")
+        markdown = self._streaming_markdown()
+        if markdown is not None:
+            return markdown
+        body = Text(f"{glyphs.agent} ", style="gutter")
         body.append(self._buffer, style="assistant")
-        body.append("▌", style="accent")
+        body.append(glyphs.caret, style="accent")
         return body
+
+    def _streaming_markdown(self) -> RenderableType | None:
+        """Formatted view of the partial buffer, or None to stream plain text.
+
+        Throttled: the buffer is re-parsed only when a newline arrived or it
+        grew by ``_MD_REPARSE_CHARS`` since the last parse; otherwise the
+        cached renderable is reused. A half-open code fence gets a synthetic
+        closing fence *for the render pass only* so it never swallows the
+        rest of the answer. Any parse/render failure permanently falls back
+        to plain text for this turn — never raises into the live region.
+        """
+        if self._md_failed or self._ui.reduced_motion:
+            return None
+        grown = len(self._buffer) - self._md_seen
+        fresh = self._buffer[self._md_seen:]
+        if (
+            self._md_cache is not None
+            and grown < self._MD_REPARSE_CHARS
+            and "\n" not in fresh
+        ):
+            return self._md_cache
+        try:
+            text = self._buffer + self._ui.glyphs.caret
+            if self._buffer.count("```") % 2 == 1:
+                # Balance the open fence for this render pass only — the real
+                # buffer is never mutated.
+                text += "\n```"
+            markdown = Markdown(text, code_theme=self._ui.theme.code_theme)
+            view = self._ui._guttered(self._ui.glyphs.agent, "gutter", markdown)
+            # Trial-render off-screen so a pathological buffer can never raise
+            # inside the Live refresh thread.
+            self._ui.console.render_lines(
+                view, self._ui.console.options, pad=False
+            )
+        except Exception:
+            self._md_failed = True
+            return None
+        self._md_cache = view
+        self._md_seen = len(self._buffer)
+        return view
 
 
 class DacliUI:
@@ -210,16 +250,25 @@ class DacliUI:
         self.settings = settings
         self.version = version
         self.author = author
-        self.theme: ThemeSpec = get_theme(
-            theme_name or getattr(getattr(settings, "ui", None), "theme", None)
-        )
+        ui_settings = getattr(settings, "ui", None)
+        if getattr(ui_settings, "high_contrast", False):
+            # Accessibility override: force the high-contrast palette.
+            self.theme: ThemeSpec = get_theme("contrast")
+        else:
+            self.theme = get_theme(
+                theme_name or getattr(ui_settings, "theme", None)
+            )
         if console is None:
-            self.console = Console(theme=self.theme.rich_theme())
+            # Rich honors the NO_COLOR env var natively; ui.no_color forces it.
+            no_color = True if getattr(ui_settings, "no_color", False) else None
+            self.console = Console(theme=self.theme.rich_theme(), no_color=no_color)
         else:
             # A caller-provided console may not know our semantic styles — push
             # the theme so 'border', 'accent', … resolve everywhere.
             self.console = console
             self.console.push_theme(self.theme.rich_theme())
+        self.glyphs: Glyphs = resolve_glyphs(self.console, settings)
+        self.reduced_motion: bool = bool(getattr(ui_settings, "reduced_motion", False))
         self.stream = StreamView(self)
         self.activity = ""  # current background activity, shown in the spinner
         # Transient liveness line for a long-running tool (see tool_progress).
@@ -238,15 +287,43 @@ class DacliUI:
     # ------------------------------------------------------------------
     # Banner / welcome
     # ------------------------------------------------------------------
+    _ART_UNICODE = (
+        "██████╗   █████╗   ██████╗ ██╗      ██╗",
+        "██╔══██╗ ██╔══██╗ ██╔════╝ ██║      ██║",
+        "██║  ██║ ███████║ ██║      ██║      ██║",
+        "██║  ██║ ██╔══██║ ██║      ██║      ██║",
+        "██████╔╝ ██║  ██║ ╚██████╗ ███████╗ ██║",
+        "╚═════╝  ╚═╝  ╚═╝  ╚═════╝ ╚══════╝ ╚═╝",
+    )
+    _ART_ASCII = (
+        " ____    _    ____ _     ___ ",
+        "|  _ \\  / \\  / ___| |   |_ _|",
+        "| | | |/ _ \\| |   | |    | | ",
+        "| |_| / ___ \\ |___| |___ | | ",
+        "|____/_/   \\_\\____|_____|___|",
+    )
+
     def banner(self) -> None:
-        art = [
-            "██████╗   █████╗   ██████╗ ██╗      ██╗",
-            "██╔══██╗ ██╔══██╗ ██╔════╝ ██║      ██║",
-            "██║  ██║ ███████║ ██║      ██║      ██║",
-            "██║  ██║ ██╔══██║ ██║      ██║      ██║",
-            "██████╔╝ ██║  ██║ ╚██████╗ ███████╗ ██║",
-            "╚═════╝  ╚═╝  ╚═╝  ╚═════╝ ╚══════╝ ╚═╝",
-        ]
+        """The ASCII wordmark — gradient on capable terminals, plain ASCII art
+        otherwise, and a compact one-liner when the terminal is too small for
+        the full mark to read calm."""
+        try:
+            width = self.console.width
+            height = self.console.height
+        except Exception:
+            width, height = 80, 24
+        if width < 48 or height < 14:
+            line = Text()
+            line.append("DACLI", style="bold accent")
+            line.append(
+                f"  {self.glyphs.dot}  data-engineering CLI agent", style="muted"
+            )
+            if self.version:
+                line.append(f"  {self.glyphs.dot}  v{self.version}", style="muted")
+            self.console.print(Padding(line, (1, 2, 0, 2)))
+            return
+
+        art = self._ART_UNICODE if self.glyphs is not ASCII_GLYPHS else self._ART_ASCII
         # Pick a different color (solid or gradient) for each run from a predefined set
         gradient = self.theme.banner_gradients
         lines = Text()
@@ -257,7 +334,7 @@ class DacliUI:
         if self.version:
             meta.append(f"v{self.version}", style="accent")
         if self.author:
-            meta.append(f"  ·  {self.author}", style="muted")
+            meta.append(f"  {self.glyphs.dot}  {self.author}", style="muted")
         body = (
             Group(lines, tagline, meta)
             if (self.version or self.author)
@@ -271,7 +348,7 @@ class DacliUI:
         """A compact 'session ready' card with the essentials + quick tips."""
         info = Text()
         info.append("model      ", style="muted")
-        info.append(f"{provider}·{model}\n", style="accent")
+        info.append(f"{provider}{self.glyphs.dot}{model}\n", style="accent")
         info.append("connectors ", style="muted")
         info.append(
             (", ".join(connectors) if connectors else "none") + "\n", style="info"
@@ -283,7 +360,7 @@ class DacliUI:
         tips.append("\n")
         tips.append("/", style="accent")
         tips.append(" for commands   ", style="muted")
-        tips.append("↑↓", style="accent")
+        tips.append(self.glyphs.arrows, style="accent")
         tips.append(" history   ", style="muted")
         tips.append("Tab", style="accent")
         tips.append(" complete   ", style="muted")
@@ -293,11 +370,11 @@ class DacliUI:
         self.console.print(
             Panel(
                 Group(info, tips),
-                title="[success]✓ session ready[/success]",
+                title=f"[success]{self.glyphs.ok} session ready[/success]",
                 title_align="left",
-                box=box.ROUNDED,
+                box=self.glyphs.box,
                 border_style="accent",
-                padding=(1, 2),
+                padding=SPACING["panel_pad"],
             )
         )
 
@@ -316,8 +393,8 @@ class DacliUI:
 
         c = self.theme.toolbar_fg if _valid_pt_color(self.theme.toolbar_fg) else "ansicyan"
         return HTML(
-            f'<style fg="{c}"><b>▌</b></style> <b>you</b> '
-            f'<style fg="{c}">❯</style> '
+            f'<style fg="{c}"><b>{self.glyphs.caret}</b></style> <b>you</b> '
+            f'<style fg="{c}">{self.glyphs.user_caret}</style> '
         )
 
     def user_message(self, text: str) -> None:
@@ -331,9 +408,9 @@ class DacliUI:
         self.console.print(
             Panel(
                 body,
-                title="[accent]▌ you[/accent]",
+                title=f"[accent]{self.glyphs.caret} you[/accent]",
                 title_align="left",
-                box=box.ROUNDED,
+                box=self.glyphs.box,
                 border_style="border",
                 padding=(0, 1),
             )
@@ -367,21 +444,43 @@ class DacliUI:
 
     def agent_message(self, content: str) -> None:
         """Print a finished agent turn as guttered markdown."""
-        self.console.print(self._guttered(G_AGENT, "gutter", Markdown(content)))
+        self.console.print(
+            self._guttered(
+                self.glyphs.agent,
+                "gutter",
+                Markdown(content, code_theme=self.theme.code_theme),
+            )
+        )
         self.console.print()
 
+    def _notice_icon(self, style: str) -> str:
+        # Leading icon per notice style — success/warning/error read at a
+        # glance without reading the text (and without relying on color).
+        return {
+            "success": self.glyphs.ok,
+            "warning": self.glyphs.warn,
+            "error": self.glyphs.err,
+            "bad": self.glyphs.err,
+            "info": self.glyphs.info,
+        }.get(style, "")
+
     def notice(self, message: str, style: str = "info") -> None:
-        icon = _NOTICE_ICONS.get(style, "")
+        icon = self._notice_icon(style)
         prefix = f"{icon} " if icon else ""
         self.console.print(f"[{style}]{prefix}{message}[/{style}]")
 
     def error(self, message: str) -> None:
         self._clear_progress()
-        self.console.print(self._guttered("✗", "bad", Text(message, style="error")))
+        self.console.print(
+            self._guttered(self.glyphs.err, "bad", Text(message, style="error"))
+        )
         hint = _remediation_hint(message)
         if hint:
             self.console.print(
-                Padding(Text(f"↳ {hint}", style="muted"), (0, 0, 0, 2))
+                Padding(
+                    Text(f"{self.glyphs.hint} {hint}", style="muted"),
+                    (0, 0, 0, SPACING["indent"]),
+                )
             )
 
     def status(self, message: str) -> None:
@@ -429,7 +528,12 @@ class DacliUI:
             if self.stream.active:
                 self.activity = f"{tool_name}: {message}"
                 return
-            frame = _FRAMES[int(time.monotonic() * 10) % len(_FRAMES)]
+            frames = self.glyphs.spinner_frames
+            frame = (
+                frames[0]
+                if self.reduced_motion
+                else frames[int(time.monotonic() * 10) % len(frames)]
+            )
             line = Text()
             line.append(f"  {frame} ", style="tool")
             line.append(f"{tool_name} ", style="muted")
@@ -459,21 +563,21 @@ class DacliUI:
     def tool_start(self, tool_name: str, args: dict[str, Any]) -> None:
         self._clear_progress()
         header = Text(tool_name, style="tool")
-        preview = _arg_preview(args)
+        preview = _arg_preview(args, ellipsis=self.glyphs.ellipsis)
         if preview:
             header.append(f"  {preview}", style="muted")
-        self.console.print(self._guttered(G_TOOL, "tool", header))
+        self.console.print(self._guttered(self.glyphs.tool, "tool", header))
 
         sql = args.get("query") or args.get("sql")
         if isinstance(sql, str) and sql.strip():
             syntax = Syntax(
                 sql.strip(),
                 "sql",
-                theme="monokai",
+                theme=self.theme.code_theme,
                 word_wrap=True,
                 background_color="default",
             )
-            self.console.print(Padding(syntax, (0, 0, 0, 4)))
+            self.console.print(Padding(syntax, (0, 0, 0, 2 * SPACING["indent"])))
 
     def _render_cap(self) -> int:
         # How many rows/items/fields the transcript renders before head+tail
@@ -486,47 +590,61 @@ class DacliUI:
         if not isinstance(result, ToolResult):
             self.console.print(
                 Padding(
-                    self._guttered(G_RESULT, "muted", Text(str(result), style="step")),
-                    (0, 0, 0, 2),
+                    self._guttered(
+                        self.glyphs.result, "muted", Text(str(result), style="step")
+                    ),
+                    (0, 0, 0, SPACING["indent"]),
                 )
             )
             return
 
         if not result.success:
             summary = Text()
-            summary.append("✗ ", style="bad")
+            summary.append(f"{self.glyphs.err} ", style="bad")
             summary.append(str(result.error or "failed"), style="error")
             self.console.print(
-                Padding(self._guttered(G_RESULT, "bad", summary), (0, 0, 0, 2))
+                Padding(
+                    self._guttered(self.glyphs.result, "bad", summary),
+                    (0, 0, 0, SPACING["indent"]),
+                )
             )
             hint = _remediation_hint(result.error)
             if hint:
                 self.console.print(
-                    Padding(Text(f"↳ {hint}", style="muted"), (0, 0, 0, 4))
+                    Padding(
+                        Text(f"{self.glyphs.hint} {hint}", style="muted"),
+                        (0, 0, 0, 2 * SPACING["indent"]),
+                    )
                 )
             self.console.print()
             return
 
         summary = Text()
-        summary.append("✓ ", style="ok")
+        summary.append(f"{self.glyphs.ok} ", style="ok")
         data = result.data
         body: RenderableType | None = None
         cap = self._render_cap()
+        gap = self.glyphs.ellipsis
+        # Rail color = semantics: a write/risky/irreversible action keeps its
+        # blast-radius color on the result rail (tagged by the dispatcher);
+        # plain reads stay calm. Errors use the error rail above.
+        tier = (result.metadata or {}).get("tier")
+        rail = TIER_STYLE.get(tier, "muted") if tier != "safe" else "muted"
 
         if isinstance(data, list) and data and isinstance(data[0], dict):
             summary.append(
                 f"{len(data)} row{'s' if len(data) != 1 else ''}", style="success"
             )
-            body = _rows_table(data, max_rows=cap)
+            body = _rows_table(data, max_rows=cap, ellipsis=gap)
         elif isinstance(data, list):
             summary.append(
                 f"{len(data)} item{'s' if len(data) != 1 else ''}", style="success"
             )
             if data:
-                indexed, footer = _capped_indexed(data, cap, "items")
+                indexed, footer = _capped_indexed(data, cap, "items", ellipsis=gap)
                 listing = Text(
                     "\n".join(
-                        "…" if v is _GAP else f"{i}. {_cell(v)}" for i, v in indexed
+                        gap if v is _GAP else f"{i}. {_cell(v)}" for i, v in indexed
                     ),
                     style="step",
                 )
@@ -535,15 +653,19 @@ class DacliUI:
             summary.append(
                 f"{len(data)} field{'s' if len(data) != 1 else ''}", style="success"
             )
-            indexed, footer = _capped_indexed(list(data.items()), cap, "fields")
-            kv = Text()
+            indexed, footer = _capped_indexed(
+                list(data.items()), cap, "fields", ellipsis=gap
+            )
+            kv = Table.grid(padding=(0, 2, 0, 0))
+            kv.add_column(style="muted", no_wrap=True)
+            kv.add_column(style="step", overflow="fold")
             for _i, item in indexed:
                 if item is _GAP:
-                    kv.append("…\n", style="muted")
+                    kv.add_row(gap, gap)
                     continue
                 k, v = item
-                kv.append(f"{k}: ", style="muted")
-                kv.append(f"{_cell(v)}\n", style="step")
+                # Text() so data containing [brackets] is never eaten as markup.
+                kv.add_row(Text(str(k)), Text(_compact_preview(v, ellipsis=gap)))
             body = Group(kv, footer) if footer else kv
         elif data is None:
             summary.append("done", style="success")
@@ -551,12 +673,17 @@ class DacliUI:
             summary.append("done", style="success")
             body = Text(_cell(data), style="step")
 
-        summary.append(f"  ·  {result.execution_time_ms:.0f}ms", style="muted")
+        summary.append(
+            f"  {self.glyphs.dot}  {result.execution_time_ms:.0f}ms", style="muted"
+        )
         self.console.print(
-            Padding(self._guttered(G_RESULT, "muted", summary), (0, 0, 0, 2))
+            Padding(
+                self._guttered(self.glyphs.result, rail, summary),
+                (0, 0, 0, SPACING["indent"]),
+            )
         )
         if body is not None:
-            self.console.print(Padding(body, (0, 0, 0, 4)))
+            self.console.print(Padding(body, (0, 0, 0, 2 * SPACING["indent"])))
         self.console.print()
 
     # ------------------------------------------------------------------
@@ -570,7 +697,14 @@ class DacliUI:
         it falls back to ``describe()`` text, then to ``str()``.
         """
         tier = getattr(getattr(request, "tier", None), "value", "?")
-        border = "error" if tier == "irreversible" else "warning"
+        # Border weight follows blast radius: irreversible screams, a safe
+        # action stays lightweight. The strongest tier always wins visually.
+        border = {
+            "irreversible": "error",
+            "risky": "warning",
+            "write": "info",
+            "safe": "border",
+        }.get(tier, "warning")
         try:
             body = self._approval_body(request, tier)
         except Exception:
@@ -580,17 +714,24 @@ class DacliUI:
             except Exception:
                 text = str(request)
             body = Text(text, style="step")
+
+        decision = Text()
+        decision.append("Proceed?  ", style="bold" if tier == "irreversible" else "prompt")
+        decision.append("[y]es / [N]o", style="accent")
+        decision.append("  (No is the safe default)", style="muted")
+
         tier_style = TIER_STYLE.get(tier, "muted")
         self.console.print(
             Panel(
-                body,
+                Group(body, Text(), decision),
                 title=(
-                    f"[{border}]approval needed[/{border}] · "
+                    f"[{border}]approval needed[/{border}] {self.glyphs.dot} "
                     f"[{tier_style}]{tier}[/{tier_style}]"
                 ),
                 title_align="left",
+                box=self.glyphs.box,
                 border_style=border,
-                padding=(1, 2),
+                padding=SPACING["panel_pad"],
             )
         )
 
@@ -650,7 +791,7 @@ class DacliUI:
                 Syntax(
                     str(preview).strip(),
                     "sql",
-                    theme="monokai",
+                    theme=self.theme.code_theme,
                     word_wrap=True,
                     background_color="default",
                 )
@@ -658,14 +799,22 @@ class DacliUI:
         shadow = getattr(request, "shadow", None)
         if shadow is not None and getattr(shadow, "ran", False):
             diff = getattr(shadow, "diff", None) or {}
-            if "rows_before" in diff and "rows_after" in diff:
+            if "before" in diff or "after" in diff:
+                # Textual before/after from the shadow run → red/green diff
+                # (the same renderer `dacli diff` and dry-run previews use).
+                parts.append(Text("Shadow diff (on a clone)", style="muted"))
+                parts.append(
+                    _unified_diff_text(
+                        str(diff.get("before", "")), str(diff.get("after", ""))
+                    )
+                )
+            elif "rows_before" in diff and "rows_after" in diff:
                 parts.append(self._shadow_delta_table(diff))
             else:
                 parts.append(Text(f"Shadow: {shadow.summary()}", style="step"))
         return Group(*parts) if len(parts) > 1 else parts[0]
 
-    @staticmethod
-    def _shadow_delta_table(diff: dict[str, Any]) -> Table:
+    def _shadow_delta_table(self, diff: dict[str, Any]) -> Table:
         # Tiny before/after table for a shadow row-count delta.
         delta = diff.get("row_delta")
         if delta is None:
@@ -683,7 +832,7 @@ class DacliUI:
         )
         table.add_column("rows before", justify="right", style="info")
         table.add_column("rows after", justify="right", style="info")
-        table.add_column("Δ", justify="right", style="accent")
+        table.add_column(self.glyphs.delta, justify="right", style="accent")
         table.add_row(str(diff["rows_before"]), str(diff["rows_after"]), str(delta))
         return table
 
@@ -721,13 +870,14 @@ class DacliUI:
                 desc.append(f"  (after {', '.join(deps)})", style="muted")
             if step.node.breadth_first:
                 desc.append(
-                    f"  [breadth-first ×{len(step.node.items) or '?'}]", style="info"
+                    f"  [breadth-first {self.glyphs.mult}{len(step.node.items) or '?'}]",
+                    style="info",
                 )
 
             decision = getattr(step.policy.decision, "value", "?")
             if step.policy.requires_human:
                 needs_approval += 1
-                decision += " — needs approval"
+                decision += " - needs approval"
 
             rollback = step.rollback
             if rollback.primitive == "noop":
@@ -737,28 +887,187 @@ class DacliUI:
                 if not rollback.verified:
                     undo += " (verified at execution)"
             else:
-                undo = "no native undo — would be refused unless verified"
+                undo = "no native undo - would be refused unless verified"
             if step.platform:
-                undo += f" · {step.platform}"
+                undo += f" {self.glyphs.dot} {step.platform}"
 
             table.add_row(str(i), desc, tier_text, decision, undo)
 
         summary = Text()
         summary.append(f"{len(preview.steps)} step(s)", style="info")
-        summary.append("  ·  ", style="muted")
+        summary.append(f"  {self.glyphs.dot}  ", style="muted")
         if needs_approval:
             summary.append(f"{needs_approval} need(s) approval", style="warning")
         else:
             summary.append("no approvals needed", style="success")
-        summary.append("  ·  nothing was executed", style="muted")
+        summary.append(f"  {self.glyphs.dot}  nothing was executed", style="muted")
 
         self.console.print(
             Panel(
                 Group(Text(preview.goal, style="accent"), Text(), table, Text(), summary),
-                title="[accent]plan preview[/accent] · [muted]dry — no execution[/muted]",
+                title=(
+                    f"[accent]plan preview[/accent] {self.glyphs.dot} "
+                    "[muted]dry run, no execution[/muted]"
+                ),
                 title_align="left",
+                box=self.glyphs.box,
                 border_style="border",
-                padding=(1, 2),
+                padding=SPACING["panel_pad"],
+            )
+        )
+
+    # ------------------------------------------------------------------
+    # Long-running-work feedback (M4): progress, plan tree, text diff
+    # ------------------------------------------------------------------
+    @contextlib.contextmanager
+    def progress(self, description: str, total: int | None = None):
+        """Reusable progress for multi-step work (init fan-out, dbt, polls).
+
+        Yields an ``advance(label)`` callable. With a known ``total`` it draws
+        a real bar; without one, an indeterminate spinner line. Under
+        ``reduced_motion`` it prints static ``step n/total`` lines instead —
+        no animation. Rendering failures degrade to silence; the context
+        manager itself never raises into the caller.
+        """
+        if self.reduced_motion:
+            done = {"n": 0}
+
+            def advance_static(label: str = "") -> None:
+                done["n"] += 1
+                of = f"/{total}" if total else ""
+                suffix = f"  {label}" if label else ""
+                with contextlib.suppress(Exception):
+                    self.console.print(
+                        f"  [muted]step {done['n']}{of}[/muted]"
+                        f"[step]{suffix}[/step]"
+                    )
+
+            with contextlib.suppress(Exception):
+                self.console.print(f"  [muted]{description}[/muted]")
+            yield advance_static
+            return
+
+        from rich.progress import (
+            BarColumn,
+            Progress,
+            SpinnerColumn,
+            TaskProgressColumn,
+            TextColumn,
+            TimeElapsedColumn,
+        )
+
+        columns: list[Any] = [
+            SpinnerColumn(style="accent"),
+            TextColumn("[step]{task.description}[/step]"),
+        ]
+        if total is not None:
+            columns += [BarColumn(), TaskProgressColumn()]
+        columns.append(TimeElapsedColumn())
+
+        progress = Progress(*columns, console=self.console, transient=True)
+        task_id = None
+        try:
+            self._clear_progress()  # one live region owns the console
+            progress.start()
+            task_id = progress.add_task(description, total=total)
+        except Exception:
+            progress = None
+
+        def advance(label: str = "") -> None:
+            if progress is None or task_id is None:
+                return
+            with contextlib.suppress(Exception):
+                progress.advance(task_id)
+                if label:
+                    progress.update(task_id, description=label)
+
+        try:
+            yield advance
+        finally:
+            if progress is not None:
+                with contextlib.suppress(Exception):
+                    progress.stop()
+
+    def plan_tree(self, dag: Any) -> None:
+        """Render a :class:`TaskDAG` as a status tree (reused by `dacli plan`).
+
+        Per node: a status icon (pending/running/done/paused/failed, color
+        paired with the glyph), its dependencies, and the irreversible /
+        breadth-first markers in the shared tier palette. Malformed DAGs
+        render best-effort — never raise.
+        """
+        from rich.tree import Tree
+
+        g = self.glyphs
+        try:
+            goal = str(getattr(dag, "goal", "") or "plan")
+            nodes = list(getattr(dag, "nodes", None) or [])
+        except Exception:
+            self.console.print(Text(str(dag), style="step"))
+            return
+
+        icon_style = {
+            "pending": (g.pending, "muted"),
+            "running": (g.running, "info"),
+            "completed": (g.ok, "success"),
+            "failed": (g.err, "error"),
+            "paused": (g.paused, "warning"),
+        }
+        tree = Tree(Text(goal, style="accent"), guide_style="border")
+        branches: dict[str, Any] = {}
+        for node in nodes:
+            try:
+                status = getattr(getattr(node, "status", None), "value", None) or str(
+                    getattr(node, "status", "pending")
+                )
+                icon, style = icon_style.get(status, (g.pending, "muted"))
+                label = Text()
+                label.append(f"{icon} ", style=style)
+                label.append(str(getattr(node, "description", node)), style="step")
+                deps = list(getattr(node, "depends_on", None) or [])
+                if getattr(node, "irreversible", False):
+                    label.append("  irreversible", style=TIER_STYLE["irreversible"])
+                if getattr(node, "breadth_first", False):
+                    items = list(getattr(node, "items", None) or [])
+                    mult = "x" if g is ASCII_GLYPHS else "×"
+                    label.append(
+                        f"  [breadth-first {mult}{len(items) or '?'}]", style="info"
+                    )
+                if len(deps) > 1:
+                    label.append(
+                        f"  (also after {', '.join(deps[1:])})", style="muted"
+                    )
+                parent = branches.get(deps[0]) if deps else tree
+                branch = (parent if parent is not None else tree).add(label)
+                node_id = str(getattr(node, "id", "") or "")
+                if node_id:
+                    branches[node_id] = branch
+            except Exception:
+                continue
+        self.console.print(tree)
+        self.console.print()
+
+    def text_diff(
+        self,
+        before: str,
+        after: str,
+        *,
+        title: str = "diff",
+        from_label: str = "before",
+        to_label: str = "after",
+    ) -> None:
+        """Render a red/green unified diff panel (shadow previews, `dacli diff`)."""
+        body = _unified_diff_text(
+            before, after, from_label=from_label, to_label=to_label
+        )
+        self.console.print(
+            Panel(
+                body,
+                title=f"[accent]{title}[/accent]",
+                title_align="left",
+                box=self.glyphs.box,
+                border_style="border",
+                padding=SPACING["panel_pad"],
             )
         )
 
@@ -773,7 +1082,7 @@ class DacliUI:
         )
         counts.add_column(data.get("table_a", "a"), justify="right", style="info")
         counts.add_column(data.get("table_b", "b"), justify="right", style="info")
-        counts.add_column("Δ rows", justify="right", style="accent")
+        counts.add_column(f"{self.glyphs.delta} rows", justify="right", style="accent")
         counts.add_row(str(a), str(b), str(delta))
 
         parts: list[RenderableType] = [counts]
@@ -790,7 +1099,7 @@ class DacliUI:
             cols.add_column("column", style="step")
             cols.add_column("null% a", justify="right", style="info")
             cols.add_column("null% b", justify="right", style="info")
-            cols.add_column("Δ", justify="right", style="warning")
+            cols.add_column(self.glyphs.delta, justify="right", style="warning")
             for c in changed:
                 cols.add_row(
                     str(c.get("name")),
@@ -818,10 +1127,14 @@ class DacliUI:
         self.console.print(
             Panel(
                 Group(*parts),
-                title="[accent]data diff[/accent] · [muted]read-only[/muted]",
+                title=(
+                    f"[accent]data diff[/accent] {self.glyphs.dot} "
+                    "[muted]read-only[/muted]"
+                ),
                 title_align="left",
+                box=self.glyphs.box,
                 border_style="border",
-                padding=(1, 2),
+                padding=SPACING["panel_pad"],
             )
         )
 
@@ -851,7 +1164,7 @@ class DacliUI:
         table.add_column("Action", style="step")
         for key, action in (
             ("Tab / Shift-Tab", "Open / step through slash-command completions"),
-            ("↑ / ↓", "Browse input history"),
+            (self.glyphs.arrows, "Browse input history"),
             ("Ctrl-R", "Reverse-search input history"),
             ("Ctrl-C", "Interrupt the running turn"),
             ("Enter", "Send the message"),
@@ -864,8 +1177,9 @@ class DacliUI:
                 table,
                 title="[accent]Keyboard shortcuts[/accent]",
                 title_align="left",
+                box=self.glyphs.box,
                 border_style="border",
-                padding=(1, 2),
+                padding=SPACING["panel_pad"],
             )
         )
         self.console.print()
@@ -889,12 +1203,14 @@ class DacliUI:
                 ]
                 table.add_row(
                     f"{info['icon']} {info['name']}",
-                    "[ok]● enabled[/ok]",
+                    f"[ok]{self.glyphs.enabled} enabled[/ok]",
                     str(len(ops)),
                 )
             else:
                 table.add_row(
-                    f"{info['icon']} {info['name']}", "[muted]○ disabled[/muted]", "—"
+                    f"{info['icon']} {info['name']}",
+                    f"[muted]{self.glyphs.disabled} disabled[/muted]",
+                    self.glyphs.dash,
                 )
         self.console.print(table)
         self.console.print("[muted]Use /setup to reconfigure connectors[/muted]\n")
@@ -919,7 +1235,10 @@ class DacliUI:
 
     def sessions_table(self, sessions: list[dict[str, Any]], limit: int = 10) -> None:
         if not sessions:
-            self.console.print("[muted]No sessions found.[/muted]\n")
+            self.console.print(
+                "[muted]No sessions yet — one is created the first time you "
+                "chat. `dacli chat --session <id>` resumes a saved one.[/muted]\n"
+            )
             return
         table = Table(
             title="[accent]Sessions[/accent]",
@@ -938,7 +1257,7 @@ class DacliUI:
             table.add_row(
                 str(s.get("session_id", "?")),
                 updated,
-                str(s.get("active_task") or "—"),
+                str(s.get("active_task") or self.glyphs.dash),
                 str(s.get("errors_count", 0)),
             )
         self.console.print(table)
@@ -978,9 +1297,9 @@ class DacliUI:
                 getattr(entry, "connector", "?"),
                 getattr(entry, "object_type", "?"),
                 name,
-                str(rce) if rce is not None else "—",
+                str(rce) if rce is not None else self.glyphs.dash,
                 verified.isoformat(timespec="seconds")
-                if hasattr(verified, "isoformat") else "—",
+                if hasattr(verified, "isoformat") else self.glyphs.dash,
                 "stale" if stale else "",
             )
         self.console.print(table)
@@ -1003,19 +1322,19 @@ class DacliUI:
         header.append(f"{getattr(entry, 'object_type', '?')}\n", style="info")
         rce = getattr(entry, "row_count_estimate", None)
         header.append("~Rows       ", style="muted")
-        header.append(f"{rce if rce is not None else '—'}\n", style="info")
+        header.append(f"{rce if rce is not None else self.glyphs.dash}\n", style="info")
         verified = getattr(entry, "last_verified", None)
         header.append("Verified    ", style="muted")
         header.append(
             verified.isoformat(timespec="seconds")
-            if hasattr(verified, "isoformat") else "—",
+            if hasattr(verified, "isoformat") else self.glyphs.dash,
             style="info",
         )
         if hasattr(entry, "is_stale") and entry.is_stale():
             header.append("  (stale — re-verify before relying on it)", style="warning")
         self.console.print(
-            Panel(header, title="[accent]Schema[/accent]",
-                  border_style="border", padding=(1, 2))
+            Panel(header, title="[accent]Schema[/accent]", box=self.glyphs.box,
+                  border_style="border", padding=SPACING["panel_pad"])
         )
 
         columns = getattr(entry, "columns", None) or []
@@ -1053,13 +1372,16 @@ class DacliUI:
         status_text.append("Session     ", style="muted")
         status_text.append(f"{summary['session_id']}\n", style="accent")
         status_text.append("Active task ", style="muted")
-        status_text.append(f"{summary.get('active_task') or '—'}", style="phase")
+        status_text.append(
+            f"{summary.get('active_task') or self.glyphs.dash}", style="phase"
+        )
         self.console.print(
             Panel(
                 status_text,
                 title="[accent]Status[/accent]",
+                box=self.glyphs.box,
                 border_style="border",
-                padding=(1, 2),
+                padding=SPACING["panel_pad"],
             )
         )
 
@@ -1079,10 +1401,10 @@ class DacliUI:
             for i, todo in enumerate(summary.get("todos", []), 1):
                 status = todo.get("status", "pending")
                 status_icon = {
-                    "pending": "○",
-                    "in_progress": "◐",
-                    "completed": "●",
-                }.get(status, "○")
+                    "pending": self.glyphs.pending,
+                    "in_progress": self.glyphs.running,
+                    "completed": self.glyphs.ok,
+                }.get(status, self.glyphs.pending)
                 table.add_row(str(i), f"{status_icon} {status}", todo.get("content", ""))
             self.console.print(table)
 
@@ -1100,8 +1422,9 @@ class DacliUI:
             Panel(
                 stats_table,
                 title="[accent]Statistics[/accent]",
+                box=self.glyphs.box,
                 border_style="border",
-                padding=(1, 2),
+                padding=SPACING["panel_pad"],
             )
         )
 
@@ -1113,10 +1436,14 @@ class DacliUI:
             role = getattr(msg, "role", "?")
             content = getattr(msg, "content", "")
             is_user = role == "user"
-            marker = "▌" if is_user else G_AGENT
+            marker = self.glyphs.caret if is_user else self.glyphs.agent
             marker_style = "accent" if is_user else "gutter"
             text_style = "user" if is_user else "step"
-            preview = content if len(content) <= 200 else content[:200] + "…"
+            preview = (
+                content
+                if len(content) <= 200
+                else content[:200] + self.glyphs.ellipsis
+            )
             self.console.print(
                 self._guttered(marker, marker_style, Text(preview, style=text_style))
             )
@@ -1126,7 +1453,8 @@ class DacliUI:
         self, renderable: RenderableType, title: str, style: str = "border"
     ) -> None:
         self.console.print(
-            Panel(renderable, title=title, border_style=style, padding=(1, 2))
+            Panel(renderable, title=title, box=self.glyphs.box,
+                  border_style=style, padding=SPACING["panel_pad"])
         )
 
     def rule(self, label: str = "") -> None:
@@ -1135,6 +1463,14 @@ class DacliUI:
     # ------------------------------------------------------------------
     # Persistent bottom status bar (prompt-toolkit)
     # ------------------------------------------------------------------
+    def turn_header(self, *, model: str, session: str, elapsed: str = "") -> None:
+        """A slim one-line context rule above a turn (``ui.show_header``)."""
+        bits = [model, session]
+        if elapsed:
+            bits.append(elapsed)
+        label = f"  {self.glyphs.dot}  ".join(b for b in bits if b)
+        self.console.print(Rule(f"[muted]{label}[/muted]", style="border"))
+
     def bottom_toolbar(
         self,
         *,
@@ -1145,8 +1481,15 @@ class DacliUI:
         session: str,
         test_mode: str = "",
         cost: str = "",
+        width: int | None = None,
     ):
-        """Return prompt-toolkit formatted text for the bottom bar."""
+        """Return prompt-toolkit formatted text for the bottom bar.
+
+        Responsive: under ~80 columns the bar collapses to the essentials
+        (model, context gauge, cost, test-mode); segments are dropped before
+        they could ever wrap. ``ctx_pct`` renders as a real gauge driven by
+        the assembler's budget snapshot (see ``_ctx_pct`` in cli.py).
+        """
         from prompt_toolkit.formatted_text import HTML
 
         def esc(s: str) -> str:
@@ -1157,24 +1500,57 @@ class DacliUI:
                 .replace(">", "&gt;")
             )
 
+        g = self.glyphs
+        try:
+            bar_width = int(width if width is not None else self.console.width)
+        except Exception:
+            bar_width = 100
+
         conns = ",".join(connectors) if connectors else "none"
         if len(conns) > 28:
-            conns = conns[:27] + "…"
-        test_seg = (
-            f' │  <b><style fg="ansired">{esc(test_mode)}</style></b>'
-            if test_mode
-            else ""
-        )
-        cost_seg = f" │  {esc(cost)} " if cost else ""
-        text = (
-            f" <b>{esc(provider)}</b>·{esc(model)} "
-            f" │  ⛁ {esc(conns)} "
-            f" │  ◴ ctx {ctx_pct}% "
-            f"{cost_seg}"
-            f" │  ⎇ {esc(session)} "
-            f"{test_seg}"
-            f" │  /help "
-        )
+            conns = conns[:27] + g.ellipsis
+        ctx_gauge = gauge(ctx_pct, g)
+
+        # Display-order segments as (plain, markup, drop_rank). The bar must
+        # *never* exceed the terminal width (a wrapped bottom bar is the
+        # ugliest failure a TUI can have), so segments are dropped by rank —
+        # highest first — until the plain text fits. Rank 0 never drops:
+        # model, the context gauge, and test-mode (it changes semantics).
+        segments: list[tuple[str, str, int]] = [
+            (
+                f"{provider}{g.dot}{model}",
+                f"<b>{esc(provider)}</b>{g.dot}{esc(model)}",
+                0,
+            ),
+            (f"{g.bar_conn}{conns}", f"{g.bar_conn}{esc(conns)}", 4),
+            (f"{g.bar_ctx}ctx {ctx_gauge}", f"{g.bar_ctx}ctx {esc(ctx_gauge)}", 0),
+        ]
+        if cost:
+            segments.append((cost, esc(cost), 2))
+        segments.append((f"{g.bar_session}{session}", f"{g.bar_session}{esc(session)}", 3))
+        if test_mode:
+            segments.append(
+                (test_mode, f'<b><style fg="ansired">{esc(test_mode)}</style></b>', 0)
+            )
+        segments.append(("/help", "/help", 5))
+
+        sep_plain = f" {g.bar_sep}  "
+
+        def fits(segs: list[tuple[str, str, int]]) -> bool:
+            plain = " " + sep_plain.join(p for p, _m, _r in segs) + " "
+            return len(plain) <= bar_width
+
+        for rank in (5, 4, 3, 2, 1):
+            if fits(segments):
+                break
+            segments = [s for s in segments if s[2] != rank]
+        if not fits(segments):
+            # Last resort: drop the provider prefix from the model segment.
+            plain0, _markup0, _ = segments[0]
+            short = plain0.split(g.dot, 1)[-1]
+            segments[0] = (short, f"<b>{esc(short)}</b>", 0)
+
+        text = " " + sep_plain.join(m for _p, m, _r in segments) + " "
         # prompt-toolkit parses these colors itself and raises (crashing the
         # input loop) on anything that isn't hex/ansi — so only pass colors we
         # know are valid, otherwise fall back to its default bar styling.
@@ -1209,7 +1585,65 @@ def _cell(value: Any) -> str:
     return str(value)
 
 
-def _arg_preview(args: dict[str, Any], max_len: int = 80) -> str:
+def _unified_diff_text(
+    before: str,
+    after: str,
+    *,
+    from_label: str = "before",
+    to_label: str = "after",
+) -> Text:
+    """Red/green unified diff as Rich ``Text`` (color paired with +/- glyphs)."""
+    import difflib
+
+    a = str(before or "").splitlines()
+    b = str(after or "").splitlines()
+    body = Text()
+    lines = list(
+        difflib.unified_diff(a, b, fromfile=from_label, tofile=to_label, lineterm="")
+    )
+    if not lines:
+        body.append("no differences", style="muted")
+        return body
+    for line in lines:
+        if line.startswith(("+++", "---")):
+            body.append(line + "\n", style="muted")
+        elif line.startswith("@@"):
+            body.append(line + "\n", style="accent")
+        elif line.startswith("+"):
+            body.append(line + "\n", style="success")
+        elif line.startswith("-"):
+            body.append(line + "\n", style="error")
+        else:
+            body.append(line + "\n", style="step")
+    body.rstrip()
+    return body
+
+
+def _compact_preview(value: Any, max_len: int = 80, ellipsis: str = "…") -> str:
+    """One-line preview of a value — nested containers summarize, never dump.
+
+    A nested dict shows its first few keys and the true size; a nested list
+    shows its first few items and the true length. Scalars render as-is,
+    truncated to ``max_len``.
+    """
+    if isinstance(value, dict):
+        keys = list(value)
+        head = ", ".join(str(k) for k in keys[:4])
+        more = f", {ellipsis}" if len(keys) > 4 else ""
+        noun = "key" if len(keys) == 1 else "keys"
+        return f"{{{head}{more}}}  ({len(keys)} {noun})"
+    if isinstance(value, (list, tuple)):
+        head = ", ".join(_cell(v)[:24] for v in value[:3])
+        more = f", {ellipsis}" if len(value) > 3 else ""
+        noun = "item" if len(value) == 1 else "items"
+        return f"[{head}{more}]  ({len(value)} {noun})"
+    s = _cell(value)
+    if len(s) > max_len:
+        s = s[: max_len - 1] + ellipsis
+    return s.replace("\n", " ")
+
+
+def _arg_preview(args: dict[str, Any], max_len: int = 80, ellipsis: str = "…") -> str:
     """Compact ``key=value`` preview for a tool call (SQL shown separately)."""
     parts: list[str] = []
     for key, value in (args or {}).items():
@@ -1217,11 +1651,11 @@ def _arg_preview(args: dict[str, Any], max_len: int = 80) -> str:
             continue
         s = str(value).replace("\n", " ")
         if len(s) > 50:
-            s = s[:49] + "…"
+            s = s[:49] + ellipsis
         parts.append(f"{key}={s}")
     preview = ", ".join(parts)
     if len(preview) > max_len:
-        preview = preview[: max_len - 1] + "…"
+        preview = preview[: max_len - 1] + ellipsis
     return preview
 
 
@@ -1230,7 +1664,7 @@ _GAP = object()
 
 
 def _capped_indexed(
-    items: list, cap: int, noun: str
+    items: list, cap: int, noun: str, ellipsis: str = "…"
 ) -> tuple[list[tuple[int, Any]], Text | None]:
     """1-based ``(index, item)`` pairs capped to head+tail, plus a footer.
 
@@ -1247,14 +1681,16 @@ def _capped_indexed(
     indexed.append((0, _GAP))
     indexed.extend(enumerate(items[-tail_n:], total - tail_n + 1))
     footer = Text(
-        f"… showing {head_n + tail_n:,} of {total:,} {noun}. Full result "
-        "preserved — use the result handle / /export to see all.",
+        f"{ellipsis} showing {head_n + tail_n:,} of {total:,} {noun}. Full result "
+        "preserved - use the result handle / /export to see all.",
         style="muted",
     )
     return indexed, footer
 
 
-def _rows_table(rows: list[dict[str, Any]], max_rows: int = 120) -> RenderableType:
+def _rows_table(
+    rows: list[dict[str, Any]], max_rows: int = 120, ellipsis: str = "…"
+) -> RenderableType:
     """Render row-dicts as a table — every column, head+tail rows when huge.
 
     The cap bounds only what is *printed*; ``result.data`` and the off-context
@@ -1273,10 +1709,10 @@ def _rows_table(rows: list[dict[str, Any]], max_rows: int = 120) -> RenderableTy
     for col in columns:
         table.add_column(str(col), style="info", overflow="fold")
 
-    indexed, footer = _capped_indexed(rows, max_rows, "rows")
+    indexed, footer = _capped_indexed(rows, max_rows, "rows", ellipsis=ellipsis)
     for i, row in indexed:
         if row is _GAP:
-            table.add_row("…", *["…" for _ in columns])
+            table.add_row(ellipsis, *[ellipsis for _ in columns])
             continue
         table.add_row(str(i), *[_cell(row.get(col)) for col in columns])
     return Group(table, footer) if footer else table

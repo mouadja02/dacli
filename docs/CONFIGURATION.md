@@ -182,11 +182,31 @@ orchestration:
 ### `ui` / `retry`
 
 ```yaml
-ui:    { theme: dark, syntax_highlighting: true, table_format: grid, max_width: 120, truncate_output: 5000 }
+ui:
+  theme: dark               # dark · light · ocean · mono · nord · gruvbox · contrast
+  syntax_highlighting: true
+  table_format: grid
+  max_width: 120
+  truncate_output: 5000
+  max_render_rows: 120      # head+tail cap for rendered rows (data itself is never truncated)
+  # Accessibility / capability knobs (safe defaults — full polish with zero config):
+  glyphs: auto              # auto · unicode · ascii  (auto degrades to ascii on non-UTF-8/dumb terminals)
+  reduced_motion: false     # true → no spinners/animation; static status lines
+  high_contrast: false      # true → forces the high-contrast `contrast` theme
+  no_color: false           # true → monochrome (also honors the NO_COLOR env var)
+  show_header: false        # true → a slim model · session · elapsed rule above each turn
 retry: { max_attempts: 3, initial_delay: 1.0, max_delay: 30.0, multiplier: 2.0 }
 ```
 
-Themes: `dark`, `light`, `ocean`, `mono` (switch live with `/theme <name>`).
+Themes: `dark`, `light`, `ocean`, `mono`, `nord`, `gruvbox`, and a WCAG-minded high-contrast
+`contrast` palette (switch live with `/theme <name>`). Each theme also picks a matching Pygments
+`code_theme` so SQL and fenced code blocks suit the palette.
+
+**Accessibility.** dacli is legible without color or Unicode: `NO_COLOR=1` (or `ui.no_color: true`)
+renders structured monochrome where glyphs and layout carry the meaning; `ui.glyphs: ascii` (or any
+non-UTF-8 / `TERM=dumb` terminal, detected automatically) swaps the Unicode glyph set for an ASCII
+one and degrades the banner to a plain wordmark; `ui.reduced_motion: true` removes all animation.
+Every status color is paired with a glyph, so the interface is colorblind-safe by construction.
 
 ---
 

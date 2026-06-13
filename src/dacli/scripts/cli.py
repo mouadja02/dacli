@@ -33,6 +33,7 @@ from dacli.prompts.system_prompt import (
     SYSTEM_PROMPT_FILE,
 )
 from dacli.tui import DacliUI, THEMES
+from dacli.tui.design import ASCII as ASCII_GLYPHS
 from dacli.tui.ui import TIER_STYLE
 
 # Module-level UI for the standalone (non-chat) click commands. The interactive
@@ -667,7 +668,11 @@ def _print_audit(ledger, session_id, *, full=False, limit=20, header=None, targe
     con = (target or ui).console
     decisions = ledger.decisions(session_id=session_id)
     if not decisions:
-        con.print("[dim]No governance decisions recorded yet.[/dim]")
+        con.print(
+            "[muted]No governance decisions yet — they appear after the "
+            "agent's first state-changing action (reads don't need "
+            "sign-off).[/muted]"
+        )
         return
     decisions = decisions[-limit:]
 
@@ -682,18 +687,32 @@ def _print_audit(ledger, session_id, *, full=False, limit=20, header=None, targe
     )
 
     tier_style = TIER_STYLE  # shared with the approval panel (tui.ui)
-    icons = {
-        "classification": "◆",
-        "policy": "▸",
-        "permission": "▸",
-        "rollback": "↩",
-        "shadow": "⧉",
-        "approval": "?",
-        "block": "✗",
-        "execution": "→",
-        "post_condition": "✓",
-        "memory_write": "✎",
-    }
+    if getattr((target or ui), "glyphs", None) is ASCII_GLYPHS:
+        icons = {
+            "classification": "*",
+            "policy": ">",
+            "permission": ">",
+            "rollback": "<",
+            "shadow": "#",
+            "approval": "?",
+            "block": "x",
+            "execution": "->",
+            "post_condition": "+",
+            "memory_write": "w",
+        }
+    else:
+        icons = {
+            "classification": "◆",
+            "policy": "▸",
+            "permission": "▸",
+            "rollback": "↩",
+            "shadow": "⧉",
+            "approval": "?",
+            "block": "✗",
+            "execution": "→",
+            "post_condition": "✓",
+            "memory_write": "✎",
+        }
     for dec in decisions:
         tier = dec.get("tier") or "?"
         head = Text()
@@ -1485,6 +1504,10 @@ async def _run_chat(
                 # (prompt_toolkit already leaves the typed "❯ …" line in the
                 # scrollback, so we don't re-echo it.)
                 con.print()
+                if getattr(settings.ui, "show_header", False):
+                    chat_ui.turn_header(
+                        model=settings.llm.model, session=memory.session_id
+                    )
 
                 try:
                     response = await agent.process_message(user_input)
