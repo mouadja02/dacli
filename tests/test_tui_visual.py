@@ -281,3 +281,87 @@ def test_every_theme_defines_a_code_theme():
         assert spec.code_theme
     # Light theme must not inherit a dark code palette.
     assert THEMES["light"].code_theme != THEMES["dark"].code_theme
+
+
+# ---------------------------------------------------------------------------
+# M3 — tool cards: tier-colored rail, dict key/value table, truthful counts
+# ---------------------------------------------------------------------------
+def test_dict_result_renders_as_aligned_key_values_not_json():
+    ui = _ui()
+    data = {
+        "table": "orders",
+        "rows_loaded": 1042,
+        "schema": {"id": "int", "name": "str", "ts": "timestamp", "x": 1, "y": 2},
+        "files": ["a.csv", "b.csv", "c.csv", "d.csv"],
+    }
+    ui.tool_end("load", ToolResult("load", ToolStatus.SUCCESS, data=data,
+                                   execution_time_ms=3.0))
+    out = ui.console.export_text()
+    assert "4 fields" in out
+    assert "rows_loaded" in out and "1042" in out
+    # Nested values are compact previews with truthful sizes, not JSON dumps.
+    assert "(5 keys)" in out
+    assert "(4 items)" in out
+    assert '"id": "int"' not in out
+
+
+def test_risky_result_rail_uses_tier_color():
+    console = Console(record=True, width=100, force_terminal=True)
+    settings = types.SimpleNamespace(
+        ui=types.SimpleNamespace(glyphs="unicode", max_render_rows=120)
+    )
+    ui = DacliUI(settings=settings, console=console)  # dark: warning=yellow
+    ui.tool_end("update_orders", ToolResult(
+        "update_orders", ToolStatus.SUCCESS, data=None,
+        execution_time_ms=1.0, metadata={"tier": "risky"}))
+    exported = ui.console.export_text(styles=True)
+    rail_line = next(line for line in exported.splitlines() if "⎿" in line)
+    assert "[33m" in rail_line  # yellow rail = risky tier
+
+
+def test_safe_result_rail_stays_muted():
+    console = Console(record=True, width=100, force_terminal=True)
+    settings = types.SimpleNamespace(
+        ui=types.SimpleNamespace(glyphs="unicode", max_render_rows=120)
+    )
+    ui = DacliUI(settings=settings, console=console)
+    ui.tool_end("select", ToolResult(
+        "select", ToolStatus.SUCCESS, data=None,
+        execution_time_ms=1.0, metadata={"tier": "safe"}))
+    exported = ui.console.export_text(styles=True)
+    rail_line = next(line for line in exported.splitlines() if "⎿" in line)
+    assert "[33m" not in rail_line and "[31m" not in rail_line
+
+
+def test_dispatcher_tags_tier_for_the_ui():
+    # The governance path stamps the blast-radius tier into result.metadata —
+    # presentation-only, and absent entirely when no governor is wired (the
+    # golden-transcript path).
+    import asyncio
+    import types as _t
+
+    from dacli.connectors.dispatcher import Dispatcher
+    from tests.golden_echo import EchoConnector
+
+    class _Gov:
+        async def review(self, tool_name, spec, arguments, connector):
+            tier = _t.SimpleNamespace(value="write")
+            return _t.SimpleNamespace(
+                allowed=True,
+                classification=_t.SimpleNamespace(tier=tier),
+                short_circuit=None, blocked_reason=None,
+            )
+
+        def record_outcome(self, decision, result):
+            pass
+
+    echo = EchoConnector(None)
+    registry = _t.SimpleNamespace(
+        resolve=lambda name: (echo, name),
+        get_operation_spec=lambda name: None,
+        is_builtin=lambda name: True,
+    )
+    dispatcher = Dispatcher(registry=registry, governor=_Gov())
+    result = asyncio.run(dispatcher.execute("echo_say", {"text": "x"}))
+    assert result.success
+    assert result.metadata.get("tier") == "write"

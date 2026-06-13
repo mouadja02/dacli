@@ -18,6 +18,7 @@ These silently corrupted state on any non-standard SQL. They are enumerated in
 post-conditions / catalog updates in.
 """
 
+import logging
 import time
 import traceback
 from typing import Any
@@ -33,6 +34,8 @@ from dacli.connectors.registry import ConnectorRegistry
 # catalog effects (create/invalidate) must be applied. SAFE (read-only) ops are
 # skipped — this is where 's risk metadata earns its keep.
 _MUTATING_RISKS = {Risk.WRITE, Risk.RISKY, Risk.IRREVERSIBLE}
+
+log = logging.getLogger(__name__)
 
 
 class Dispatcher:
@@ -166,6 +169,16 @@ class Dispatcher:
             # ledger so the decision is reconstructable end to end.
             if self._governor is not None and decision is not None:
                 self._governor.record_outcome(decision, result)
+                # Tag the blast-radius tier so the UI can color the tool card
+                # rail by outcome. Presentation-only; never breaks the loop.
+                try:
+                    tier = decision.classification.tier
+                    result.metadata = {
+                        **(result.metadata or {}),
+                        "tier": getattr(tier, "value", str(tier)),
+                    }
+                except Exception:
+                    log.debug("tier tag failed", exc_info=True)
 
         # Log tool execution
         if self._memory is not None:

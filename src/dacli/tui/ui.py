@@ -596,6 +596,11 @@ class DacliUI:
         body: RenderableType | None = None
         cap = self._render_cap()
         gap = self.glyphs.ellipsis
+        # Rail color = semantics: a write/risky/irreversible action keeps its
+        # blast-radius color on the result rail (tagged by the dispatcher);
+        # plain reads stay calm. Errors use the error rail above.
+        tier = (result.metadata or {}).get("tier")
+        rail = TIER_STYLE.get(tier, "muted") if tier != "safe" else "muted"
 
         if isinstance(data, list) and data and isinstance(data[0], dict):
             summary.append(
@@ -622,14 +627,15 @@ class DacliUI:
             indexed, footer = _capped_indexed(
                 list(data.items()), cap, "fields", ellipsis=gap
             )
-            kv = Text()
+            kv = Table.grid(padding=(0, 2, 0, 0))
+            kv.add_column(style="muted", no_wrap=True)
+            kv.add_column(style="step", overflow="fold")
             for _i, item in indexed:
                 if item is _GAP:
-                    kv.append(f"{gap}\n", style="muted")
+                    kv.add_row(gap, gap)
                     continue
                 k, v = item
-                kv.append(f"{k}: ", style="muted")
-                kv.append(f"{_cell(v)}\n", style="step")
+                kv.add_row(str(k), _compact_preview(v, ellipsis=gap))
             body = Group(kv, footer) if footer else kv
         elif data is None:
             summary.append("done", style="success")
@@ -642,7 +648,7 @@ class DacliUI:
         )
         self.console.print(
             Padding(
-                self._guttered(self.glyphs.result, "muted", summary),
+                self._guttered(self.glyphs.result, rail, summary),
                 (0, 0, 0, SPACING["indent"]),
             )
         )
@@ -1321,6 +1327,30 @@ def _cell(value: Any) -> str:
     if value is None:
         return ""
     return str(value)
+
+
+def _compact_preview(value: Any, max_len: int = 80, ellipsis: str = "…") -> str:
+    """One-line preview of a value — nested containers summarize, never dump.
+
+    A nested dict shows its first few keys and the true size; a nested list
+    shows its first few items and the true length. Scalars render as-is,
+    truncated to ``max_len``.
+    """
+    if isinstance(value, dict):
+        keys = list(value)
+        head = ", ".join(str(k) for k in keys[:4])
+        more = f", {ellipsis}" if len(keys) > 4 else ""
+        noun = "key" if len(keys) == 1 else "keys"
+        return f"{{{head}{more}}}  ({len(keys)} {noun})"
+    if isinstance(value, (list, tuple)):
+        head = ", ".join(_cell(v)[:24] for v in value[:3])
+        more = f", {ellipsis}" if len(value) > 3 else ""
+        noun = "item" if len(value) == 1 else "items"
+        return f"[{head}{more}]  ({len(value)} {noun})"
+    s = _cell(value)
+    if len(s) > max_len:
+        s = s[: max_len - 1] + ellipsis
+    return s.replace("\n", " ")
 
 
 def _arg_preview(args: dict[str, Any], max_len: int = 80, ellipsis: str = "…") -> str:
