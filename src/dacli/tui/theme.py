@@ -39,6 +39,10 @@ class ThemeSpec:
     toolbar_bg: str
     # Multiple palettes the UI can rotate through per session.
     banner_palettes: tuple = ()
+    # Pygments theme for code blocks/SQL — matched to the palette so light
+    # themes never render a dark code block. Unknown names fall back to
+    # Pygments' default inside Rich, so this can never raise.
+    code_theme: str = "monokai"
 
     @property
     def banner_gradients(self) -> list[str]:

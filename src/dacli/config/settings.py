@@ -560,6 +560,13 @@ class UISettings(BaseModel):
     # Cap on rows/items/fields *rendered* in the tool transcript (head + tail).
     # The underlying result data and the off-context spill are never truncated.
     max_render_rows: int = Field(default=120, ge=10)
+    # Accessibility / capability knobs (P13). Safe defaults: full polish with
+    # zero config; each knob degrades one aspect gracefully.
+    glyphs: str = Field(default="auto", pattern="^(auto|unicode|ascii)$")
+    reduced_motion: bool = False
+    high_contrast: bool = False
+    no_color: bool = False
+    show_header: bool = False
 
 
 class Settings(BaseModel):

@@ -28,7 +28,6 @@ import time
 from typing import Any
 from collections.abc import Iterable
 
-from rich import box
 from rich.console import Console, Group, RenderableType
 from rich.markdown import Markdown
 from rich.live import Live
@@ -40,13 +39,12 @@ from rich.table import Table
 from rich.text import Text
 
 from dacli.connectors.base import ToolResult
+from .design import SPACING, TIER_STYLE, Glyphs, resolve_glyphs
 from .theme import ThemeSpec, get_theme
 import contextlib
 
 __author__ = ""  # populated by caller if needed
 
-# Braille spinner frames + rotating verbs for the thinking indicator.
-_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 # The spinner glyph shimmers through this short palette for a subtle animation.
 _SHIMMER = ("accent", "tool", "info", "ok", "assistant")
 _VERBS = (
@@ -64,48 +62,23 @@ _VERBS = (
     "Distilling",
 )
 
-# Glyphs (gutter markers borrowed from the Claude Code transcript style).
-G_AGENT = "⏺"
-G_TOOL = "⏺"
-G_RESULT = "⎿"
-G_USER = "❯"
-
-# Leading icon per notice style — a small visual cue so success/warning/error
-# read at a glance without reading the text.
-_NOTICE_ICONS = {
-    "success": "✓",
-    "warning": "⚠",
-    "error": "✗",
-    "bad": "✗",
-    "info": "ℹ",
-}
-
-# Blast-radius tier → style. Shared by the audit view and the approval panel so
-# "risky" reads the same color everywhere.
-TIER_STYLE = {
-    "safe": "success",
-    "write": "info",
-    "risky": "warning",
-    "irreversible": "error",
-}
-
 # Error remediation hints: substring of the error → a one-line next step.
 # Deliberately a small lookup (the startup path attaches hints the same way for
 # failed connectors); first match wins.
 _REMEDIATION_HINTS: tuple[tuple[str, str], ...] = (
     ("not healthy", "Try /debug-connector <name> to diagnose, or /connect to reconfigure."),
     ("health check", "Try /debug-connector <name> to diagnose, or /connect to reconfigure."),
-    ("decrypt", "Stored secrets could not be read — re-enter them via /connect."),
+    ("decrypt", "Stored secrets could not be read - re-enter them via /connect."),
     ("unknown tool", "See /tools for what's enabled; /setup to enable more."),
     ("blocked by governance", "See /audit for the decision; adjust config/policy.yaml if intended."),
-    ("permission denied", "Scope too narrow — see /audit; widen it in config/policy.yaml if intended."),
-    ("unauthorized", "Credentials look invalid — update them via /connect."),
-    ("forbidden", "Credentials look invalid — update them via /connect."),
-    ("401", "Credentials look invalid — update them via /connect."),
-    ("403", "Credentials look invalid — update them via /connect."),
-    ("rate limit", "Provider rate limit — wait a moment and retry."),
-    ("429", "Provider rate limit — wait a moment and retry."),
-    ("timed out", "The platform didn't answer in time — check connectivity, then retry."),
+    ("permission denied", "Scope too narrow - see /audit; widen it in config/policy.yaml if intended."),
+    ("unauthorized", "Credentials look invalid - update them via /connect."),
+    ("forbidden", "Credentials look invalid - update them via /connect."),
+    ("401", "Credentials look invalid - update them via /connect."),
+    ("403", "Credentials look invalid - update them via /connect."),
+    ("rate limit", "Provider rate limit - wait a moment and retry."),
+    ("429", "Provider rate limit - wait a moment and retry."),
+    ("timed out", "The platform didn't answer in time - check connectivity, then retry."),
 )
 
 
@@ -176,23 +149,28 @@ class StreamView:
 
     def __rich__(self) -> RenderableType:
         elapsed = time.monotonic() - self._start
+        glyphs = self._ui.glyphs
         if not self._buffer:
-            frame = _FRAMES[int(elapsed * 10) % len(_FRAMES)]
-            verb = _VERBS[int(elapsed / 3) % len(_VERBS)]
-            shimmer = _SHIMMER[int(elapsed * 3) % len(_SHIMMER)]
+            reduced = self._ui.reduced_motion
+            frames = glyphs.spinner_frames
+            frame = frames[0] if reduced else frames[int(elapsed * 10) % len(frames)]
+            verb = _VERBS[0] if reduced else _VERBS[int(elapsed / 3) % len(_VERBS)]
+            shimmer = "accent" if reduced else _SHIMMER[int(elapsed * 3) % len(_SHIMMER)]
             line = Text()
             line.append(f"{frame} ", style=f"bold {shimmer}")
             line.append(f"{verb}", style="assistant")
             # Animated trailing dots so the line breathes even mid-token-wait.
-            dots = "." * (1 + int(elapsed * 2) % 3)
+            dots = "." if reduced else "." * (1 + int(elapsed * 2) % 3)
             line.append(f"{dots} ", style="muted")
             if self._ui.activity:
                 line.append(f"{self._ui.activity} ", style="muted")
-            line.append(f"({elapsed:.0f}s · ctrl-c to interrupt)", style="muted")
+            line.append(
+                f"({elapsed:.0f}s {glyphs.dot} ctrl-c to interrupt)", style="muted"
+            )
             return line
-        body = Text(f"{G_AGENT} ", style="gutter")
+        body = Text(f"{glyphs.agent} ", style="gutter")
         body.append(self._buffer, style="assistant")
-        body.append("▌", style="accent")
+        body.append(glyphs.caret, style="accent")
         return body
 
 
@@ -210,16 +188,25 @@ class DacliUI:
         self.settings = settings
         self.version = version
         self.author = author
-        self.theme: ThemeSpec = get_theme(
-            theme_name or getattr(getattr(settings, "ui", None), "theme", None)
-        )
+        ui_settings = getattr(settings, "ui", None)
+        if getattr(ui_settings, "high_contrast", False):
+            # Accessibility override: force the high-contrast palette.
+            self.theme: ThemeSpec = get_theme("contrast")
+        else:
+            self.theme = get_theme(
+                theme_name or getattr(ui_settings, "theme", None)
+            )
         if console is None:
-            self.console = Console(theme=self.theme.rich_theme())
+            # Rich honors the NO_COLOR env var natively; ui.no_color forces it.
+            no_color = True if getattr(ui_settings, "no_color", False) else None
+            self.console = Console(theme=self.theme.rich_theme(), no_color=no_color)
         else:
             # A caller-provided console may not know our semantic styles — push
             # the theme so 'border', 'accent', … resolve everywhere.
             self.console = console
             self.console.push_theme(self.theme.rich_theme())
+        self.glyphs: Glyphs = resolve_glyphs(self.console, settings)
+        self.reduced_motion: bool = bool(getattr(ui_settings, "reduced_motion", False))
         self.stream = StreamView(self)
         self.activity = ""  # current background activity, shown in the spinner
         # Transient liveness line for a long-running tool (see tool_progress).
@@ -257,7 +244,7 @@ class DacliUI:
         if self.version:
             meta.append(f"v{self.version}", style="accent")
         if self.author:
-            meta.append(f"  ·  {self.author}", style="muted")
+            meta.append(f"  {self.glyphs.dot}  {self.author}", style="muted")
         body = (
             Group(lines, tagline, meta)
             if (self.version or self.author)
@@ -271,7 +258,7 @@ class DacliUI:
         """A compact 'session ready' card with the essentials + quick tips."""
         info = Text()
         info.append("model      ", style="muted")
-        info.append(f"{provider}·{model}\n", style="accent")
+        info.append(f"{provider}{self.glyphs.dot}{model}\n", style="accent")
         info.append("connectors ", style="muted")
         info.append(
             (", ".join(connectors) if connectors else "none") + "\n", style="info"
@@ -283,7 +270,7 @@ class DacliUI:
         tips.append("\n")
         tips.append("/", style="accent")
         tips.append(" for commands   ", style="muted")
-        tips.append("↑↓", style="accent")
+        tips.append(self.glyphs.arrows, style="accent")
         tips.append(" history   ", style="muted")
         tips.append("Tab", style="accent")
         tips.append(" complete   ", style="muted")
@@ -293,11 +280,11 @@ class DacliUI:
         self.console.print(
             Panel(
                 Group(info, tips),
-                title="[success]✓ session ready[/success]",
+                title=f"[success]{self.glyphs.ok} session ready[/success]",
                 title_align="left",
-                box=box.ROUNDED,
+                box=self.glyphs.box,
                 border_style="accent",
-                padding=(1, 2),
+                padding=SPACING["panel_pad"],
             )
         )
 
@@ -316,8 +303,8 @@ class DacliUI:
 
         c = self.theme.toolbar_fg if _valid_pt_color(self.theme.toolbar_fg) else "ansicyan"
         return HTML(
-            f'<style fg="{c}"><b>▌</b></style> <b>you</b> '
-            f'<style fg="{c}">❯</style> '
+            f'<style fg="{c}"><b>{self.glyphs.caret}</b></style> <b>you</b> '
+            f'<style fg="{c}">{self.glyphs.user_caret}</style> '
         )
 
     def user_message(self, text: str) -> None:
@@ -331,9 +318,9 @@ class DacliUI:
         self.console.print(
             Panel(
                 body,
-                title="[accent]▌ you[/accent]",
+                title=f"[accent]{self.glyphs.caret} you[/accent]",
                 title_align="left",
-                box=box.ROUNDED,
+                box=self.glyphs.box,
                 border_style="border",
                 padding=(0, 1),
             )
@@ -367,21 +354,43 @@ class DacliUI:
 
     def agent_message(self, content: str) -> None:
         """Print a finished agent turn as guttered markdown."""
-        self.console.print(self._guttered(G_AGENT, "gutter", Markdown(content)))
+        self.console.print(
+            self._guttered(
+                self.glyphs.agent,
+                "gutter",
+                Markdown(content, code_theme=self.theme.code_theme),
+            )
+        )
         self.console.print()
 
+    def _notice_icon(self, style: str) -> str:
+        # Leading icon per notice style — success/warning/error read at a
+        # glance without reading the text (and without relying on color).
+        return {
+            "success": self.glyphs.ok,
+            "warning": self.glyphs.warn,
+            "error": self.glyphs.err,
+            "bad": self.glyphs.err,
+            "info": self.glyphs.info,
+        }.get(style, "")
+
     def notice(self, message: str, style: str = "info") -> None:
-        icon = _NOTICE_ICONS.get(style, "")
+        icon = self._notice_icon(style)
         prefix = f"{icon} " if icon else ""
         self.console.print(f"[{style}]{prefix}{message}[/{style}]")
 
     def error(self, message: str) -> None:
         self._clear_progress()
-        self.console.print(self._guttered("✗", "bad", Text(message, style="error")))
+        self.console.print(
+            self._guttered(self.glyphs.err, "bad", Text(message, style="error"))
+        )
         hint = _remediation_hint(message)
         if hint:
             self.console.print(
-                Padding(Text(f"↳ {hint}", style="muted"), (0, 0, 0, 2))
+                Padding(
+                    Text(f"{self.glyphs.hint} {hint}", style="muted"),
+                    (0, 0, 0, SPACING["indent"]),
+                )
             )
 
     def status(self, message: str) -> None:
@@ -429,7 +438,12 @@ class DacliUI:
             if self.stream.active:
                 self.activity = f"{tool_name}: {message}"
                 return
-            frame = _FRAMES[int(time.monotonic() * 10) % len(_FRAMES)]
+            frames = self.glyphs.spinner_frames
+            frame = (
+                frames[0]
+                if self.reduced_motion
+                else frames[int(time.monotonic() * 10) % len(frames)]
+            )
             line = Text()
             line.append(f"  {frame} ", style="tool")
             line.append(f"{tool_name} ", style="muted")
@@ -459,21 +473,21 @@ class DacliUI:
     def tool_start(self, tool_name: str, args: dict[str, Any]) -> None:
         self._clear_progress()
         header = Text(tool_name, style="tool")
-        preview = _arg_preview(args)
+        preview = _arg_preview(args, ellipsis=self.glyphs.ellipsis)
         if preview:
             header.append(f"  {preview}", style="muted")
-        self.console.print(self._guttered(G_TOOL, "tool", header))
+        self.console.print(self._guttered(self.glyphs.tool, "tool", header))
 
         sql = args.get("query") or args.get("sql")
         if isinstance(sql, str) and sql.strip():
             syntax = Syntax(
                 sql.strip(),
                 "sql",
-                theme="monokai",
+                theme=self.theme.code_theme,
                 word_wrap=True,
                 background_color="default",
             )
-            self.console.print(Padding(syntax, (0, 0, 0, 4)))
+            self.console.print(Padding(syntax, (0, 0, 0, 2 * SPACING["indent"])))
 
     def _render_cap(self) -> int:
         # How many rows/items/fields the transcript renders before head+tail
@@ -486,47 +500,56 @@ class DacliUI:
         if not isinstance(result, ToolResult):
             self.console.print(
                 Padding(
-                    self._guttered(G_RESULT, "muted", Text(str(result), style="step")),
-                    (0, 0, 0, 2),
+                    self._guttered(
+                        self.glyphs.result, "muted", Text(str(result), style="step")
+                    ),
+                    (0, 0, 0, SPACING["indent"]),
                 )
             )
             return
 
         if not result.success:
             summary = Text()
-            summary.append("✗ ", style="bad")
+            summary.append(f"{self.glyphs.err} ", style="bad")
             summary.append(str(result.error or "failed"), style="error")
             self.console.print(
-                Padding(self._guttered(G_RESULT, "bad", summary), (0, 0, 0, 2))
+                Padding(
+                    self._guttered(self.glyphs.result, "bad", summary),
+                    (0, 0, 0, SPACING["indent"]),
+                )
             )
             hint = _remediation_hint(result.error)
             if hint:
                 self.console.print(
-                    Padding(Text(f"↳ {hint}", style="muted"), (0, 0, 0, 4))
+                    Padding(
+                        Text(f"{self.glyphs.hint} {hint}", style="muted"),
+                        (0, 0, 0, 2 * SPACING["indent"]),
+                    )
                 )
             self.console.print()
             return
 
         summary = Text()
-        summary.append("✓ ", style="ok")
+        summary.append(f"{self.glyphs.ok} ", style="ok")
         data = result.data
         body: RenderableType | None = None
         cap = self._render_cap()
+        gap = self.glyphs.ellipsis
 
         if isinstance(data, list) and data and isinstance(data[0], dict):
             summary.append(
                 f"{len(data)} row{'s' if len(data) != 1 else ''}", style="success"
             )
-            body = _rows_table(data, max_rows=cap)
+            body = _rows_table(data, max_rows=cap, ellipsis=gap)
         elif isinstance(data, list):
             summary.append(
                 f"{len(data)} item{'s' if len(data) != 1 else ''}", style="success"
             )
             if data:
-                indexed, footer = _capped_indexed(data, cap, "items")
+                indexed, footer = _capped_indexed(data, cap, "items", ellipsis=gap)
                 listing = Text(
                     "\n".join(
-                        "…" if v is _GAP else f"{i}. {_cell(v)}" for i, v in indexed
+                        gap if v is _GAP else f"{i}. {_cell(v)}" for i, v in indexed
                     ),
                     style="step",
                 )
@@ -535,11 +558,13 @@ class DacliUI:
             summary.append(
                 f"{len(data)} field{'s' if len(data) != 1 else ''}", style="success"
             )
-            indexed, footer = _capped_indexed(list(data.items()), cap, "fields")
+            indexed, footer = _capped_indexed(
+                list(data.items()), cap, "fields", ellipsis=gap
+            )
             kv = Text()
             for _i, item in indexed:
                 if item is _GAP:
-                    kv.append("…\n", style="muted")
+                    kv.append(f"{gap}\n", style="muted")
                     continue
                 k, v = item
                 kv.append(f"{k}: ", style="muted")
@@ -551,12 +576,17 @@ class DacliUI:
             summary.append("done", style="success")
             body = Text(_cell(data), style="step")
 
-        summary.append(f"  ·  {result.execution_time_ms:.0f}ms", style="muted")
+        summary.append(
+            f"  {self.glyphs.dot}  {result.execution_time_ms:.0f}ms", style="muted"
+        )
         self.console.print(
-            Padding(self._guttered(G_RESULT, "muted", summary), (0, 0, 0, 2))
+            Padding(
+                self._guttered(self.glyphs.result, "muted", summary),
+                (0, 0, 0, SPACING["indent"]),
+            )
         )
         if body is not None:
-            self.console.print(Padding(body, (0, 0, 0, 4)))
+            self.console.print(Padding(body, (0, 0, 0, 2 * SPACING["indent"])))
         self.console.print()
 
     # ------------------------------------------------------------------
@@ -585,12 +615,13 @@ class DacliUI:
             Panel(
                 body,
                 title=(
-                    f"[{border}]approval needed[/{border}] · "
+                    f"[{border}]approval needed[/{border}] {self.glyphs.dot} "
                     f"[{tier_style}]{tier}[/{tier_style}]"
                 ),
                 title_align="left",
+                box=self.glyphs.box,
                 border_style=border,
-                padding=(1, 2),
+                padding=SPACING["panel_pad"],
             )
         )
 
@@ -650,7 +681,7 @@ class DacliUI:
                 Syntax(
                     str(preview).strip(),
                     "sql",
-                    theme="monokai",
+                    theme=self.theme.code_theme,
                     word_wrap=True,
                     background_color="default",
                 )
@@ -755,10 +786,14 @@ class DacliUI:
         self.console.print(
             Panel(
                 Group(Text(preview.goal, style="accent"), Text(), table, Text(), summary),
-                title="[accent]plan preview[/accent] · [muted]dry — no execution[/muted]",
+                title=(
+                    f"[accent]plan preview[/accent] {self.glyphs.dot} "
+                    "[muted]dry run, no execution[/muted]"
+                ),
                 title_align="left",
+                box=self.glyphs.box,
                 border_style="border",
-                padding=(1, 2),
+                padding=SPACING["panel_pad"],
             )
         )
 
@@ -818,10 +853,14 @@ class DacliUI:
         self.console.print(
             Panel(
                 Group(*parts),
-                title="[accent]data diff[/accent] · [muted]read-only[/muted]",
+                title=(
+                    f"[accent]data diff[/accent] {self.glyphs.dot} "
+                    "[muted]read-only[/muted]"
+                ),
                 title_align="left",
+                box=self.glyphs.box,
                 border_style="border",
-                padding=(1, 2),
+                padding=SPACING["panel_pad"],
             )
         )
 
@@ -851,7 +890,7 @@ class DacliUI:
         table.add_column("Action", style="step")
         for key, action in (
             ("Tab / Shift-Tab", "Open / step through slash-command completions"),
-            ("↑ / ↓", "Browse input history"),
+            (self.glyphs.arrows, "Browse input history"),
             ("Ctrl-R", "Reverse-search input history"),
             ("Ctrl-C", "Interrupt the running turn"),
             ("Enter", "Send the message"),
@@ -864,8 +903,9 @@ class DacliUI:
                 table,
                 title="[accent]Keyboard shortcuts[/accent]",
                 title_align="left",
+                box=self.glyphs.box,
                 border_style="border",
-                padding=(1, 2),
+                padding=SPACING["panel_pad"],
             )
         )
         self.console.print()
@@ -889,12 +929,14 @@ class DacliUI:
                 ]
                 table.add_row(
                     f"{info['icon']} {info['name']}",
-                    "[ok]● enabled[/ok]",
+                    f"[ok]{self.glyphs.enabled} enabled[/ok]",
                     str(len(ops)),
                 )
             else:
                 table.add_row(
-                    f"{info['icon']} {info['name']}", "[muted]○ disabled[/muted]", "—"
+                    f"{info['icon']} {info['name']}",
+                    f"[muted]{self.glyphs.disabled} disabled[/muted]",
+                    self.glyphs.dash,
                 )
         self.console.print(table)
         self.console.print("[muted]Use /setup to reconfigure connectors[/muted]\n")
@@ -938,7 +980,7 @@ class DacliUI:
             table.add_row(
                 str(s.get("session_id", "?")),
                 updated,
-                str(s.get("active_task") or "—"),
+                str(s.get("active_task") or self.glyphs.dash),
                 str(s.get("errors_count", 0)),
             )
         self.console.print(table)
@@ -978,9 +1020,9 @@ class DacliUI:
                 getattr(entry, "connector", "?"),
                 getattr(entry, "object_type", "?"),
                 name,
-                str(rce) if rce is not None else "—",
+                str(rce) if rce is not None else self.glyphs.dash,
                 verified.isoformat(timespec="seconds")
-                if hasattr(verified, "isoformat") else "—",
+                if hasattr(verified, "isoformat") else self.glyphs.dash,
                 "stale" if stale else "",
             )
         self.console.print(table)
@@ -1003,19 +1045,19 @@ class DacliUI:
         header.append(f"{getattr(entry, 'object_type', '?')}\n", style="info")
         rce = getattr(entry, "row_count_estimate", None)
         header.append("~Rows       ", style="muted")
-        header.append(f"{rce if rce is not None else '—'}\n", style="info")
+        header.append(f"{rce if rce is not None else self.glyphs.dash}\n", style="info")
         verified = getattr(entry, "last_verified", None)
         header.append("Verified    ", style="muted")
         header.append(
             verified.isoformat(timespec="seconds")
-            if hasattr(verified, "isoformat") else "—",
+            if hasattr(verified, "isoformat") else self.glyphs.dash,
             style="info",
         )
         if hasattr(entry, "is_stale") and entry.is_stale():
             header.append("  (stale — re-verify before relying on it)", style="warning")
         self.console.print(
-            Panel(header, title="[accent]Schema[/accent]",
-                  border_style="border", padding=(1, 2))
+            Panel(header, title="[accent]Schema[/accent]", box=self.glyphs.box,
+                  border_style="border", padding=SPACING["panel_pad"])
         )
 
         columns = getattr(entry, "columns", None) or []
@@ -1053,13 +1095,16 @@ class DacliUI:
         status_text.append("Session     ", style="muted")
         status_text.append(f"{summary['session_id']}\n", style="accent")
         status_text.append("Active task ", style="muted")
-        status_text.append(f"{summary.get('active_task') or '—'}", style="phase")
+        status_text.append(
+            f"{summary.get('active_task') or self.glyphs.dash}", style="phase"
+        )
         self.console.print(
             Panel(
                 status_text,
                 title="[accent]Status[/accent]",
+                box=self.glyphs.box,
                 border_style="border",
-                padding=(1, 2),
+                padding=SPACING["panel_pad"],
             )
         )
 
@@ -1079,10 +1124,10 @@ class DacliUI:
             for i, todo in enumerate(summary.get("todos", []), 1):
                 status = todo.get("status", "pending")
                 status_icon = {
-                    "pending": "○",
-                    "in_progress": "◐",
-                    "completed": "●",
-                }.get(status, "○")
+                    "pending": self.glyphs.pending,
+                    "in_progress": self.glyphs.running,
+                    "completed": self.glyphs.ok,
+                }.get(status, self.glyphs.pending)
                 table.add_row(str(i), f"{status_icon} {status}", todo.get("content", ""))
             self.console.print(table)
 
@@ -1100,8 +1145,9 @@ class DacliUI:
             Panel(
                 stats_table,
                 title="[accent]Statistics[/accent]",
+                box=self.glyphs.box,
                 border_style="border",
-                padding=(1, 2),
+                padding=SPACING["panel_pad"],
             )
         )
 
@@ -1113,10 +1159,14 @@ class DacliUI:
             role = getattr(msg, "role", "?")
             content = getattr(msg, "content", "")
             is_user = role == "user"
-            marker = "▌" if is_user else G_AGENT
+            marker = self.glyphs.caret if is_user else self.glyphs.agent
             marker_style = "accent" if is_user else "gutter"
             text_style = "user" if is_user else "step"
-            preview = content if len(content) <= 200 else content[:200] + "…"
+            preview = (
+                content
+                if len(content) <= 200
+                else content[:200] + self.glyphs.ellipsis
+            )
             self.console.print(
                 self._guttered(marker, marker_style, Text(preview, style=text_style))
             )
@@ -1126,7 +1176,8 @@ class DacliUI:
         self, renderable: RenderableType, title: str, style: str = "border"
     ) -> None:
         self.console.print(
-            Panel(renderable, title=title, border_style=style, padding=(1, 2))
+            Panel(renderable, title=title, box=self.glyphs.box,
+                  border_style=style, padding=SPACING["panel_pad"])
         )
 
     def rule(self, label: str = "") -> None:
@@ -1157,23 +1208,25 @@ class DacliUI:
                 .replace(">", "&gt;")
             )
 
+        g = self.glyphs
         conns = ",".join(connectors) if connectors else "none"
         if len(conns) > 28:
-            conns = conns[:27] + "…"
+            conns = conns[:27] + g.ellipsis
+        sep = g.bar_sep
         test_seg = (
-            f' │  <b><style fg="ansired">{esc(test_mode)}</style></b>'
+            f' {sep}  <b><style fg="ansired">{esc(test_mode)}</style></b>'
             if test_mode
             else ""
         )
-        cost_seg = f" │  {esc(cost)} " if cost else ""
+        cost_seg = f" {sep}  {esc(cost)} " if cost else ""
         text = (
-            f" <b>{esc(provider)}</b>·{esc(model)} "
-            f" │  ⛁ {esc(conns)} "
-            f" │  ◴ ctx {ctx_pct}% "
+            f" <b>{esc(provider)}</b>{g.dot}{esc(model)} "
+            f" {sep}  {g.bar_conn}{esc(conns)} "
+            f" {sep}  {g.bar_ctx}ctx {ctx_pct}% "
             f"{cost_seg}"
-            f" │  ⎇ {esc(session)} "
+            f" {sep}  {g.bar_session}{esc(session)} "
             f"{test_seg}"
-            f" │  /help "
+            f" {sep}  /help "
         )
         # prompt-toolkit parses these colors itself and raises (crashing the
         # input loop) on anything that isn't hex/ansi — so only pass colors we
@@ -1209,7 +1262,7 @@ def _cell(value: Any) -> str:
     return str(value)
 
 
-def _arg_preview(args: dict[str, Any], max_len: int = 80) -> str:
+def _arg_preview(args: dict[str, Any], max_len: int = 80, ellipsis: str = "…") -> str:
     """Compact ``key=value`` preview for a tool call (SQL shown separately)."""
     parts: list[str] = []
     for key, value in (args or {}).items():
@@ -1217,11 +1270,11 @@ def _arg_preview(args: dict[str, Any], max_len: int = 80) -> str:
             continue
         s = str(value).replace("\n", " ")
         if len(s) > 50:
-            s = s[:49] + "…"
+            s = s[:49] + ellipsis
         parts.append(f"{key}={s}")
     preview = ", ".join(parts)
     if len(preview) > max_len:
-        preview = preview[: max_len - 1] + "…"
+        preview = preview[: max_len - 1] + ellipsis
     return preview
 
 
@@ -1230,7 +1283,7 @@ _GAP = object()
 
 
 def _capped_indexed(
-    items: list, cap: int, noun: str
+    items: list, cap: int, noun: str, ellipsis: str = "…"
 ) -> tuple[list[tuple[int, Any]], Text | None]:
     """1-based ``(index, item)`` pairs capped to head+tail, plus a footer.
 
@@ -1247,14 +1300,16 @@ def _capped_indexed(
     indexed.append((0, _GAP))
     indexed.extend(enumerate(items[-tail_n:], total - tail_n + 1))
     footer = Text(
-        f"… showing {head_n + tail_n:,} of {total:,} {noun}. Full result "
-        "preserved — use the result handle / /export to see all.",
+        f"{ellipsis} showing {head_n + tail_n:,} of {total:,} {noun}. Full result "
+        "preserved - use the result handle / /export to see all.",
         style="muted",
     )
     return indexed, footer
 
 
-def _rows_table(rows: list[dict[str, Any]], max_rows: int = 120) -> RenderableType:
+def _rows_table(
+    rows: list[dict[str, Any]], max_rows: int = 120, ellipsis: str = "…"
+) -> RenderableType:
     """Render row-dicts as a table — every column, head+tail rows when huge.
 
     The cap bounds only what is *printed*; ``result.data`` and the off-context
@@ -1273,10 +1328,10 @@ def _rows_table(rows: list[dict[str, Any]], max_rows: int = 120) -> RenderableTy
     for col in columns:
         table.add_column(str(col), style="info", overflow="fold")
 
-    indexed, footer = _capped_indexed(rows, max_rows, "rows")
+    indexed, footer = _capped_indexed(rows, max_rows, "rows", ellipsis=ellipsis)
     for i, row in indexed:
         if row is _GAP:
-            table.add_row("…", *["…" for _ in columns])
+            table.add_row(ellipsis, *[ellipsis for _ in columns])
             continue
         table.add_row(str(i), *[_cell(row.get(col)) for col in columns])
     return Group(table, footer) if footer else table
