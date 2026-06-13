@@ -97,16 +97,31 @@ class StreamView:
     """A transient Rich ``Live`` region for one LLM ``generate`` call.
 
     While the model is producing tokens this shows a thinking spinner (with
-    elapsed time + current activity) and then the streaming text. On
-    :meth:`end` it tears the live region down and re-prints the completed text
-    as polished markdown so it stays in the scrollback.
+    elapsed time + current activity) and then the streaming text — rendered as
+    *live Markdown* so headings, lists and code blocks appear formatted while
+    the model types. On :meth:`end` it tears the live region down and
+    re-prints the completed text as polished markdown so it stays in the
+    scrollback.
+
+    Reliability: the markdown pass is throttled (re-parsed only on a newline
+    or every ``_MD_REPARSE_CHARS`` chars), trial-rendered off-screen, and on
+    any failure the view falls back to the plain-text stream for the rest of
+    the turn. Reduced motion always streams plain text.
     """
+
+    # Re-parse markdown when this many chars arrived since the last parse
+    # (a newline always triggers a re-parse). Parsing per token is too costly.
+    _MD_REPARSE_CHARS = 40
 
     def __init__(self, ui: DacliUI):
         self._ui = ui
         self._live: Live | None = None
         self._buffer = ""
         self._start = 0.0
+        # Incremental-markdown state (reset per turn).
+        self._md_cache: RenderableType | None = None
+        self._md_seen = 0
+        self._md_failed = False
 
     @property
     def active(self) -> bool:
@@ -115,6 +130,9 @@ class StreamView:
     def begin(self) -> None:
         self._buffer = ""
         self._start = time.monotonic()
+        self._md_cache = None
+        self._md_seen = 0
+        self._md_failed = False
         self._live = Live(
             self,
             console=self._ui.console,
@@ -168,10 +186,53 @@ class StreamView:
                 f"({elapsed:.0f}s {glyphs.dot} ctrl-c to interrupt)", style="muted"
             )
             return line
+        markdown = self._streaming_markdown()
+        if markdown is not None:
+            return markdown
         body = Text(f"{glyphs.agent} ", style="gutter")
         body.append(self._buffer, style="assistant")
         body.append(glyphs.caret, style="accent")
         return body
+
+    def _streaming_markdown(self) -> RenderableType | None:
+        """Formatted view of the partial buffer, or None to stream plain text.
+
+        Throttled: the buffer is re-parsed only when a newline arrived or it
+        grew by ``_MD_REPARSE_CHARS`` since the last parse; otherwise the
+        cached renderable is reused. A half-open code fence gets a synthetic
+        closing fence *for the render pass only* so it never swallows the
+        rest of the answer. Any parse/render failure permanently falls back
+        to plain text for this turn — never raises into the live region.
+        """
+        if self._md_failed or self._ui.reduced_motion:
+            return None
+        grown = len(self._buffer) - self._md_seen
+        fresh = self._buffer[self._md_seen:]
+        if (
+            self._md_cache is not None
+            and grown < self._MD_REPARSE_CHARS
+            and "\n" not in fresh
+        ):
+            return self._md_cache
+        try:
+            text = self._buffer + self._ui.glyphs.caret
+            if self._buffer.count("```") % 2 == 1:
+                # Balance the open fence for this render pass only — the real
+                # buffer is never mutated.
+                text += "\n```"
+            markdown = Markdown(text, code_theme=self._ui.theme.code_theme)
+            view = self._ui._guttered(self._ui.glyphs.agent, "gutter", markdown)
+            # Trial-render off-screen so a pathological buffer can never raise
+            # inside the Live refresh thread.
+            self._ui.console.render_lines(
+                view, self._ui.console.options, pad=False
+            )
+        except Exception:
+            self._md_failed = True
+            return None
+        self._md_cache = view
+        self._md_seen = len(self._buffer)
+        return view
 
 
 class DacliUI:

@@ -99,6 +99,7 @@ _DARK = ThemeSpec(
     ),
     toolbar_fg="#bd93f9",
     toolbar_bg="#1e1f29",
+    code_theme="dracula",
 )
 
 _LIGHT = ThemeSpec(
@@ -144,6 +145,7 @@ _LIGHT = ThemeSpec(
     ),
     toolbar_fg="#6f42c1",
     toolbar_bg="#eceff4",
+    code_theme="default",
 )
 
 _OCEAN = ThemeSpec(
@@ -187,6 +189,7 @@ _OCEAN = ThemeSpec(
     ),
     toolbar_fg="#61afef",
     toolbar_bg="#21252b",
+    code_theme="one-dark",
 )
 
 _MONO = ThemeSpec(
@@ -216,6 +219,7 @@ _MONO = ThemeSpec(
     # like "grey15" — so the toolbar colors are always hex.
     toolbar_fg="#e4e4e4",
     toolbar_bg="#303030",
+    code_theme="bw",
 )
 
 THEMES: dict[str, ThemeSpec] = {t.name: t for t in (_DARK, _LIGHT, _OCEAN, _MONO)}

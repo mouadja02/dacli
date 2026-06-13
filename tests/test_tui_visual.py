@@ -184,3 +184,100 @@ def test_reduced_motion_spinner_is_static():
     # Static spinner: same frame glyph and verb regardless of elapsed time.
     assert frame_a.plain.split()[0] == frame_b.plain.split()[0]
     ui.on_stream_end("done")
+
+
+# ---------------------------------------------------------------------------
+# M2 — live formatted markdown streaming
+# ---------------------------------------------------------------------------
+def _render_stream_frame(ui: DacliUI) -> str:
+    frame = ui.stream.__rich__()
+    scratch = Console(record=True, width=100, force_terminal=False)
+    scratch.push_theme(ui.theme.rich_theme())
+    scratch.print(frame)
+    return scratch.export_text()
+
+
+def test_streaming_renders_markdown_constructs_live():
+    ui = _ui()
+    ui.on_stream_start()
+    for delta in ["# Head", "ing\n", "- bullet one\n- bullet ", "two\n", "**bold**\n"]:
+        ui.on_text(delta)
+    out = _render_stream_frame(ui)
+    ui.on_stream_end("done")
+    # Markdown formatting applied mid-stream: heading text present, the
+    # literal markers consumed by the renderer.
+    assert "Heading" in out
+    assert "# Head" not in out
+    assert "**bold**" not in out and "bold" in out
+
+
+def test_streaming_open_code_fence_does_not_swallow_text():
+    ui = _ui()
+    ui.on_stream_start()
+    ui.on_text("intro\n\n```sql\nSELECT 1\n")  # fence still open mid-stream
+    mid = _render_stream_frame(ui)
+    assert "SELECT 1" in mid
+    ui.on_text("```\n\nafter the block\n")
+    late = _render_stream_frame(ui)
+    ui.on_stream_end("done")
+    assert "after the block" in late
+    # The synthetic closing fence never leaks into the real buffer.
+    assert ui.stream._buffer == ""  # cleared by end()
+
+
+def test_streaming_reparse_is_throttled():
+    ui = _ui()
+    ui.on_stream_start()
+    ui.on_text("hello world\n")
+    first = ui.stream.__rich__()
+    ui.on_text("x")  # < threshold, no newline → cached renderable reused
+    second = ui.stream.__rich__()
+    assert second is first
+    ui.on_text("y" * 60)  # over the threshold → re-parse
+    third = ui.stream.__rich__()
+    assert third is not first
+    ui.on_stream_end("done")
+
+
+def test_streaming_reduced_motion_falls_back_to_plain_text():
+    ui = _ui(reduced_motion=True)
+    ui.on_stream_start()
+    ui.on_text("# Heading\n")
+    frame = ui.stream.__rich__()
+    ui.on_stream_end("done")
+    # Plain Text fallback keeps the raw markdown untouched.
+    assert "# Heading" in frame.plain
+
+
+def test_streaming_markdown_failure_falls_back_cleanly(monkeypatch):
+    ui = _ui()
+    ui.on_stream_start()
+    with monkeypatch.context() as m:
+        m.setattr(
+            "dacli.tui.ui.Markdown",
+            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+        ui.on_text("# Heading\n")
+        frame = ui.stream.__rich__()  # must not raise
+    assert "# Heading" in frame.plain  # plain-text fallback
+    assert ui.stream._md_failed is True
+    ui.on_stream_end("done")
+
+
+def test_final_scrollback_output_unchanged():
+    ui = _ui()
+    ui.on_stream_start()
+    ui.on_text("Hello **world**\n")
+    ui.on_stream_end("Hello **world**")
+    out = ui.console.export_text()
+    assert "world" in out
+    assert "**world**" not in out  # final pass is polished markdown
+
+
+def test_every_theme_defines_a_code_theme():
+    from dacli.tui import THEMES
+
+    for spec in THEMES.values():
+        assert spec.code_theme
+    # Light theme must not inherit a dark code palette.
+    assert THEMES["light"].code_theme != THEMES["dark"].code_theme
