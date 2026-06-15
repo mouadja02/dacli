@@ -282,16 +282,28 @@ You can always re-run this wizard later by using: `dacli --setup`
         """Validate a connector: required config present, then a live health check."""
         info = self.catalog[connector_id]
 
-        # Check required config fields on the matching settings section.
+        # Check required config fields. Built-in connectors expose a typed
+        # ``settings.<id>`` section; connectors on the manifest-config pattern
+        # (09/A-4) declare fields in manifest.yaml and store values under
+        # ``connector_config.<id>`` instead — validate those against the
+        # manifest's required fields rather than reporting them as unconfigured.
         section = getattr(self.settings, connector_id, None)
         if section is None:
-            return (False, f"{info['name']} configuration missing in config.yaml")
+            from dacli.config.settings import ConnectorConfig
 
-        missing = []
-        for field in info.get("required_config", []):
-            value = getattr(section, field, None)
-            if not value or (isinstance(value, str) and (value == "" or value.startswith("${"))):
-                missing.append(field)
+            cfg = ConnectorConfig(self.settings, connector_id)
+            required = [
+                f.name
+                for f in self.registry.get_config_fields(connector_id)
+                if f.required
+            ]
+            missing = [name for name in required if not cfg.get(name)]
+        else:
+            missing = []
+            for field in info.get("required_config", []):
+                value = getattr(section, field, None)
+                if not value or (isinstance(value, str) and (value == "" or value.startswith("${"))):
+                    missing.append(field)
 
         if missing:
             return (False, f"Missing config: {', '.join(missing)}")

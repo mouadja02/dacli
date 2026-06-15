@@ -1,4 +1,9 @@
-from dacli.config.settings import Settings, is_llm_configured, load_config
+from dacli.config.settings import (
+    ConnectorConfig,
+    Settings,
+    is_llm_configured,
+    load_config,
+)
 
 CLI_COMMANDS = [
     ("/help", "Show this help message"),
@@ -31,4 +36,10 @@ CLI_COMMANDS = [
     ("/exit", "Exit the CLI"),
 ]
 
-__all__ = ["CLI_COMMANDS", "Settings", "is_llm_configured", "load_config"]
+__all__ = [
+    "CLI_COMMANDS",
+    "ConnectorConfig",
+    "Settings",
+    "is_llm_configured",
+    "load_config",
+]

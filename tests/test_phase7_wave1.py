@@ -229,9 +229,11 @@ class DatabricksConnectorTest(unittest.TestCase):
 # ===========================================================================
 class S3ConnectorTest(unittest.TestCase):
     def _conn(self, responder):
-        cfg = types.SimpleNamespace(bucket="b", prefix="", region="", profile="",
-                                    aws_binary="aws", timeout=300)
-        return S3Connector(_settings(s3=cfg), runner=_runner(responder))
+        # s3 migrated to the manifest-config pattern (09/A-4): config is read via
+        # ConnectorConfig from connector_config.s3, not a typed settings.s3 section.
+        cfg = {"bucket": "b", "prefix": "", "region": "", "profile": "",
+               "aws_binary": "aws", "timeout": 300}
+        return S3Connector(_settings(connector_config={"s3": cfg}), runner=_runner(responder))
 
     def test_put_then_present(self):
         def responder(argv, stdin):

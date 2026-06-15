@@ -221,16 +221,6 @@ class DatabricksSettings(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class S3Settings(BaseModel):
-    # S3 / object-store configuration (Wave 1). CLI-first via `aws s3`.
-    bucket: str = ""
-    prefix: str = ""
-    region: str = ""
-    profile: str = ""  # named AWS profile, optional
-    aws_binary: str = "aws"
-    timeout: int = Field(default=300, ge=1)
-
-
 class GCSSettings(BaseModel):
     # Google Cloud Storage configuration (Wave 1). CLI-first via
     # `gcloud storage` (falls back to `gsutil` shape).
@@ -580,7 +570,9 @@ class Settings(BaseModel):
     # Wave 1 platforms (all optional; CLI-first).
     bigquery: BigQuerySettings = Field(default_factory=BigQuerySettings)
     databricks: DatabricksSettings = Field(default_factory=DatabricksSettings)
-    s3: S3Settings = Field(default_factory=S3Settings)
+    # s3 migrated to the manifest-config pattern (09/A-4): its non-secret config
+    # now lives under ``connector_config.s3`` and is read via ``ConnectorConfig``
+    # (no typed section here). The next connector to migrate follows the same path.
     gcs: GCSSettings = Field(default_factory=GCSSettings)
     dbt: DbtSettings = Field(default_factory=DbtSettings)
     # Wave 2 operational databases (all optional; CLI-first).
@@ -602,9 +594,64 @@ class Settings(BaseModel):
     orchestration: OrchestrationSettings = Field(default_factory=OrchestrationSettings)
     ui: UISettings = Field(default_factory=UISettings)
 
+    # Generic config store for manifest-declared connectors (09/A-4). Built-in
+    # connectors migrate here over time; generated/third-party connectors use
+    # this exclusively. Read via ``ConnectorConfig(settings, id)``; the dict is
+    # untyped by design so an unknown connector never fails a config load.
+    connector_config: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
     # NOTE: connector enable/disable state lives in config/connectors.yaml
     # (see connectors.registry), not here. A legacy top-level ``tools:`` block in
     # an old config.yaml is harmlessly ignored via ``extra="ignore"`` above.
+
+
+class ConnectorConfig:
+    """Attribute- and dict-style read access to ``Settings.connector_config[id]``.
+
+    The runtime counterpart of a manifest's ``config_fields`` declaration (09/A-4):
+    a connector migrated to the manifest-config pattern reads its non-secret config
+    from ``settings.connector_config.<id>`` through this thin accessor instead of a
+    typed ``Settings`` section. It is fail-soft — never raising on a missing
+    connector or a missing field when the caller supplies a default — mirroring
+    ``core.connector_config.load_connector_config`` (the read side of the encrypted
+    *secrets* store; secrets live there, non-secret config lives here).
+    """
+
+    def __init__(self, settings: Settings, connector_id: str) -> None:
+        self._data: dict[str, Any] = (
+            getattr(settings, "connector_config", None) or {}
+        ).get(connector_id, {})
+        if not self._data:
+            # Backwards-compat shim: a connector still carrying a typed
+            # ``settings.<id>`` section (not yet migrated) is read uniformly
+            # through this accessor. For a *migrated* connector whose typed
+            # section was deleted this is inert — the attribute no longer
+            # exists — so its config MUST live under ``connector_config.<id>``
+            # (the documented breaking change; see CONNECTOR_CONFIG_PATTERN.md).
+            old_section = getattr(settings, connector_id, None)
+            if old_section is not None and hasattr(old_section, "model_dump"):
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "Connector '%s' config read from the typed 'settings.%s' "
+                    "section (legacy schema). Move it under 'connector_config.%s' "
+                    "in config.yaml; the typed section will be removed in a future "
+                    "release.",
+                    connector_id, connector_id, connector_id,
+                )
+                self._data = old_section.model_dump()
+
+    def __getattr__(self, item: str) -> Any:
+        # Guard against recursion before ``_data`` is set (e.g. during copy).
+        if item == "_data":
+            raise AttributeError(item)
+        try:
+            return self._data[item]
+        except KeyError:
+            raise AttributeError(item) from None
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._data.get(key, default)
 
 
 def _is_secret_placeholder(v: Any) -> bool:

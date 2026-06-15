@@ -15,6 +15,7 @@ import json
 import time
 from typing import Any
 
+from dacli.config.settings import ConnectorConfig
 from dacli.connectors.base import OperationSpec, Risk, ToolResult
 from dacli.core.logging_setup import get_logger
 
@@ -60,8 +61,8 @@ class S3Connector(CliConnector):
 
     def __init__(self, settings: Any, runner=None):
         super().__init__(settings, runner=runner)
-        cfg = getattr(settings, "s3", None)
-        self.binary = getattr(cfg, "aws_binary", "aws") or "aws"
+        cfg = ConnectorConfig(settings, "s3")
+        self.binary = cfg.get("aws_binary", "aws") or "aws"
 
     def operations(self) -> list[OperationSpec]:
         key_param = {
@@ -134,25 +135,23 @@ class S3Connector(CliConnector):
         return self._unknown_op(op)
 
     # ------------------------------------------------------------------
-    def _cfg(self):
-        return getattr(self.settings, "s3", None)
+    def _cfg(self) -> ConnectorConfig:
+        return ConnectorConfig(self.settings, "s3")
 
     def _bucket(self, args: dict[str, Any]) -> str:
-        cfg = self._cfg()
-        return args.get("bucket") or (getattr(cfg, "bucket", "") if cfg else "")
+        return args.get("bucket") or self._cfg().get("bucket", "")
 
     def _global_flags(self) -> list[str]:
         cfg = self._cfg()
         flags: list[str] = []
-        if cfg and getattr(cfg, "profile", ""):
-            flags += ["--profile", cfg.profile]
-        if cfg and getattr(cfg, "region", ""):
-            flags += ["--region", cfg.region]
+        if cfg.get("profile", ""):
+            flags += ["--profile", cfg.get("profile")]
+        if cfg.get("region", ""):
+            flags += ["--region", cfg.get("region")]
         return flags
 
     def _timeout(self) -> int:
-        cfg = self._cfg()
-        return getattr(cfg, "timeout", 300) if cfg else 300
+        return self._cfg().get("timeout", 300)
 
     async def _head(self, bucket: str, key: str) -> bool:
         argv = [self.binary, *self._global_flags(), "s3api", "head-object",
@@ -163,10 +162,9 @@ class S3Connector(CliConnector):
     async def _list(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         bucket = self._bucket(args)
-        cfg = self._cfg()
         prefix = args.get("prefix")
-        if prefix is None and cfg and getattr(cfg, "prefix", ""):
-            prefix = cfg.prefix
+        if prefix is None and self._cfg().get("prefix", ""):
+            prefix = self._cfg().get("prefix")
         argv = [self.binary, *self._global_flags(), "s3api", "list-objects-v2",
                 "--bucket", bucket, "--output", "json"]
         if prefix:

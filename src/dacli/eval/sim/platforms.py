@@ -20,8 +20,10 @@ from dacli.connectors.cli_base import CliResult
 # ---------------------------------------------------------------------------
 def sim_settings(connector_id: str) -> Any:
     cfgs = {
-        "s3": types.SimpleNamespace(bucket="b", prefix="", region="", profile="",
-                                    aws_binary="aws", timeout=300),
+        # s3 migrated to the manifest-config pattern (09/A-4): a plain dict read
+        # via ConnectorConfig from connector_config.s3, not a typed section.
+        "s3": {"bucket": "b", "prefix": "", "region": "", "profile": "",
+               "aws_binary": "aws", "timeout": 300},
         "gcs": types.SimpleNamespace(bucket="b", prefix="", project="p",
                                      credentials_path="", gcloud_binary="gcloud",
                                      timeout=300),
@@ -32,6 +34,8 @@ def sim_settings(connector_id: str) -> Any:
                                             databricks_binary="databricks", timeout=300),
     }
     cfg = cfgs[connector_id]
+    if connector_id == "s3":
+        return types.SimpleNamespace(connector_config={"s3": cfg})
     return types.SimpleNamespace(**{connector_id: cfg})
 
 
