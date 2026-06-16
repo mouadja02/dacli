@@ -12,6 +12,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from dacli.core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 
 @dataclass
 class SandboxPolicy:
@@ -113,4 +117,4 @@ def apply_resource_limits(max_memory_mb: int) -> None:
         soft_bytes = max(64, int(max_memory_mb)) * 1024 * 1024
         resource.setrlimit(resource.RLIMIT_AS, (soft_bytes, soft_bytes))
     except Exception:
-        pass
+        log.debug("setrlimit(RLIMIT_AS) failed; running without a memory cap", exc_info=True)

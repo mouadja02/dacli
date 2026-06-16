@@ -35,6 +35,10 @@ from dacli.sandbox.policy import SandboxPolicy
 from dacli.sandbox.sdk import ConnectorSDK
 import contextlib
 
+from dacli.core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 # Each sandbox run leaves a ``run_*`` workspace on disk. Without pruning these
 # grow unbounded; retain at most this many (the most recent), sweeping the rest.
 MAX_SANDBOX_RUNS = 20
@@ -168,7 +172,7 @@ class SandboxRuntime:
                 err = payload.get("error")
                 ok = bool(payload.get("ok")) and not timed_out
             except Exception:
-                pass
+                log.debug("unreadable sandbox result.json in %s", run_dir, exc_info=True)
         if timed_out:
             err = "wall-clock timeout"
 
@@ -198,6 +202,6 @@ class SandboxRuntime:
                 soft = max(64, int(mem_mb)) * 1024 * 1024
                 resource.setrlimit(resource.RLIMIT_AS, (soft, soft))
             except Exception:
-                pass
+                pass  # silent-swallow-ok: runs post-fork pre-exec; acquiring a log lock here can deadlock
 
         return _limit

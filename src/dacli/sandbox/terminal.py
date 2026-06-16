@@ -305,7 +305,7 @@ class TerminalSession:
             except Exception:
                 # An escape attempt: the classifier already flagged/blocked it;
                 # we simply do not move the tracked cwd out of the jail.
-                pass
+                log.debug("cd target %r outside jail; tracked cwd unchanged", target, exc_info=True)
 
     def _record(self, stream: str, text: str, *, command_id: str = "") -> None:
         self.scrollback.append(ScrollbackLine(

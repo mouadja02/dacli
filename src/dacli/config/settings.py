@@ -66,7 +66,7 @@ def _warn_unresolved_env_vars(names: set[str]) -> str | None:
 
         get_logger(__name__).warning("unset env vars in config: %s", ", ".join(new))
     except Exception:
-        pass
+        pass  # silent-swallow-ok: can't log that logging failed; stderr print below still fires
     print(msg, file=sys.stderr)
     return msg
 
@@ -605,6 +605,12 @@ class Settings(BaseModel):
     # an old config.yaml is harmlessly ignored via ``extra="ignore"`` above.
 
 
+#: Connector ids already warned about a legacy typed ``settings.<id>`` section,
+#: so repeated ConnectorConfig reads don't re-spam (mirrors _warned_env_vars and
+#: ``core.crypto._warned_secrets``).
+_warned_legacy_sections: set = set()
+
+
 class ConnectorConfig:
     """Attribute- and dict-style read access to ``Settings.connector_config[id]``.
 
@@ -630,15 +636,17 @@ class ConnectorConfig:
             # (the documented breaking change; see CONNECTOR_CONFIG_PATTERN.md).
             old_section = getattr(settings, connector_id, None)
             if old_section is not None and hasattr(old_section, "model_dump"):
-                import logging
+                if connector_id not in _warned_legacy_sections:
+                    _warned_legacy_sections.add(connector_id)
+                    from dacli.core.logging_setup import get_logger
 
-                logging.getLogger(__name__).warning(
-                    "Connector '%s' config read from the typed 'settings.%s' "
-                    "section (legacy schema). Move it under 'connector_config.%s' "
-                    "in config.yaml; the typed section will be removed in a future "
-                    "release.",
-                    connector_id, connector_id, connector_id,
-                )
+                    get_logger(__name__).warning(
+                        "Connector '%s' config read from the typed 'settings.%s' "
+                        "section (legacy schema). Move it under 'connector_config.%s' "
+                        "in config.yaml; the typed section will be removed in a future "
+                        "release.",
+                        connector_id, connector_id, connector_id,
+                    )
                 self._data = old_section.model_dump()
 
     def __getattr__(self, item: str) -> Any:
@@ -727,7 +735,7 @@ def _load_dacli_secrets(base_dir: str) -> dict[str, Any]:
                 "failed to load secrets overlay from %s", base_dir, exc_info=True
             )
         except Exception:
-            pass
+            pass  # silent-swallow-ok: can't log that logging failed
         return {}
 
 

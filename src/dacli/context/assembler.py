@@ -42,6 +42,9 @@ from dacli.context.budget import (
     SKILLS,
 )
 from dacli.context.tokenizer import TokenCounter
+from dacli.core.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 _TOKEN_RE = re.compile(r"[A-Za-z0-9_]+")
 
@@ -109,7 +112,7 @@ def _format_catalog_entry(entry: Any) -> str:
         try:
             return str(line())
         except Exception:
-            pass
+            log.debug("entry context_line() failed; using generic line", exc_info=True)
     scope = getattr(entry, "scope", {}) or {}
     name = ".".join(
         str(scope[k]) for k in ("database", "schema", "object") if scope.get(k)
