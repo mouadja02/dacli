@@ -47,7 +47,7 @@ regex on the dispatch path:
 - **Detection moved into the connector** (its domain). `parse_catalog_effects()`
   in `connectors/snowflake/connector.py` derives a list of structured
   `{"action", "object_type", "scope"}` effects from the *executed* statement.
-  It is robust to `CREATE OR REPLACE`, `IF NOT EXISTS`, leading modifiers
+  It handles `CREATE OR REPLACE`, `IF NOT EXISTS`, leading modifiers
   (`TRANSIENT`/`TEMP`/…), fully-qualified and quoted identifiers, and multi-line
   SQL — the exact cases that silently corrupted the old regex. The effects ride
   back on `ToolResult.metadata["catalog_effects"]`.

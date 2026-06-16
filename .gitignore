@@ -43,3 +43,7 @@ test.py
 TEST.md
 reporting/
 .roadmap
+
+# Local-only: agent guidance + the audit-derived prompt backlog. Never commit.
+CLAUDE.md
+roadmap/

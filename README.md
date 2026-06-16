@@ -1,11 +1,10 @@
 ﻿<div align="center">
 
-# dacli
+<img src="assets/dacli-banner.svg" alt="dacli — a data-engineering agent for the terminal" width="820">
 
-**An autonomous, reliability-first data-engineering agent for your terminal.**
+**dacli is a data-engineering agent for the terminal.**
 
-*Talk to your data stack in plain language — dacli plans, runs SQL, moves files, builds pipelines,
-orchestrates jobs, and draws diagrams across 14 platforms, with governance and verification on every action.*
+*It plans work, runs governed tool calls, and verifies results against the data systems it touches.*
 
 [![CI](https://github.com/mouadja02/dacli/actions/workflows/ci.yml/badge.svg)](https://github.com/mouadja02/dacli/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
@@ -21,7 +20,7 @@ orchestrates jobs, and draws diagrams across 14 platforms, with governance and v
 
 ## Table of contents
 
-- [Why dacli](#why-dacli)
+- [Design](#design)
 - [Highlights](#highlights)
 - [How it works](#how-it-works)
 - [Supported platforms](#supported-platforms)
@@ -40,29 +39,27 @@ orchestrates jobs, and draws diagrams across 14 platforms, with governance and v
 
 ---
 
-## Why dacli
+## Design
 
-Most "AI for data" tools are a chat window that gives *advice*. dacli is an **agent that operates your stack**:
-it reasons over a real, connected toolset — warehouses, lakes, operational databases, transformation,
-orchestration, and diagramming — and carries tasks through to a verified result.
+dacli is not a SQL chatbot. It turns a plain-language data task into a governed plan, runs connector
+operations or sandboxed code, and accepts a result only after the target system confirms it.
 
-The hard problem with autonomous data agents is not capability, it is **reliability**. A 95%-reliable
-`DROP`-guard is a catastrophe waiting for its 1-in-20. dacli is built on a simple thesis, drawn from
+The hard problem with autonomous data agents is not capability, it is reliability. A 95%-reliable
+`DROP` guard is a catastrophe waiting for its 1-in-20. dacli is built on a simple thesis, drawn from
 *["From Model Scaling to System Scaling"](https://arxiv.org/abs/2605.26112)*:
 
 > **Agent reliability is a property of the *system around the model*, not the model.**
 > Stale memory, diluted context, unchecked tool output, and missing governance are *system failures* that
 > survive every model upgrade.
 
-So dacli is engineered as a **six-component harness** (ℛ Reasoning · ℳ Memory · 𝒞 Context · 𝒮 Skills ·
-𝒪 Orchestration · 𝒢 Governance), and its signature idea is **"the environment is the oracle"** — verification
-and rollback are anchored to native platform features (transactions, Time Travel/`UNDROP`, `EXPLAIN`/`dry_run`,
-zero-copy clones, `dbt test`, row counts) rather than to the model's own say-so.
+That thesis shows up as a six-component harness (ℛ Reasoning · ℳ Memory · 𝒞 Context · 𝒮 Skills ·
+𝒪 Orchestration · 𝒢 Governance). "The environment is the oracle" means verification and rollback are
+anchored to native platform features (transactions, Time Travel/`UNDROP`, `EXPLAIN`/`dry_run`,
+zero-copy clones, `dbt test`, row counts), not the model's own say-so.
 
-> Built **from scratch** — no agent frameworks (no LangChain/LangGraph) and an **MCP-free core**. Tools are
-> plain Python/CLI the agent composes as code, which keeps context lean and execution auditable. (An opt-in
-> **MCP client bridge** can proxy one external MCP server's tools through the same governed dispatch path —
-> the core itself never speaks MCP.)
+> dacli does not depend on LangChain or LangGraph. The core is MCP-free: tools are plain Python/CLI calls
+> composed by the agent, with the same governed dispatch path for direct tools and sandboxed code. An opt-in
+> MCP client bridge can proxy one external MCP server through that path; the core itself never speaks MCP.
 
 ---
 
@@ -70,17 +67,17 @@ zero-copy clones, `dbt test`, row counts) rather than to the model's own say-so.
 
 | | |
 |---|---|
-| 🧠 **Conversational data ops** | Describe the goal; dacli plans a DAG, routes each step, acts, observes, and verifies — iterating until the outcome is provably correct. |
-| 🔌 **14 platform connectors** | Each platform is a self-describing plugin discovered from a `manifest.yaml`. Adding one is "drop in a folder", never "edit the agent". |
+| 🧠 **Data ops from chat** | Describe the goal; dacli plans a DAG, routes each step, acts, observes, and verifies until the platform confirms the result. |
+| 🔌 **14 platform connectors** | Each platform is a self-describing plugin discovered from a `manifest.yaml`. Adding one means adding a connector folder, not editing the agent. |
 | 🛡️ **Governance on every action** | A blast-radius classifier tiers each action `safe → write → risky → irreversible`, then a policy engine gates it: auto, verify, confirm, or dry-run + verified-rollback + approval. |
-| ✅ **Verified, not just fluent** | Every operation declares **environment-anchored post-conditions**; a result is "done" only when the platform confirms it (row counts, `bq show`, statement state, `dbt` artifacts). |
+| ✅ **Verified results** | Every operation declares **environment-anchored post-conditions**; a result is "done" only when the platform confirms it (row counts, `bq show`, statement state, `dbt` artifacts). |
 | 🧪 **Code-execution sandbox** | Complex/multi-step/cross-platform jobs run as governed code; large results stay **on disk**, out of the model's context. |
-| 📒 **Trustworthy memory** | Typed facts with confidence, recency, and provenance; retrieval penalizes staleness; trust is a **runtime decision** — re-verified against the live system before acting. |
+| 📒 **Trust-aware memory** | Typed facts with confidence, recency, and provenance; retrieval penalizes staleness; trust is a runtime decision, re-verified against the live system before acting. |
 | 🧭 **Multi-agent orchestration** | A lead fans breadth-first work out to isolated-context sub-agents with contradiction detection and de-duplication. |
 | 📊 **pass^k reliability eval** | An offline golden suite measures consistency across *repeated* rollouts (not single-shot luck), with regression detection and a reliability dashboard. |
-| 🔍 **Fully auditable** | Append-only ledgers record every classification, policy decision, rollback plan, approval, and post-condition verdict — `dacli audit` reconstructs *why* the agent acted. |
+| 🔍 **Audit trail** | Append-only ledgers record every classification, policy decision, rollback plan, approval, and post-condition verdict; `dacli audit` reconstructs *why* the agent acted. |
 | 🤖 **Multi-provider LLM** | OpenAI, Anthropic, or OpenRouter (Google Gemini planned), with cheap/strong **model tiering** and confidence-aware escalation. |
-| 🎨 **Elite terminal UX** | Pure Rich + prompt-toolkit: live formatted Markdown streaming, tier-colored tool cards, a real context gauge, a first-class approval panel, and seven themes — fully accessible (`NO_COLOR`, ASCII glyphs, reduced motion, high contrast) and scrollback-native. |
+| 🎨 **Terminal UI** | Pure Rich + prompt-toolkit: live formatted Markdown streaming, tier-colored tool cards, a context gauge, an approval panel, and seven themes, with `NO_COLOR`, ASCII glyphs, reduced motion, high contrast, and native scrollback. |
 
 ---
 
