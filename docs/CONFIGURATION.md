@@ -210,6 +210,31 @@ Every status color is paired with a glyph, so the interface is colorblind-safe b
 
 ---
 
+## System prompt layering
+
+The agent's system prompt is built from three layers, top to bottom:
+
+1. **`core.md`** — the packaged base (`prompts/fragments/core.md`), shipped in the wheel and
+   read-only. It's overwritten on `pip install -U`; don't edit it.
+2. **`DACLI.md` priors** — connection profiles, naming conventions, medallion rules. Created by
+   `dacli init`, loaded as layer L1 of the context assembler (`context.assembler`). This is the
+   place for *project knowledge* the agent should always have.
+3. **`system_prompt.md` overlay** — an editable prompt-level override at `<state_dir>/system_prompt.md`.
+   `compose_system_prompt()` appends it after `core.md` and before any connector fragments, so it can
+   extend or correct the base while connector-specific rules still get the last word.
+
+The priors (layer 2) and the overlay (layer 3) are distinct knobs: priors are *context* the assembler
+pins per turn; the overlay is *prompt text* folded into the composed system prompt. Put facts about
+your warehouse in `DACLI.md`; put changes to how the agent behaves in the overlay.
+
+```bash
+dacli prompt           # view the composed prompt and where to customize it
+dacli prompt --edit    # create the overlay (if missing) and open it in $EDITOR
+```
+
+`dacli prompt -o FILE` exports the composed prompt for inspection; writing into the packaged prompt
+dir is refused.
+
 ## Enabling connectors
 
 Connector enable/disable state is **not** in `config.yaml` — it's in `config/connectors.yaml`, managed by the
