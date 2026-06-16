@@ -2,16 +2,20 @@
 
 One place configures the stdlib :mod:`logging` tree so that the many
 *best-effort* swallows scattered across the codebase can leave a breadcrumb
-instead of vanishing. A :class:`~logging.handlers.RotatingFileHandler` writes to
-``.dacli/dacli.log`` (5 files × ~1 MB). The default level is **WARNING**; the
-``--debug`` CLI flag (or ``DACLI_DEBUG=1``) flips the whole tree to **DEBUG** so
-the swallow breadcrumbs (logged at ``debug``) actually reach the file.
+instead of vanishing. A lazy :class:`~logging.handlers.RotatingFileHandler` writes
+to ``<state_dir>/dacli.log`` (5 files × ~1 MB) — the dir/file are created on the
+**first emitted record**, not at setup, so a clean WARNING-level run (e.g.
+``dacli --version``) litters no state. The log dir is resolved through P01's
+:func:`dacli.core.paths.state_dir` (project-local when in a project, else the
+per-user global dir). The default level is **WARNING**; the ``--debug`` CLI flag
+(or ``DACLI_DEBUG=1``) flips the whole tree to **DEBUG** so the swallow
+breadcrumbs (logged at ``debug``) actually reach the file.
 
 Usage:
 
     # once, at CLI / headless startup
     from dacli.core.logging_setup import setup_logging
-    setup_logging(debug=args.debug, base_dir=".dacli")
+    setup_logging(debug=args.debug)  # base_dir defaults to paths.state_dir()
 
     # everywhere else
     from dacli.core.logging_setup import get_logger
@@ -44,6 +48,24 @@ _configured = False
 _TRUTHY = {"1", "true", "yes", "on"}
 
 
+class _LazyRotatingFileHandler(RotatingFileHandler):
+    """Rotating handler that defers creating the dir/file to the first record.
+
+    ``delay=True`` already defers opening the file; we extend that to ``mkdir``
+    the parent then too, so nothing is written until a record at the active
+    level is actually emitted. A read-only state dir degrades silently (the
+    eager path fell back to a NullHandler for the same reason) instead of
+    spamming stderr through the default error handler.
+    """
+
+    def _open(self):
+        Path(self.baseFilename).parent.mkdir(parents=True, exist_ok=True)
+        return super()._open()
+
+    def handleError(self, record):
+        pass
+
+
 def _debug_requested(debug: bool | None) -> bool:
     """Resolve the debug switch: explicit arg wins, else ``DACLI_DEBUG`` env."""
     if debug is not None:
@@ -53,17 +75,23 @@ def _debug_requested(debug: bool | None) -> bool:
 
 def setup_logging(
     debug: bool | None = None,
-    base_dir: str = ".dacli",
+    base_dir: str | None = None,
     *,
     force: bool = False,
 ) -> logging.Logger:
     """Configure the ``dacli`` logger tree once. Returns the root dacli logger.
 
-    ``debug=None`` defers to the ``DACLI_DEBUG`` environment variable. Repeated
-    calls are idempotent (the level is refreshed but the handler is not
+    ``debug=None`` defers to the ``DACLI_DEBUG`` environment variable.
+    ``base_dir=None`` resolves the log dir through :func:`paths.state_dir`.
+    Repeated calls are idempotent (the level is refreshed but the handler is not
     duplicated) unless ``force=True`` re-installs the handler — handy in tests.
     """
     global _DEBUG, _configured
+
+    if base_dir is None:
+        from dacli.core import paths
+
+        base_dir = str(paths.state_dir())
 
     debug = _debug_requested(debug)
     _DEBUG = debug
@@ -89,20 +117,15 @@ def setup_logging(
         with contextlib.suppress(Exception):
             h.close()
 
-    handler: logging.Handler
-    try:
-        log_dir = Path(base_dir)
-        log_dir.mkdir(parents=True, exist_ok=True)
-        handler = RotatingFileHandler(
-            log_dir / "dacli.log",
-            maxBytes=1_000_000,  # ~1 MB per file
-            backupCount=4,  # + the active file = 5 files total
-            encoding="utf-8",
-        )
-    except OSError:
-        # Can't create/open the log file (read-only dir, etc.) — degrade to a
-        # no-op sink rather than crashing startup over telemetry.
-        handler = logging.NullHandler()
+    # Lazy: the dir/file aren't touched until the first record emits, so a clean
+    # WARNING-level run creates no state. base_dir resolved via paths.state_dir().
+    handler: logging.Handler = _LazyRotatingFileHandler(
+        str(Path(base_dir) / "dacli.log"),
+        maxBytes=1_000_000,  # ~1 MB per file
+        backupCount=4,  # + the active file = 5 files total
+        encoding="utf-8",
+        delay=True,
+    )
 
     handler.setLevel(level)
     handler.setFormatter(
