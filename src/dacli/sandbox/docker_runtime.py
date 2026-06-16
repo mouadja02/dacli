@@ -41,6 +41,10 @@ from dacli.sandbox.runtime import SandboxRunResult
 from dacli.sandbox.sdk import ConnectorSDK
 import contextlib
 
+from dacli.core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 #: Default image tag built from ``sandbox/docker/Dockerfile``.
 DEFAULT_IMAGE = "dacli-sandbox:latest"
 _DOCKER_DIR = Path(__file__).resolve().parent / "docker"
@@ -238,7 +242,7 @@ class DockerSandboxRuntime:
                 err = payload.get("error")
                 ok = bool(payload.get("ok")) and not timed_out
             except Exception:
-                pass
+                log.debug("unreadable sandbox result.json in %s", run_dir, exc_info=True)
         if timed_out:
             err = "wall-clock timeout"
 

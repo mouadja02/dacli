@@ -32,6 +32,10 @@ from typing import Any
 from collections.abc import Callable
 import contextlib
 
+from dacli.core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 
 async def start_bridge(
     sdk: Any,
@@ -92,7 +96,7 @@ async def start_bridge(
                 if op == "hello" and not authed:
                     break
         except Exception:
-            pass
+            log.debug("bridge connection handler errored; dropping conn", exc_info=True)
         finally:
             with contextlib.suppress(Exception):
                 writer.close()

@@ -23,7 +23,7 @@ from dacli.connectors.registry import (
     CONNECTORS_CONFIG_PATH,
 )
 from dacli.core.agent import DACLI
-from dacli.core.logging_setup import setup_logging
+from dacli.core.logging_setup import get_logger, setup_logging
 from dacli.core.memory import AgentMemory
 from dacli.core.store import DacliStore
 from dacli.governance.audit import AuditLedger
@@ -36,6 +36,8 @@ from dacli.tui import DacliUI, THEMES
 from dacli.tui.design import ASCII as ASCII_GLYPHS
 from dacli.tui.design import tier_legend
 from dacli.tui.ui import TIER_STYLE
+
+log = get_logger(__name__)
 
 # Module-level UI for the standalone (non-chat) click commands. The interactive
 # chat in ``_run_chat`` builds its own themed instance once settings are loaded.
@@ -1095,7 +1097,8 @@ def _ctx_pct(memory, agent=None) -> int:
             if cap > 0:
                 return min(100, max(0, round(used / cap * 100)))
     except Exception:
-        pass  # a toolbar glitch must never break the input loop
+        # a toolbar glitch must never break the input loop
+        log.debug("context-percent toolbar calc failed; falling back to window", exc_info=True)
     window = max(getattr(memory, "memory_window", 0) or 1, 1)
     used = min(len(memory.get_full_history()), window)
     return round(used / window * 100)

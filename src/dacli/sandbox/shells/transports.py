@@ -22,6 +22,10 @@ import threading
 from typing import Protocol, runtime_checkable
 import contextlib
 
+from dacli.core.logging_setup import get_logger
+
+log = get_logger(__name__)
+
 
 @runtime_checkable
 class Transport(Protocol):
@@ -82,7 +86,7 @@ class PipeTransport:
                 for line in iter(stream.readline, ""):
                     self._q.put(line)
             except Exception:
-                pass
+                log.debug("subprocess stdout pump stopped on error", exc_info=True)
             finally:
                 with contextlib.suppress(Exception):
                     stream.close()
@@ -122,7 +126,7 @@ class PipeTransport:
                 import signal
                 self._proc.send_signal(signal.SIGINT)
         except Exception:
-            pass
+            log.debug("send_interrupt to subprocess failed", exc_info=True)
 
     def close(self) -> None:
         if not self._proc:
@@ -137,7 +141,7 @@ class PipeTransport:
             except Exception:
                 self._proc.kill()
         except Exception:
-            pass
+            log.debug("subprocess close/terminate failed", exc_info=True)
 
 
 class WinptyTransport:
