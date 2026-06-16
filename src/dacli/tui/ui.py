@@ -40,7 +40,8 @@ from rich.text import Text
 
 from dacli.connectors.base import ToolResult
 from .design import ASCII as ASCII_GLYPHS
-from .design import SPACING, TIER_STYLE, Glyphs, gauge, resolve_glyphs
+from .design import SPACING, TIER_STYLE, Glyphs, gauge, resolve_glyphs, tier_legend
+from .tables import Col, responsive_table
 from .theme import ThemeSpec, get_theme
 import contextlib
 
@@ -745,10 +746,13 @@ class DacliUI:
         decision.append("[y]es / [N]o", style="accent")
         decision.append("  (No is the safe default)", style="muted")
 
+        legend = Text("tiers  ", style="muted")
+        legend.append_text(tier_legend(self.glyphs.dot))
+
         tier_style = TIER_STYLE.get(tier, "muted")
         self.console.print(
             Panel(
-                Group(body, Text(), decision),
+                Group(body, Text(), legend, Text(), decision),
                 title=(
                     f"[{border}]approval needed[/{border}] {self.glyphs.dot} "
                     f"[{tier_style}]{tier}[/{tier_style}]"
@@ -868,18 +872,14 @@ class DacliUI:
         would fire, and the rollback primitive that would be attached. Nothing
         here executes — it is the inspectable plan-approve-execute front half.
         """
-        table = Table(
-            show_header=True,
-            header_style="muted",
-            border_style="border",
-            box=None,
-            padding=(0, 2, 0, 0),
-        )
-        table.add_column("#", justify="right", style="muted")
-        table.add_column("step", style="step", overflow="fold")
-        table.add_column("tier", no_wrap=True)
-        table.add_column("decision", style="info", no_wrap=True)
-        table.add_column("rollback", style="muted", overflow="fold")
+        cols = [
+            Col("#", style="muted", justify="right"),
+            Col("step", style="step", ratio=2, primary=True),
+            Col("tier"),
+            Col("decision", style="info", drop_rank=1),
+            Col("rollback", style="muted", ratio=1, drop_rank=2),
+        ]
+        rows: list[list[Any]] = []
 
         needs_approval = 0
         for i, step in enumerate(preview.steps, 1):
@@ -916,7 +916,11 @@ class DacliUI:
             if step.platform:
                 undo += f" {self.glyphs.dot} {step.platform}"
 
-            table.add_row(str(i), desc, tier_text, decision, undo)
+            rows.append([str(i), desc, tier_text, decision, undo])
+
+        # The table renders inside a Panel — reserve its border + padding so the
+        # fit math doesn't overrun and let Rich collapse a column to nothing.
+        table = responsive_table(self.console, cols, rows, reserve=6)
 
         summary = Text()
         summary.append(f"{len(preview.steps)} step(s)", style="info")
@@ -927,9 +931,15 @@ class DacliUI:
             summary.append("no approvals needed", style="success")
         summary.append(f"  {self.glyphs.dot}  nothing was executed", style="muted")
 
+        legend = Text("tiers  ", style="muted")
+        legend.append_text(tier_legend(self.glyphs.dot))
+
         self.console.print(
             Panel(
-                Group(Text(preview.goal, style="accent"), Text(), table, Text(), summary),
+                Group(
+                    Text(preview.goal, style="accent"), Text(),
+                    table, Text(), summary, Text(), legend,
+                ),
                 title=(
                     f"[accent]plan preview[/accent] {self.glyphs.dot} "
                     "[muted]dry run, no execution[/muted]"
@@ -1379,20 +1389,15 @@ class DacliUI:
                 "agent introspects or creates them.[/muted]\n"
             )
             return
-        table = Table(
-            title="[accent]Catalog[/accent]",
-            show_header=True,
-            header_style="muted",
-            border_style="border",
-            box=None,
-            padding=(0, 2, 0, 0),
-        )
-        table.add_column("Connector", style="info")
-        table.add_column("Type", style="step")
-        table.add_column("Object", style="accent")
-        table.add_column("~Rows", justify="right", style="step")
-        table.add_column("Verified", style="muted")
-        table.add_column("", style="warning")
+        cols = [
+            Col("Connector", style="info", drop_rank=1),
+            Col("Type", style="step", drop_rank=3),
+            Col("Object", style="accent", ratio=1, primary=True),
+            Col("~Rows", style="step", justify="right", drop_rank=2),
+            Col("Verified", style="muted", drop_rank=4),
+            Col("", style="warning", drop_rank=5),
+        ]
+        rows: list[list[Any]] = []
         for entry in entries:
             scope = getattr(entry, "scope", {}) or {}
             name = ".".join(
@@ -1401,7 +1406,7 @@ class DacliUI:
             rce = getattr(entry, "row_count_estimate", None)
             verified = getattr(entry, "last_verified", None)
             stale = entry.is_stale() if hasattr(entry, "is_stale") else False
-            table.add_row(
+            rows.append([
                 getattr(entry, "connector", "?"),
                 getattr(entry, "object_type", "?"),
                 name,
@@ -1409,8 +1414,9 @@ class DacliUI:
                 verified.isoformat(timespec="seconds")
                 if hasattr(verified, "isoformat") else self.glyphs.dash,
                 "stale" if stale else "",
-            )
-        self.console.print(table)
+            ])
+        self.console.print(Text("Catalog", style="accent"))
+        self.console.print(responsive_table(self.console, cols, rows))
         self.console.print(
             "[muted]Stale entries are hints — the agent re-verifies them before "
             "acting. /schema <object> shows columns.[/muted]\n"
@@ -1452,23 +1458,20 @@ class DacliUI:
                 "introspect it to fill them in.[/muted]\n"
             )
             return
-        table = Table(
-            show_header=True,
-            header_style="muted",
-            border_style="border",
-            box=None,
-            padding=(0, 2, 0, 0),
-        )
-        table.add_column("Column", style="info")
-        table.add_column("Type", style="step")
-        table.add_column("Description", style="muted")
-        for col in columns:
-            table.add_row(
+        cols = [
+            Col("Column", style="info", primary=True),
+            Col("Type", style="step", drop_rank=2),
+            Col("Description", style="muted", ratio=1, drop_rank=1),
+        ]
+        rows = [
+            [
                 str(col.get("name", "?")),
                 str(col.get("type") or col.get("data_type") or ""),
                 str(col.get("description", "")),
-            )
-        self.console.print(table)
+            ]
+            for col in columns
+        ]
+        self.console.print(responsive_table(self.console, cols, rows))
         self.console.print()
 
     def status_panel(self, memory) -> None:

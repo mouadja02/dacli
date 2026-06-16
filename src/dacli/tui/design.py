@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from rich import box
+from rich.text import Text
 
 
 @dataclass(frozen=True)
@@ -100,6 +101,20 @@ TIER_STYLE = {
     "risky": "warning",
     "irreversible": "error",
 }
+
+
+def tier_legend(dot: str = "·") -> Text:
+    """A one-line ``safe · write · risky · irreversible`` key in tier colors.
+
+    Shared under the dense governance panels (plan, audit, approval) so the
+    blast-radius colors are decodable without memorizing them.
+    """
+    legend = Text()
+    for i, (name, style) in enumerate(TIER_STYLE.items()):
+        if i:
+            legend.append(f"  {dot}  ", style="muted")
+        legend.append(name, style=style)
+    return legend
 
 
 def gauge(pct: Any, glyphs: Glyphs, cells: int = 5) -> str:

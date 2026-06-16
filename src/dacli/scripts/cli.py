@@ -34,6 +34,7 @@ from dacli.prompts.system_prompt import (
 )
 from dacli.tui import DacliUI, THEMES
 from dacli.tui.design import ASCII as ASCII_GLYPHS
+from dacli.tui.design import tier_legend
 from dacli.tui.ui import TIER_STYLE
 
 # Module-level UI for the standalone (non-chat) click commands. The interactive
@@ -719,6 +720,10 @@ def _print_audit(ledger, session_id, *, full=False, limit=20, header=None, targe
             padding=(0, 2),
         )
     )
+
+    glyphs = getattr((target or ui), "glyphs", None)
+    con.print(tier_legend(getattr(glyphs, "dot", "·")))
+    con.print()
 
     tier_style = TIER_STYLE  # shared with the approval panel (tui.ui)
     if getattr((target or ui), "glyphs", None) is ASCII_GLYPHS:
