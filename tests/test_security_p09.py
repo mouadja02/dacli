@@ -77,11 +77,17 @@ class BaseDirDefaultTest(_EnvSandbox):
 
 
 class WindowsAclTest(_EnvSandbox):
+    # _secure_key_file is exercised directly on a path built *before* the os.name
+    # patch: patching the global os.name to "nt" makes pathlib build a WindowsPath
+    # from a string, which a POSIX CI runner can't instantiate.
     def test_icacls_invoked_on_windows_key_creation(self):
-        with tempfile.TemporaryDirectory() as base, mock.patch.object(
-            crypto.os, "name", "nt"
-        ), mock.patch("subprocess.run") as run:
-            crypto.get_encryption_key(base_dir=base)
+        with tempfile.TemporaryDirectory() as base:
+            key_file = Path(base) / ".key"
+            key_file.write_bytes(Fernet.generate_key())
+            with mock.patch.object(crypto.os, "name", "nt"), mock.patch(
+                "subprocess.run"
+            ) as run:
+                crypto._secure_key_file(key_file)
             self.assertTrue(run.called)
             argv = run.call_args.args[0]
             self.assertEqual(argv[0], "icacls")
@@ -90,15 +96,16 @@ class WindowsAclTest(_EnvSandbox):
     def test_broad_acl_warning_when_icacls_fails(self):
         crypto._warned_broad_acl.clear()
         stderr = io.StringIO()
-        with tempfile.TemporaryDirectory() as base, mock.patch.object(
-            crypto.os, "name", "nt"
-        ), mock.patch("subprocess.run", side_effect=OSError("no icacls")), mock.patch.object(
-            sys, "stderr", stderr
-        ):
-            crypto.get_encryption_key(base_dir=base)
-        self.assertIn("ACL", stderr.getvalue())
-        # A second key in the same dir doesn't re-spam.
-        self.assertIn(base, crypto._warned_broad_acl)
+        with tempfile.TemporaryDirectory() as base:
+            key_file = Path(base) / ".key"
+            key_file.write_bytes(Fernet.generate_key())
+            with mock.patch.object(crypto.os, "name", "nt"), mock.patch(
+                "subprocess.run", side_effect=OSError("no icacls")
+            ), mock.patch.object(sys, "stderr", stderr):
+                crypto._secure_key_file(key_file)
+            self.assertIn("ACL", stderr.getvalue())
+            # A second key in the same dir doesn't re-spam.
+            self.assertIn(str(key_file.parent), crypto._warned_broad_acl)
 
 
 class _FakeKeyring:
