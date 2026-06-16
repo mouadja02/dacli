@@ -343,9 +343,19 @@ class DacliUI:
         self.console.print(Padding(body, (1, 2, 0, 2)))
 
     def welcome(
-        self, *, model: str, provider: str, connectors: list[str], cwd: str
+        self,
+        *,
+        model: str,
+        provider: str,
+        connectors: list[str],
+        cwd: str,
+        config: str | None = None,
+        state: str | None = None,
     ) -> None:
-        """A compact 'session ready' card with the essentials + quick tips."""
+        """A compact 'session ready' card with the essentials + quick tips.
+
+        ``config``/``state`` make the on-disk locations visible up front so a
+        user never has to guess where secrets and session state live."""
         info = Text()
         info.append("model      ", style="muted")
         info.append(f"{provider}{self.glyphs.dot}{model}\n", style="accent")
@@ -355,6 +365,11 @@ class DacliUI:
         )
         info.append("cwd        ", style="muted")
         info.append(cwd, style="info")
+        if config is not None or state is not None:
+            info.append("\nconfig     ", style="muted")
+            info.append(config or "(none)", style="info")
+            info.append(f"  {self.glyphs.dot}  state ", style="muted")
+            info.append(state or "(none)", style="info")
 
         tips = Text()
         tips.append("\n")
@@ -366,6 +381,16 @@ class DacliUI:
         tips.append(" complete   ", style="muted")
         tips.append("ctrl-c", style="accent")
         tips.append(" interrupt", style="muted")
+
+        # No connectors enabled yet — point at the two ways to fix that rather
+        # than leaving an empty card that looks broken.
+        if not connectors:
+            tips.append("\n")
+            tips.append("No connectors yet", style="warning")
+            tips.append(" — run ", style="muted")
+            tips.append("/setup", style="accent")
+            tips.append(" or ", style="muted")
+            tips.append("/connect <tool>", style="accent")
 
         self.console.print(
             Panel(

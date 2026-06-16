@@ -704,3 +704,42 @@ def test_approval_panel_border_tracks_tier():
     # dark theme: error = bold red → the border row carries red.
     top_border = next(line for line in exported.splitlines() if "approval" in line)
     assert "31m" in top_border
+
+
+# ---------------------------------------------------------------------------
+# P05 — welcome card: location legibility + empty-connectors nudge
+# ---------------------------------------------------------------------------
+def test_welcome_shows_config_and_state_paths():
+    ui = _ui(width=100)
+    ui.welcome(
+        model="m", provider="p", connectors=["snowflake"], cwd="/tmp",
+        config="/proj/config.yaml", state="/proj/.dacli",
+    )
+    out = ui.console.export_text()
+    assert "config" in out
+    assert "/proj/config.yaml" in out
+    assert "/proj/.dacli" in out
+
+
+def test_welcome_config_none_renders_placeholder():
+    ui = _ui(width=100)
+    ui.welcome(
+        model="m", provider="p", connectors=["snowflake"], cwd="/tmp",
+        config=None, state="/proj/.dacli",
+    )
+    assert "(none)" in ui.console.export_text()
+
+
+def test_welcome_empty_connectors_nudges_setup():
+    ui = _ui(width=100)
+    ui.welcome(model="m", provider="p", connectors=[], cwd="/tmp")
+    out = ui.console.export_text()
+    assert "No connectors yet" in out
+    assert "/setup" in out
+    assert "/connect" in out
+
+
+def test_welcome_with_connectors_omits_nudge():
+    ui = _ui(width=100)
+    ui.welcome(model="m", provider="p", connectors=["snowflake"], cwd="/tmp")
+    assert "No connectors yet" not in ui.console.export_text()

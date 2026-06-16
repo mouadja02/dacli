@@ -375,7 +375,8 @@ You can always re-run this wizard later by using: `dacli --setup`
                 "\n[dim]Connectors with validation errors will be skipped during agent initialization.[/dim]"
             )
 
-        self.console.print("\n[green]✓ Setup complete![/green] Your preferences will be saved.\n")
+        self.console.print("\n[green]✓ Setup complete![/green] Your preferences will be saved.")
+        self.console.print("[dim]Something off? run `dacli doctor`.[/dim]\n")
 
 
 class QuickSetup:
