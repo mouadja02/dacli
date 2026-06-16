@@ -55,8 +55,14 @@ def resolve_base_dir(state_path: str | None = None) -> Path:
 
     All callers — :mod:`core.store`, :func:`config.settings._load_dacli_secrets`,
     and this module — resolve through here so the three never drift apart.
+
+    The env var name and the cwd-relative default are owned by :mod:`core.paths`
+    (the one resolver); the default still lands in cwd this release — P02 switches
+    the no-override default to :func:`core.paths.state_dir` (project/user dirs).
     """
-    sp = state_path or os.environ.get("DACLI_STATE_PATH") or ".dacli/state/"
+    from dacli.core import paths
+
+    sp = state_path or os.environ.get(paths.STATE_PATH_ENV) or paths.DEFAULT_STATE_PATH
     return Path(sp).parent
 
 
