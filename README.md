@@ -8,7 +8,7 @@
 
 [![CI](https://github.com/mouadja02/dacli/actions/workflows/ci.yml/badge.svg)](https://github.com/mouadja02/dacli/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-614-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-633-brightgreen.svg)](#testing)
 [![Reliability](https://img.shields.io/badge/reliability-pass%5Ek-orange.svg)](docs/EVALUATION.md)
 [![Architecture](https://img.shields.io/badge/architecture-six--component%20harness-8A2BE2.svg)](docs/ARCHITECTURE.md)
 
@@ -195,12 +195,12 @@ dacli        # first run → wizard → chatting
 
 ### Advanced: file-based configuration (power users & CI)
 
-dacli also reads a `config.yaml` (searched at `./config.yaml`, then `~/.dacli/config.yaml`) and
+dacli also reads a `config.yaml` (searched at the project root, then the per-user config dir) and
 substitutes secrets from environment variables (`${VAR}` placeholders), which you can supply via a
 `.env` file. Credentials never live in the config file.
 
 ```bash
-cp config_template.yaml config.yaml     # set provider/model + account identifiers
+dacli init                               # write a commented config.yaml to start from
 cp .env.example .env                     # fill in your secrets
 ```
 

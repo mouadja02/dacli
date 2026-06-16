@@ -11,13 +11,13 @@ never live in the config file. Connector **enablement** lives separately in `con
 (written by the setup wizard), and governance **policy** in `config/policy.yaml`.
 
 ```bash
-cp config_template.yaml config.yaml
+dacli init          # write a commented config.yaml to start from
 cp .env.example .env
 ```
 
 ## Resolution order
 
-1. `config.yaml` (searched: `./config.yaml`, then `~/.dacli/config.yaml`); absent → built-in defaults.
+1. `config.yaml` (searched: the project root, then the per-user config dir); absent → built-in defaults.
 2. `${VAR}` placeholders resolved from the environment / `.env`.
 3. Any field still empty is filled from the `secrets` block of `.dacli/dacli.json` (written by the wizard).
 

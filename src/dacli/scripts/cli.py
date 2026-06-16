@@ -348,11 +348,13 @@ async def _run_setup_wizard(_config_path: str, settings: Settings) -> dict:
 
 
 def _find_config_template() -> Path | None:
-    # The commented template ships at the repo root; prefer it over a bare
-    # defaults dump. Check the cwd first, then the source checkout root.
+    # The commented template ships in the wheel; prefer it over a bare defaults
+    # dump. A cwd copy still wins so a checkout can edit it in place.
+    from dacli.core.paths import packaged_asset
+
     candidates = [
         Path("config_template.yaml"),
-        Path(__file__).resolve().parents[3] / "config_template.yaml",
+        packaged_asset("config_template.yaml"),
     ]
     return next((p for p in candidates if p.exists()), None)
 

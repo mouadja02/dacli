@@ -756,29 +756,15 @@ def load_config(config_path: str | None = None) -> Settings:
     """
     Load configuration from YAML file with environment variable substitution.
 
-    Args:
-        config_path: Path to config.yaml file. If None, searches in:
-                    1. ./config.yaml
-                    2. ~/.dacli/config.yaml
-                    3. Uses defaults
+    Search order lives in core.paths.resolve_config_path: explicit > the project
+    root's config.yaml > the per-user config dir's config.yaml > built-in defaults.
 
     Returns:
         Settings object with all configuration
     """
-    search_paths = [
-        Path("config.yaml"),
-        Path.home() / ".dacli" / "config.yaml",
-    ]
+    from dacli.core.paths import resolve_config_path
 
-    if config_path:
-        search_paths.insert(0, Path(config_path))
-
-    config_file = None
-    for path in search_paths:
-        if path.exists():
-            config_file = path
-            break
-
+    config_file = resolve_config_path(config_path)
     if config_file is None:
         # Return default settings
         return Settings()
