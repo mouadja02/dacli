@@ -16,7 +16,12 @@ from prompt_toolkit.key_binding import KeyBindings
 
 from dacli.core import __author__, __version__, paths
 from dacli.config import CLI_COMMANDS
-from dacli.config.settings import load_config, Settings, is_llm_configured
+from dacli.config.settings import (
+    load_config,
+    invalidate_config_cache,
+    Settings,
+    is_llm_configured,
+)
 from dacli.connectors.registry import (
     ConnectorRegistry,
     save_connectors_config,
@@ -1150,6 +1155,8 @@ async def _run_chat(
                 save_connectors_config(connectors_config, CONNECTORS_CONFIG_PATH)
 
         # Reload settings so any secrets the wizard saved to dacli.json apply.
+        # The cache can hold the same mtime after a sub-second write, so drop it.
+        invalidate_config_cache()
         settings = load_config(config_path)
 
     # Persistent project store (.dacli/dacli.json): startups, config snapshot, usage/cost
@@ -1257,9 +1264,9 @@ async def _run_chat(
 
     def _session_cost() -> str:
         # Live per-session $cost for the bottom bar; blank on any hiccup.
+        # O(1) lookup — the toolbar recomputes this on every keystroke.
         try:
-            session = store.usage_summary(memory.session_id).get("session")
-            return _fmt_cost(session.get("costUSD", 0) if session else 0)
+            return _fmt_cost(store.session_cost_usd(memory.session_id))
         except Exception:
             return ""
 
@@ -1465,6 +1472,7 @@ async def _run_chat(
                             connectors_config, CONNECTORS_CONFIG_PATH
                         )
                         # Re-snapshot the (possibly updated) config into dacli.json.
+                        invalidate_config_cache()
                         store.snapshot_config(load_config(config_path))
                         store.save()
                         chat_ui.notice(
@@ -1490,6 +1498,7 @@ async def _run_chat(
                         style = "success" if ok else "warning"
                         chat_ui.notice(msg, style=style)
                         if ok:
+                            invalidate_config_cache()
                             settings = load_config(config_path)
                             store.snapshot_config(settings)
                             store.save()
@@ -1510,6 +1519,7 @@ async def _run_chat(
                             store=store,
                             config_path=CONNECTORS_CONFIG_PATH,
                         )
+                        invalidate_config_cache()
                         settings = load_config(config_path)
 
                     elif cmd == "/testmode":
@@ -1544,6 +1554,7 @@ async def _run_chat(
                         style = "success" if ok else "warning"
                         chat_ui.notice(msg, style=style)
                         if ok:
+                            invalidate_config_cache()
                             settings = load_config(config_path)
 
                     elif cmd == "/push-connector":

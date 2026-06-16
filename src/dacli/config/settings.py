@@ -760,6 +760,31 @@ def _overlay_secrets(
     return config_data
 
 
+#: Cached Settings keyed by resolved config path. Each entry holds the file
+#: mtimes the result was built from — (config_mtime, secrets_path, secrets_mtime)
+#: — so a changed config.yaml *or* a wizard-written dacli.json reloads. load_config
+#: runs on every startup, /connect, /setup, validate and headless run; the YAML
+#: parse + secrets decrypt is otherwise repeated for no gain.
+_config_cache: dict[str, tuple[float | None, str, float | None, Settings]] = {}
+
+
+def invalidate_config_cache() -> None:
+    """Force the next load_config to re-read from disk.
+
+    The chat loop calls this right after a wizard/connect mutation: a sub-second
+    write can land on the same mtime, and a stale Settings would hide the new
+    credential from the next turn.
+    """
+    _config_cache.clear()
+
+
+def _mtime(path: str) -> float | None:
+    try:
+        return os.stat(path).st_mtime
+    except OSError:
+        return None
+
+
 def load_config(config_path: str | None = None) -> Settings:
     """
     Load configuration from YAML file with environment variable substitution.
@@ -774,8 +799,16 @@ def load_config(config_path: str | None = None) -> Settings:
 
     config_file = resolve_config_path(config_path)
     if config_file is None:
-        # Return default settings
+        # No file to stat, so nothing to key a cache on; defaults are cheap.
         return Settings()
+
+    key = str(config_file)
+    config_mtime = _mtime(key)
+    cached = _config_cache.get(key)
+    if cached is not None:
+        cfg_mtime, secrets_path, secrets_mtime, settings = cached
+        if cfg_mtime == config_mtime and _mtime(secrets_path) == secrets_mtime:
+            return settings
 
     # Load YAML
     with open(config_file, encoding="utf-8") as f:
@@ -791,11 +824,16 @@ def load_config(config_path: str | None = None) -> Settings:
 
     # Overlay credentials stored in .dacli/dacli.json (the setup wizard writes
     # them there); these fill any field left missing/placeholder by config+env.
+    secrets_path = ""
     if isinstance(config_data, dict):
-        secrets = _load_dacli_secrets(_dacli_base_dir(config_data))
+        base_dir = _dacli_base_dir(config_data)
+        secrets_path = str(Path(base_dir) / "dacli.json")
+        secrets = _load_dacli_secrets(base_dir)
         config_data = _overlay_secrets(config_data, secrets)
 
-    return Settings(**config_data)
+    settings = Settings(**config_data)
+    _config_cache[key] = (config_mtime, secrets_path, _mtime(secrets_path), settings)
+    return settings
 
 
 def save_config(settings: Settings, config_path: str = "config.yaml") -> None:
