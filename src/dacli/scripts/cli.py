@@ -1,4 +1,5 @@
 import asyncio
+import os
 import click
 
 from pathlib import Path
@@ -13,7 +14,7 @@ from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.key_binding import KeyBindings
 
-from dacli.core import __author__, __version__
+from dacli.core import __author__, __version__, paths
 from dacli.config import CLI_COMMANDS
 from dacli.config.settings import load_config, Settings, is_llm_configured
 from dacli.connectors.registry import (
@@ -273,13 +274,24 @@ def _init_dacli_md(settings: Settings) -> None:
 @click.pass_context
 def cli(ctx, config, session, version, setup, debug):
     # DACLI: AI-powered Data Engineering Assistant
-    # P06: configure the logging tree once, at the single CLI entry point.
-    # --debug (or DACLI_DEBUG=1) flips the whole tree to DEBUG.
-    setup_logging(debug=True if debug else None)
-
+    # P02: --version short-circuits before any state setup so it touches no FS.
+    # (--help is Click's eager option — it exits before this body runs.)
     if version:
         console.print(f"DACLI version {__version__}")
         return
+
+    # P06: configure the logging tree once, at the single CLI entry point.
+    # --debug (or DACLI_DEBUG=1) flips the whole tree to DEBUG. The handler is
+    # lazy, so nothing lands on disk until a WARNING+ record actually emits.
+    setup_logging(debug=True if debug else None)
+
+    # P02: one muted notice when we fall back to the global state dir — no
+    # project here and no DACLI_STATE_PATH override pinning it elsewhere.
+    if not os.environ.get(paths.STATE_PATH_ENV) and paths.project_root() is None:
+        console.print(
+            f"[muted]running outside a project — using global state at "
+            f"{paths.user_config_dir()}[/muted]"
+        )
 
     ctx.ensure_object(dict)
     ctx.obj["config_path"] = config
