@@ -1233,6 +1233,89 @@ class DacliUI:
         self.console.print(table)
         self.console.print()
 
+    def doctor_panel(self, diag) -> None:
+        """`/doctor` / `dacli doctor`: resolved paths + provider/governance/
+        sandbox/terminal/connector posture. Stacked key/value rows so it stays
+        legible down to narrow widths."""
+        ok, bad = self.glyphs.ok, self.glyphs.err
+        d = diag
+
+        def mark(flag: bool) -> str:
+            return f"[ok]{ok}[/ok]" if flag else f"[bad]{bad}[/bad]"
+
+        table = Table(show_header=False, box=None, padding=(0, 2, 0, 0))
+        table.add_column("Field", style="muted", no_wrap=True)
+        table.add_column("Value", style="info", overflow="fold")
+
+        cfg = d.config
+        table.add_row(
+            "config",
+            f"{cfg['path']}" if cfg["found"]
+            else "[warning]not found → using defaults[/warning]",
+        )
+        table.add_row("state dir", f"{d.state_dir['path']}  [muted]({d.state_dir['kind']})[/muted]")
+        table.add_row("log", d.log["path"])
+
+        llm = d.llm
+        src = f" [muted](source: {llm['source']})[/muted]" if llm["source"] else ""
+        ping = {"ok": f"[ok]{ok}[/ok]", "failed": f"[bad]{bad}[/bad]"}.get(
+            llm["ping"], "[muted]skipped[/muted]"
+        )
+        model = llm["model"] or "[warning](unset)[/warning]"
+        table.add_row(
+            "llm",
+            f"{llm['provider']}/{model}   key: {mark(llm['key'])}{src}   ping: {ping}",
+        )
+
+        gov = d.governance
+        policy = "built-in defaults" if gov["policy_default"] else gov["policy"]
+        table.add_row(
+            "governance",
+            f"{'enabled' if gov['enabled'] else 'disabled'}  [muted]·[/muted]  "
+            f"policy: {policy}",
+        )
+
+        sb = d.sandbox
+        if not sb["enabled"]:
+            sandbox_val = "[muted]disabled[/muted]"
+        elif sb["runtime"] == "docker":
+            img = "image present" if sb["image_present"] else "[warning]image absent[/warning]"
+            sandbox_val = f"docker  [muted]({img})[/muted]"
+        else:
+            note = "docker unavailable → fallback" if sb["fallback"] else "no docker"
+            sandbox_val = f"subprocess  [muted]({note})[/muted]"
+        table.add_row("sandbox", sandbox_val)
+
+        term = d.terminal
+        term_val = f"{term['shell']}  [muted]· scope {term['scope']}[/muted]"
+        if not term["enabled"]:
+            term_val = f"[muted]disabled[/muted]  ({term_val})"
+        table.add_row("terminal", term_val)
+
+        conn = d.connectors
+        table.add_row(
+            "connectors",
+            f"{conn['enabled']} enabled  [muted]·[/muted]  {conn['skipped']} skipped",
+        )
+        for cid, reason in conn["skipped_detail"].items():
+            table.add_row("", f"[warning]{cid}[/warning]: {reason}")
+
+        border = "border" if d.ok else "warning"
+        self.console.print(
+            Panel(
+                table,
+                title="[accent]doctor[/accent]",
+                title_align="left",
+                box=self.glyphs.box,
+                border_style=border,
+                padding=SPACING["panel_pad"],
+            )
+        )
+        if not d.ok:
+            for p in d.problems:
+                self.notice(p, style="warning")
+        self.console.print()
+
     def sessions_table(self, sessions: list[dict[str, Any]], limit: int = 10) -> None:
         if not sessions:
             self.console.print(

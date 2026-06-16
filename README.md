@@ -8,7 +8,7 @@
 
 [![CI](https://github.com/mouadja02/dacli/actions/workflows/ci.yml/badge.svg)](https://github.com/mouadja02/dacli/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-646-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-654-brightgreen.svg)](#testing)
 [![Reliability](https://img.shields.io/badge/reliability-pass%5Ek-orange.svg)](docs/EVALUATION.md)
 [![Architecture](https://img.shields.io/badge/architecture-six--component%20harness-8A2BE2.svg)](docs/ARCHITECTURE.md)
 
@@ -277,6 +277,7 @@ executes step by step, and verifies each step against the platform before moving
 | `dacli diff <connector> <a> <b> [--sample N]` | Read-only data diff: row-count delta, per-column null rates over a bounded sample, sampled value comparison. The agent-side `data_diff` skill adds an approval-gated `mode=promote`. |
 | `dacli setup [--profile <name>]` | Connector setup wizard. Profiles: `full`, `none`, `<connector>_only`. |
 | `dacli validate` | Live-test every enabled connector's credentials. |
+| `dacli doctor [--ping] [--json]` | Diagnose where config/state/log resolve, the LLM key + its source (never the value), governance/sandbox/terminal posture and connector status. Offline by default (`--ping` adds a bounded models/list probe); exits non-zero on a hard problem. |
 | `dacli eval [--quick] [--regression] [--calibrate] [--json] [--report <path>.md\|.html]` | Run the pass^k reliability suite + dashboard; `--report` writes a shareable Markdown/HTML scorecard. |
 | `dacli audit [--session <id>] [--full]` | Reconstruct governance decisions ("why did it act?"). |
 | `dacli context [--task <t>] [--explain]` | Inspect the assembled context (sources, tokens, budget). |
@@ -294,7 +295,7 @@ executes step by step, and verifies each step against the platform before moving
 
 ### In-chat slash commands
 
-`/help` · `/keys` · `/init` · `/status` · `/usage` · `/context` · `/audit` · `/tools` · `/connect [tool]` ·
+`/help` · `/keys` · `/init` · `/status` · `/doctor` · `/usage` · `/context` · `/audit` · `/tools` · `/connect [tool]` ·
 `/new-connector` · `/testmode [tool]` · `/import-connector` · `/push-connector` · `/debug-connector <name>` ·
 `/setup` · `/history` · `/sessions` · `/catalog [connector]` · `/schema <object>` · `/load <id>` · `/export` ·
 `/config` · `/theme <name>` · `/prompt` · `/clear` · `/cls` · `/reset` · `/exit`

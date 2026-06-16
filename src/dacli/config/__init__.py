@@ -10,6 +10,7 @@ CLI_COMMANDS = [
     ("/keys", "Show keyboard shortcuts"),
     ("/init", "Generate a DACLI.md priors draft from your config"),
     ("/status", "Show current progress and state"),
+    ("/doctor", "Diagnose config/state/LLM/connectors (where things resolve, what's live)"),
     ("/usage", "Show token usage and cost (overall, by model, this session)"),
     ("/context", "Explain the assembled context (sources, tokens, budget)"),
     ("/audit", "Show governance decisions for this session (why the agent acted)"),
