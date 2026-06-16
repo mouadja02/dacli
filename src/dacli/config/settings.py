@@ -7,8 +7,28 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
+
+def _load_env_files() -> None:
+    """Load ``.env`` from the resolved project/config dir, not raw cwd.
+
+    A global CLI inherits whatever dir the user ``cd``s into; a raw cwd
+    ``load_dotenv()`` would let an attacker-controlled ``.env`` there inject env
+    (e.g. ``OPENAI_BASE_URL`` → a credential-harvesting proxy) that then satisfies
+    ``${VAR}`` substitutions. So load only from a recognised project root (P01),
+    falling back to the per-user config dir — never an arbitrary cwd. Gate the
+    whole thing behind ``DACLI_USE_DOTENV`` (default on, set ``0`` to disable).
+    """
+    if os.environ.get("DACLI_USE_DOTENV", "1").strip().lower() in ("0", "false", "no"):
+        return
+    from dacli.core import paths
+
+    root = paths.project_root()
+    target = (root if root is not None else paths.user_config_dir()) / ".env"
+    if target.exists():
+        load_dotenv(target)
+
+
+_load_env_files()
 
 
 def _substitute_env_vars(value: Any, unresolved: set[str] | None = None) -> Any:

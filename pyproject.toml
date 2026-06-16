@@ -77,6 +77,10 @@ pty       = [
 # Opt-in MCP *client* bridge (P11/F-7). Lazy-imported inside the mcp_bridge
 # connector's connect(); a default install never imports (or speaks) MCP.
 mcp       = ["mcp>=1,<2"]
+# Store the Fernet key in the OS keyring instead of the .key file (P09). Selected
+# with DACLI_KEY_BACKEND=keyring; lazy-imported in core.crypto, so a default
+# install never imports it.
+keyring   = ["keyring>=24,<26"]
 dev       = ["pytest>=8,<10", "ruff>=0.15,<0.16", "vulture>=2,<3"]
 # Convenience aggregate: every Python-SDK connector at once.
 all       = ["dacli[snowflake,pinecone]"]
