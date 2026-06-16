@@ -401,6 +401,27 @@ def init(config):
 
 @cli.command()
 @click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
+@click.option("--ping", is_flag=True, help="Probe the LLM with a bounded models/list call (off by default)")
+@click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON")
+def doctor(config, ping, as_json):
+    """Diagnose config/state/log resolution, the LLM key, governance, sandbox,
+    terminal and connector status. Offline unless --ping. Exits non-zero on a
+    hard problem (no LLM key, config not found)."""
+    from dacli.core.doctor import collect
+
+    settings = load_config(config)
+    diag = collect(settings, config_path=config, ping=ping)
+    if as_json:
+        import json
+
+        click.echo(json.dumps(diag.to_dict(), indent=2, default=str))
+    else:
+        ui.doctor_panel(diag)
+    raise SystemExit(0 if diag.ok else 1)
+
+
+@cli.command()
+@click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
 def validate(config):
     # Validate configuration and test connections.
     settings = load_config(config)
@@ -1283,6 +1304,13 @@ async def _run_chat(
 
                     elif cmd == "/status":
                         chat_ui.status_panel(memory)
+
+                    elif cmd == "/doctor":
+                        from dacli.core.doctor import collect
+
+                        chat_ui.doctor_panel(
+                            collect(settings, config_path=config_path, ping="ping" in args)
+                        )
 
                     elif cmd == "/usage":
                         print_usage(
