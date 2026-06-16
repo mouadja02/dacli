@@ -1219,11 +1219,14 @@ async def _run_chat(
     store.save()
 
     con.print()
+    resolved_config = paths.resolve_config_path(config_path)
     chat_ui.welcome(
         model=settings.llm.model,
         provider=settings.llm.provider,
         connectors=_enabled_connector_names(agent.registry),
         cwd=str(Path.cwd()),
+        config=str(resolved_config) if resolved_config else None,
+        state=str(paths.state_dir()),
     )
 
     # Surface any connectors the registry had to skip (bad manifest / import

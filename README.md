@@ -8,7 +8,7 @@
 
 [![CI](https://github.com/mouadja02/dacli/actions/workflows/ci.yml/badge.svg)](https://github.com/mouadja02/dacli/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-654-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-658-brightgreen.svg)](#testing)
 [![Reliability](https://img.shields.io/badge/reliability-pass%5Ek-orange.svg)](docs/EVALUATION.md)
 [![Architecture](https://img.shields.io/badge/architecture-six--component%20harness-8A2BE2.svg)](docs/ARCHITECTURE.md)
 
@@ -141,6 +141,35 @@ the platform's **first-class CLI** rather than bundling SDKs — install the CLI
 
 **Requirements:** Python **3.10+** (CI runs 3.10–3.12).
 
+End users — an isolated, on-PATH install:
+
+```bash
+pipx install dacli          # or: uv tool install dacli
+```
+
+Embedding dacli as a library:
+
+```bash
+pip install dacli
+```
+
+> Not on PyPI yet. Until the first release lands, install [from source](#from-source)
+> — after that, `pipx`/`uv` is the one-line path.
+
+### First 2 minutes
+
+```bash
+pipx install dacli
+dacli                                  # bootstraps your LLM key (encrypted, no .env needed)
+> ask it something about your data
+dacli plan "drop table prod.users"     # see the guardrails — zero risk, no creds
+```
+
+`plan` (and `eval`, `diff`) run fully offline: no API key, no network, no credentials. They're the
+zero-risk way to see what dacli does before you wire up a single connector.
+
+### From source
+
 ```bash
 git clone https://github.com/mouadja02/dacli.git
 cd dacli
@@ -168,8 +197,7 @@ pip install -e ".[pty]"     # faithful TTY for the governed terminal
 > copy and silently diverges from your working tree as you edit.
 
 > For a byte-for-byte reproducible environment (what CI uses), install the pinned closure instead:
-> `pip install -r requirements.lock && pip install -e . --no-deps`. Once dacli is published to PyPI,
-> `pipx install dacli` / `uv tool install dacli` will be the primary one-line install.
+> `pip install -r requirements.lock && pip install -e . --no-deps`.
 
 For CLI-first connectors, install the relevant platform CLIs and authenticate them as you normally would:
 
@@ -180,6 +208,9 @@ For CLI-first connectors, install the relevant platform CLIs and authenticate th
 | S3 / DynamoDB | AWS CLI (`aws`) |
 | dbt | `dbt-core` + the relevant adapter (e.g. `dbt-snowflake`) |
 | Postgres / MySQL / Mongo | `psql` / `mysql` / `mongosh` |
+
+Something off? run `dacli doctor` — it reports where config, state, and logs resolve, your LLM key's
+source (never the value), governance/sandbox posture, and per-connector health.
 
 ---
 
