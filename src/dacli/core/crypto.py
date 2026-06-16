@@ -92,6 +92,29 @@ def _derive_key(password: bytes) -> bytes:
     return base64.urlsafe_b64encode(kdf.derive(password))
 
 
+#: Derived keys keyed by (base_dir, sha256(password)). The derivation is
+#: deterministic for a given source, so caching it is correctness-neutral; what
+#: it saves is 480k PBKDF2 iterations on every encrypt/decrypt for a passphrase
+#: key source (load_config decrypts once per stored secret, repeatedly).
+_key_cache: dict[tuple[str, str], bytes] = {}
+
+
+def reset_key_cache() -> None:
+    """Drop cached derived keys. Call on key rotation (the source changed)."""
+    _key_cache.clear()
+
+
+def _cached_derive(base_dir: str, password: bytes) -> bytes:
+    import hashlib
+
+    key = (base_dir, hashlib.sha256(password).hexdigest())
+    derived = _key_cache.get(key)
+    if derived is None:
+        derived = _derive_key(password)
+        _key_cache[key] = derived
+    return derived
+
+
 def get_encryption_key(base_dir: str | None = None) -> bytes:
     base = Path(base_dir) if base_dir else _resolve_base_dir()
     key_file = base / _KEY_FILE
@@ -99,16 +122,18 @@ def get_encryption_key(base_dir: str | None = None) -> bytes:
     env_key = os.environ.get("DACLI_ENCRYPTION_KEY")
     if env_key:
         raw = env_key.encode("utf-8")
-        return _try_load_fernet_key(raw) or _derive_key(raw)
+        return _try_load_fernet_key(raw) or _cached_derive(str(base), raw)
 
     if key_file.exists():
         raw = key_file.read_bytes().strip()
         if raw:
-            return _try_load_fernet_key(raw) or _derive_key(raw)
+            return _try_load_fernet_key(raw) or _cached_derive(str(base), raw)
 
     key = Fernet.generate_key()
     base.mkdir(parents=True, exist_ok=True)
     key_file.write_bytes(key)
+    # A freshly generated key supersedes any derivation cached for this dir.
+    reset_key_cache()
     try:
         os.chmod(str(key_file), 0o600)
     except OSError:

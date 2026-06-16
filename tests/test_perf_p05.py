@@ -16,6 +16,7 @@ import contextlib
 import os
 import shutil
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -166,6 +167,66 @@ class ParallelInitializeTest(unittest.TestCase):
         # The final summary attributes success and failure to the right names.
         self.assertIn("Active tools: LLM, fine", joined)
         self.assertIn("Failed to initialize: boom", joined)
+
+
+class TokenCounterHotPathTest(unittest.TestCase):
+    """The tiktoken encoder is built once per counter, never per count()."""
+
+    def test_encoder_built_once_not_per_count(self):
+        import tiktoken
+        from dacli.context.tokenizer import TiktokenCounter
+
+        calls = {"n": 0}
+        real = tiktoken.get_encoding
+
+        def counting(name):
+            calls["n"] += 1
+            return real(name)
+
+        with mock.patch("tiktoken.get_encoding", side_effect=counting):
+            c = TiktokenCounter(model=None, provider=None)
+            for _ in range(50):
+                c.count("some text to tokenize repeatedly")
+        self.assertEqual(calls["n"], 1)
+
+    def test_token_pass_stays_under_budget(self):
+        from dacli.context.tokenizer import make_counter
+
+        counter = make_counter(None)
+        msgs = [{"role": "user", "content": "lorem ipsum " * 50} for _ in range(20)]
+        start = time.perf_counter()
+        for _ in range(100):
+            counter.count_messages(msgs)
+        # Generous: a per-count encoder rebuild would blow well past this.
+        self.assertLess(time.perf_counter() - start, 5.0)
+
+
+class ToolbarCostTest(unittest.TestCase):
+    """The bottom toolbar reads session cost in O(1), without the heavy summary."""
+
+    def _store(self):
+        from dacli.core.store import DacliStore
+
+        d = tempfile.mkdtemp(prefix="dacli_toolbar_")
+        _TEMP_DIRS.append(d)
+        return DacliStore(base_dir=d)
+
+    def test_session_cost_skips_usage_summary(self):
+        from dacli.core.pricing import TokenUsage
+
+        store = self._store()
+        store.record_usage(
+            "sess-1", "gpt-x", TokenUsage(input=1000, output=500), cost=0.25
+        )
+        self.assertAlmostEqual(store.session_cost_usd("sess-1"), 0.25, places=6)
+        # The toolbar path must not deep-copy every model/session bucket per keystroke.
+        with mock.patch.object(
+            store, "usage_summary", side_effect=AssertionError("summary in toolbar path")
+        ):
+            self.assertAlmostEqual(store.session_cost_usd("sess-1"), 0.25, places=6)
+
+    def test_session_cost_zero_for_unknown_session(self):
+        self.assertEqual(self._store().session_cost_usd("nope"), 0.0)
 
 
 if __name__ == "__main__":

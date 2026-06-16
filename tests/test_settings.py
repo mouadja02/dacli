@@ -1,7 +1,21 @@
+import json
 import os
+import shutil
+import tempfile
+import time
 import unittest
+from pathlib import Path
 
-from dacli.config.settings import Settings, _substitute_env_vars, is_llm_configured
+from cryptography.fernet import Fernet
+
+from dacli.config.settings import (
+    Settings,
+    _substitute_env_vars,
+    invalidate_config_cache,
+    is_llm_configured,
+    load_config,
+)
+from dacli.core.crypto import encrypt_value
 
 
 class SettingsEnvSubstitutionTest(unittest.TestCase):
@@ -67,6 +81,72 @@ class IsLlmConfiguredTest(unittest.TestCase):
     def test_real_key_and_model_is_configured(self):
         settings = self._settings(model="gpt-4o-mini", api_key="sk-real-key")
         self.assertTrue(is_llm_configured(settings))
+
+
+class LoadConfigCacheTest(unittest.TestCase):
+    """load_config caches on unchanged mtime and reloads on change/invalidation.
+
+    Stale config is a reliability bug (a saved secret the next turn can't see),
+    so invalidation correctness matters more than the cache hit.
+    """
+
+    def setUp(self):
+        invalidate_config_cache()
+        self._dir = tempfile.mkdtemp(prefix="dacli_cfg_")
+        self._cfg = Path(self._dir, "config.yaml")
+
+    def tearDown(self):
+        invalidate_config_cache()
+        shutil.rmtree(self._dir, ignore_errors=True)
+
+    def _state_path(self) -> str:
+        return Path(self._dir, "state").as_posix() + "/"
+
+    def _write(self, body: str) -> None:
+        self._cfg.write_text(
+            body + f"agent:\n  state_path: {self._state_path()}\n", encoding="utf-8"
+        )
+
+    def test_returns_cached_on_unchanged_mtime(self):
+        self._write("llm:\n  model: gpt-a\n")
+        s1 = load_config(str(self._cfg))
+        s2 = load_config(str(self._cfg))
+        self.assertIs(s1, s2)
+
+    def test_invalidate_forces_reload(self):
+        self._write("llm:\n  model: gpt-a\n")
+        s1 = load_config(str(self._cfg))
+        invalidate_config_cache()
+        s2 = load_config(str(self._cfg))
+        self.assertIsNot(s1, s2)
+        self.assertEqual(s2.llm.model, "gpt-a")
+
+    def test_file_change_reloads(self):
+        self._write("llm:\n  model: gpt-a\n")
+        s1 = load_config(str(self._cfg))
+        self._write("llm:\n  model: gpt-b\n")
+        # Bump mtime forward so the cache sees the change on coarse-clock filesystems.
+        future = time.time() + 10
+        os.utime(self._cfg, (future, future))
+        s2 = load_config(str(self._cfg))
+        self.assertEqual(s1.llm.model, "gpt-a")
+        self.assertEqual(s2.llm.model, "gpt-b")
+
+    def test_wizard_secret_visible_after_invalidation(self):
+        self._write("snowflake:\n  account: acct\n  password: ''\n")
+        s1 = load_config(str(self._cfg))
+        self.assertEqual(s1.snowflake.password, "")
+
+        # The wizard writes an encrypted secret into dacli.json at the base dir
+        # (parent of state_path). A .key there makes encryption deterministic.
+        Path(self._dir, ".key").write_bytes(Fernet.generate_key())
+        enc = encrypt_value("hunter2", base_dir=self._dir)
+        Path(self._dir, "dacli.json").write_text(
+            json.dumps({"secrets": {"snowflake": {"password": enc}}}), encoding="utf-8"
+        )
+        invalidate_config_cache()
+        s2 = load_config(str(self._cfg))
+        self.assertEqual(s2.snowflake.password, "hunter2")
 
 
 if __name__ == "__main__":

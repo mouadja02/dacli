@@ -9,6 +9,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from cryptography.fernet import Fernet
 
@@ -60,6 +61,53 @@ class DecryptValueTest(unittest.TestCase):
 
     def test_empty_value_passes_through(self):
         self.assertEqual(decrypt_value("", base_dir=None), "")
+
+
+class DerivedKeyCacheTest(unittest.TestCase):
+    """A password key source must run PBKDF2 once, not once per decrypt."""
+
+    def setUp(self):
+        # A passphrase (not a 44-char Fernet key) forces the PBKDF2 path.
+        self._saved_env = os.environ.get("DACLI_ENCRYPTION_KEY")
+        os.environ["DACLI_ENCRYPTION_KEY"] = "a-passphrase-not-a-fernet-key"
+        crypto.reset_key_cache()
+
+    def tearDown(self):
+        if self._saved_env is None:
+            os.environ.pop("DACLI_ENCRYPTION_KEY", None)
+        else:
+            os.environ["DACLI_ENCRYPTION_KEY"] = self._saved_env
+        crypto.reset_key_cache()
+
+    def _count_derivations(self):
+        calls = {"n": 0}
+        real = crypto._derive_key
+
+        def counting(password):
+            calls["n"] += 1
+            return real(password)
+
+        return calls, counting
+
+    def test_password_key_derived_once_across_many_decrypts(self):
+        calls, counting = self._count_derivations()
+        with tempfile.TemporaryDirectory() as base, mock.patch.object(
+            crypto, "_derive_key", side_effect=counting
+        ):
+            token = encrypt_value("secret", base_dir=base)
+            for _ in range(5):
+                self.assertEqual(decrypt_value(token, base_dir=base), "secret")
+        self.assertEqual(calls["n"], 1)
+
+    def test_reset_key_cache_forces_rederivation(self):
+        calls, counting = self._count_derivations()
+        with tempfile.TemporaryDirectory() as base, mock.patch.object(
+            crypto, "_derive_key", side_effect=counting
+        ):
+            encrypt_value("secret", base_dir=base)
+            crypto.reset_key_cache()
+            encrypt_value("secret", base_dir=base)
+        self.assertEqual(calls["n"], 2)
 
 
 class SurfaceFailuresTest(unittest.TestCase):

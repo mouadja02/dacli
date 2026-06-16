@@ -259,6 +259,16 @@ class DacliStore:
     # ------------------------------------------------------------------
     # reads
     # ------------------------------------------------------------------
+    def session_cost_usd(self, session_id: str) -> float:
+        """One session's running cost — O(1), no bucket copies.
+
+        The bottom toolbar reads this on every keystroke (complete_while_typing),
+        so it can't go through usage_summary, which copies every model/session
+        bucket. The total is already accumulated per turn by record_usage.
+        """
+        sess = self._data["usage"]["sessions"].get(session_id)
+        return float(sess.get("costUSD", 0.0)) if sess else 0.0
+
     def usage_summary(self, session_id: str | None = None) -> dict[str, Any]:
         u = self._data["usage"]
         return {
