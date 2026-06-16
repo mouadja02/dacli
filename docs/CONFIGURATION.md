@@ -210,6 +210,48 @@ Every status color is paired with a glyph, so the interface is colorblind-safe b
 
 ---
 
+## Security
+
+### Where the encryption key lives
+
+Secrets in `.dacli/dacli.json` are Fernet-encrypted; the key is resolved in this order:
+
+1. `DACLI_ENCRYPTION_KEY` — a raw Fernet key or a passphrase (PBKDF2-derived). Highest priority.
+2. The OS keyring, when `DACLI_KEY_BACKEND=keyring` and the `keyring` extra is installed (see below).
+3. A `.key` file next to `dacli.json`.
+
+For a fresh install the `.key` lands in the resolved state dir: `<project>/.dacli` inside a project,
+the per-user config dir (`%APPDATA%\dacli` / `~/.config/dacli`, overridable with `DACLI_HOME`) outside
+one. An existing `.dacli/.key` in the cwd keeps being used, so older installs don't break.
+
+The key and the secrets store share a directory by design (encrypt and decrypt must agree on the key
+location). Read access to that directory therefore yields both — the encryption defends against casual
+disclosure, not against someone who can already read the folder. On creation the key file is locked to
+the current user: `chmod 600` on POSIX, `icacls /inheritance:r /grant:r <user>:F` on Windows (where
+`os.chmod` only flips the read-only bit). If the ACL can't be tightened, dacli warns once that the key
+inherits the directory's permissions.
+
+### OS keyring backend
+
+```bash
+pip install "dacli[keyring]"
+export DACLI_KEY_BACKEND=keyring      # default: file
+```
+
+The Fernet key is then stored in the OS keyring (Windows Credential Manager, macOS Keychain, Secret
+Service on Linux) instead of the `.key` file. One key per OS user. An existing `.key` file is left in
+place rather than auto-migrated — delete it by hand once the keyring holds the key. Without the extra
+installed, dacli warns once and falls back to the file.
+
+### `.env` trust boundary
+
+dacli loads `.env` from the **resolved project root** (or the per-user config dir outside a project) —
+never the raw cwd. A global CLI inherits whatever directory you `cd` into, and a raw-cwd `.env` lets an
+attacker-controlled file inject env (e.g. `OPENAI_BASE_URL` → a credential-harvesting proxy) that then
+satisfies `${VAR}` placeholders. Set `DACLI_USE_DOTENV=0` to disable `.env` loading entirely.
+
+---
+
 ## System prompt layering
 
 The agent's system prompt is built from three layers, top to bottom:

@@ -57,13 +57,21 @@ def resolve_base_dir(state_path: str | None = None) -> Path:
     and this module — resolve through here so the three never drift apart.
 
     The env var name and the cwd-relative default are owned by :mod:`core.paths`
-    (the one resolver); the default still lands in cwd this release — P02 switches
-    the no-override default to :func:`core.paths.state_dir` (project/user dirs).
+    (the one resolver). With no explicit override the base dir comes from
+    :func:`core.paths.state_dir` — project-local ``.dacli`` inside a project,
+    the per-user config dir outside one (P09) — so a fresh key no longer lands
+    in a broadly-readable cwd. Back-compat: an existing cwd ``.dacli/.key`` is
+    detected and kept, so installs that predate the move keep working.
     """
     from dacli.core import paths
 
-    sp = state_path or os.environ.get(paths.STATE_PATH_ENV) or paths.DEFAULT_STATE_PATH
-    return Path(sp).parent
+    sp = state_path or os.environ.get(paths.STATE_PATH_ENV)
+    if sp:
+        return Path(sp).parent
+    legacy = Path(paths.DEFAULT_STATE_PATH).parent
+    if (legacy / _KEY_FILE).exists():
+        return legacy
+    return paths.state_dir()
 
 
 def _resolve_base_dir() -> Path:
@@ -115,6 +123,100 @@ def _cached_derive(base_dir: str, password: bytes) -> bytes:
     return derived
 
 
+#: Optional OS-keyring backend. Selected by ``DACLI_KEY_BACKEND=keyring`` (env,
+#: not config, so the choice never depends on decrypting the very store the key
+#: protects). Stores one Fernet key per OS user under this service/account.
+_KEYRING_BACKEND_ENV = "DACLI_KEY_BACKEND"
+_KEYRING_SERVICE = "dacli"
+_KEYRING_ACCOUNT = "encryption-key"
+_warned_no_keyring = False
+_warned_broad_acl: set = set()
+
+
+def _keyring_selected() -> bool:
+    return os.environ.get(_KEYRING_BACKEND_ENV, "file").strip().lower() == "keyring"
+
+
+def _keyring_get_or_create(key_file: Path) -> bytes | None:
+    """Fetch the Fernet key from the OS keyring, generating+storing one if absent.
+
+    Returns ``None`` to fall back to the file backend when keyring isn't
+    installed/reachable, or when a ``.key`` file already exists (don't silently
+    mint a second key that can't decrypt the old store — migrate by hand).
+    """
+    global _warned_no_keyring
+    try:
+        import keyring
+    except ImportError:
+        if not _warned_no_keyring:
+            _warned_no_keyring = True
+            log.warning(
+                "DACLI_KEY_BACKEND=keyring but the 'keyring' package isn't "
+                "installed; using the .key file. Install with: pip install dacli[keyring]"
+            )
+        return None
+    try:
+        existing = keyring.get_password(_KEYRING_SERVICE, _KEYRING_ACCOUNT)
+    except Exception:
+        log.debug("keyring read failed; using file backend", exc_info=True)
+        return None
+    if existing:
+        return existing.encode("utf-8")
+    if key_file.exists():
+        return None
+    key = Fernet.generate_key()
+    try:
+        keyring.set_password(_KEYRING_SERVICE, _KEYRING_ACCOUNT, key.decode("utf-8"))
+    except Exception:
+        log.debug("keyring write failed; using file backend", exc_info=True)
+        return None
+    reset_key_cache()
+    return key
+
+
+def _secure_key_file(key_file: Path) -> None:
+    """Restrict the new key file to the current user.
+
+    POSIX: ``chmod 600``. Windows: ``os.chmod`` only flips the read-only bit, so
+    strip inherited ACEs and grant the current user explicitly via ``icacls``.
+    If that can't run, warn once that the key sits in a broadly-readable dir.
+    """
+    if os.name != "nt":
+        try:
+            os.chmod(str(key_file), 0o600)
+        except OSError:
+            log.debug("could not chmod 600 the key file %s", key_file, exc_info=True)
+        return
+
+    import getpass
+    import subprocess
+
+    try:
+        user = getpass.getuser()
+        subprocess.run(
+            ["icacls", str(key_file), "/inheritance:r", "/grant:r", f"{user}:F"],
+            check=True,
+            capture_output=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        _warn_broad_key_acl(key_file)
+
+
+def _warn_broad_key_acl(key_file: Path) -> None:
+    parent = str(key_file.parent)
+    if parent in _warned_broad_acl:
+        return
+    _warned_broad_acl.add(parent)
+    msg = (
+        f"Couldn't tighten the encryption key's ACL ({key_file}); it inherits the "
+        f"directory's permissions. Anyone who can read {parent} can read the key. "
+        "Move it to a per-user dir (set DACLI_HOME) or restrict the folder."
+    )
+    log.warning("broad ACL on key file %s", key_file)
+    print(msg, file=sys.stderr)
+
+
 def get_encryption_key(base_dir: str | None = None) -> bytes:
     base = Path(base_dir) if base_dir else _resolve_base_dir()
     key_file = base / _KEY_FILE
@@ -123,6 +225,11 @@ def get_encryption_key(base_dir: str | None = None) -> bytes:
     if env_key:
         raw = env_key.encode("utf-8")
         return _try_load_fernet_key(raw) or _cached_derive(str(base), raw)
+
+    if _keyring_selected():
+        key = _keyring_get_or_create(key_file)
+        if key is not None:
+            return key
 
     if key_file.exists():
         raw = key_file.read_bytes().strip()
@@ -134,11 +241,7 @@ def get_encryption_key(base_dir: str | None = None) -> bytes:
     key_file.write_bytes(key)
     # A freshly generated key supersedes any derivation cached for this dir.
     reset_key_cache()
-    try:
-        os.chmod(str(key_file), 0o600)
-    except OSError:
-        # chmod is a best-effort tighten-down (e.g. unsupported on Windows).
-        log.debug("could not chmod 600 the key file %s", key_file, exc_info=True)
+    _secure_key_file(key_file)
     return key
 
 
