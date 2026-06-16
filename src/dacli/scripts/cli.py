@@ -31,7 +31,6 @@ from dacli.core.setup_wizard import SetupWizard, QuickSetup, collect_llm_credent
 from dacli.prompts.system_prompt import (
     get_default_system_prompt,
     save_system_prompt,
-    SYSTEM_PROMPT_FILE,
 )
 from dacli.tui import DacliUI, THEMES
 from dacli.tui.design import ASCII as ASCII_GLYPHS
@@ -976,22 +975,36 @@ def replay_cmd(scenario_file, as_json):
 
 
 @cli.command()
-@click.option("--output", "-o", type=click.Path(), help="Output file path")
-def prompt(output):
-    # View or edit the system prompt. Shows the exact live source (the composed
-    # core.md) the agent runs on — one source of truth, no drift (07.E).
+@click.option("--output", "-o", type=click.Path(), help="Export the composed prompt to a file")
+@click.option("--edit", is_flag=True, help="Create the editable overlay (if missing) and open it")
+def prompt(output, edit):
+    # View or customize the system prompt. The composed prompt (core.md + overlay)
+    # is the live source the agent runs on — one source of truth, no drift (07.E).
     current_prompt = get_default_system_prompt()
+    overlay = paths.user_prompt_overlay()
+
+    if edit:
+        if not overlay.exists():
+            save_system_prompt(current_prompt)
+            console.print(f"[success]Created overlay {overlay}[/success]")
+        else:
+            console.print(f"[info]Overlay already exists: {overlay}[/info]")
+        editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+        if editor:
+            click.edit(filename=str(overlay))
+        else:
+            console.print("[dim]Set $EDITOR to open it automatically.[/dim]")
+        return
 
     if output:
-        # Save to file
         save_system_prompt(current_prompt, output)
         console.print(f"[success]Saved system prompt to {output}[/success]")
     else:
-        # Display current prompt
         md = Markdown(current_prompt)
         console.print(Panel(md, title="System Prompt", border_style="cyan"))
-        console.print(f"\n[dim]Prompt file: {SYSTEM_PROMPT_FILE}[/dim]")
-        console.print("[dim]Edit this file to customize the agent's behavior.[/dim]")
+        console.print("\n[dim]The prompt is built-in and read-only.[/dim]")
+        console.print("[dim]To customize: run `dacli init` for editable DACLI.md priors,[/dim]")
+        console.print(f"[dim]or `dacli prompt --edit` to edit the overlay at {overlay}.[/dim]")
 
 
 # ============================================================
@@ -1369,6 +1382,12 @@ async def _run_chat(
                         chat_ui.panel(
                             Markdown(prompt_content[:2000] + "…"),
                             title="[accent]System prompt[/accent]",
+                        )
+                        chat_ui.notice(
+                            "Built-in and read-only. Customize via `dacli init` "
+                            f"(DACLI.md) or the overlay at {paths.user_prompt_overlay()} "
+                            "(`dacli prompt --edit`).",
+                            style="muted",
                         )
 
                     elif cmd == "/clear":
