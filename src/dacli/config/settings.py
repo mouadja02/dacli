@@ -215,111 +215,6 @@ class EmbeddingsSettings(BaseModel):
     model: str = ""
 
 
-class BigQuerySettings(BaseModel):
-    # BigQuery configuration (Wave 1). CLI-first: the `bq` / `gcloud`
-    # CLIs are preferred. All fields optional so the connector can be discovered
-    # (and the agent can boot) before BigQuery is configured.
-    project: str = ""
-    dataset: str = ""
-    location: str = "US"
-    credentials_path: str = ""  # GOOGLE_APPLICATION_CREDENTIALS service-account JSON
-    bq_binary: str = "bq"
-    timeout: int = Field(default=300, ge=1)
-
-
-class DatabricksSettings(BaseModel):
-    # Databricks configuration (Wave 1). CLI-first via the `databricks`
-    # CLI; SQL runs against a SQL warehouse.
-    host: str = ""  # https://<workspace>.cloud.databricks.com
-    token: str = ""
-    warehouse_id: str = ""
-    catalog: str = ""
-    db_schema: str = Field(default="default", alias="schema")
-    databricks_binary: str = "databricks"
-    timeout: int = Field(default=300, ge=1)
-
-    model_config = ConfigDict(populate_by_name=True)
-
-
-class GCSSettings(BaseModel):
-    # Google Cloud Storage configuration (Wave 1). CLI-first via
-    # `gcloud storage` (falls back to `gsutil` shape).
-    bucket: str = ""
-    prefix: str = ""
-    project: str = ""
-    credentials_path: str = ""
-    gcloud_binary: str = "gcloud"
-    timeout: int = Field(default=300, ge=1)
-
-
-class PostgresSettings(BaseModel):
-    # PostgreSQL configuration (Wave 2). CLI-first via `psql`.
-    host: str = "localhost"
-    port: int = 5432
-    database: str = ""
-    user: str = ""
-    password: str = ""
-    sslmode: str = ""  # e.g. require / verify-full
-    psql_binary: str = "psql"
-    timeout: int = Field(default=300, ge=1)
-
-
-class MySQLSettings(BaseModel):
-    # MySQL configuration (Wave 2). CLI-first via `mysql`.
-    host: str = "localhost"
-    port: int = 3306
-    database: str = ""
-    user: str = ""
-    password: str = ""
-    mysql_binary: str = "mysql"
-    mysqldump_binary: str = "mysqldump"
-    timeout: int = Field(default=300, ge=1)
-
-
-class MongoDBSettings(BaseModel):
-    # MongoDB configuration (Wave 2). CLI-first via `mongosh`.
-    uri: str = ""  # mongodb://… connection string
-    database: str = ""
-    sample_size: int = Field(default=100, ge=1)  # docs sampled for schema inference
-    mongosh_binary: str = "mongosh"
-    timeout: int = Field(default=300, ge=1)
-
-
-class DynamoDBSettings(BaseModel):
-    # DynamoDB configuration (Wave 2). CLI-first via `aws dynamodb`.
-    region: str = ""
-    profile: str = ""
-    aws_binary: str = "aws"
-    timeout: int = Field(default=300, ge=1)
-
-
-class AirflowSettings(BaseModel):
-    # Airflow configuration (Wave 3). REST API (stable v1).
-    base_url: str = ""  # e.g. https://airflow.example.com
-    username: str = ""
-    password: str = ""
-    token: str = ""  # bearer token (alternative to basic auth)
-    poll_interval: int = Field(default=5, ge=1)
-    timeout: int = Field(default=600, ge=1)
-
-
-class DagsterSettings(BaseModel):
-    # Dagster configuration (Wave 3). GraphQL API.
-    base_url: str = ""  # e.g. https://dagster.example.com
-    token: str = ""
-    poll_interval: int = Field(default=5, ge=1)
-    timeout: int = Field(default=600, ge=1)
-
-
-class DbtSettings(BaseModel):
-    # dbt configuration (Wave 1). CLI-first via the `dbt` CLI.
-    project_dir: str = ""  # path to the dbt project (dbt_project.yml lives here)
-    profiles_dir: str = ""  # path to profiles.yml (defaults to ~/.dbt)
-    target: str = ""  # dbt target/profile output, optional
-    dbt_binary: str = "dbt"
-    timeout: int = Field(default=900, ge=1)
-
-
 class McpSettings(BaseModel):
     # Opt-in MCP *client* bridge (F-7). dacli does NOT adopt MCP internally —
     # tools-as-code stays the core architecture. These settings only point the
@@ -587,22 +482,10 @@ class Settings(BaseModel):
     snowflake: SnowflakeSettings = Field(default_factory=SnowflakeSettings)
     github: GithubSettings = Field(default_factory=GithubSettings)
     pinecone: PineconeSettings = Field(default_factory=PineconeSettings)
-    # Wave 1 platforms (all optional; CLI-first).
-    bigquery: BigQuerySettings = Field(default_factory=BigQuerySettings)
-    databricks: DatabricksSettings = Field(default_factory=DatabricksSettings)
-    # s3 migrated to the manifest-config pattern (09/A-4): its non-secret config
-    # now lives under ``connector_config.s3`` and is read via ``ConnectorConfig``
-    # (no typed section here). The next connector to migrate follows the same path.
-    gcs: GCSSettings = Field(default_factory=GCSSettings)
-    dbt: DbtSettings = Field(default_factory=DbtSettings)
-    # Wave 2 operational databases (all optional; CLI-first).
-    postgres: PostgresSettings = Field(default_factory=PostgresSettings)
-    mysql: MySQLSettings = Field(default_factory=MySQLSettings)
-    mongodb: MongoDBSettings = Field(default_factory=MongoDBSettings)
-    dynamodb: DynamoDBSettings = Field(default_factory=DynamoDBSettings)
-    # Wave 3 — orchestration.
-    airflow: AirflowSettings = Field(default_factory=AirflowSettings)
-    dagster: DagsterSettings = Field(default_factory=DagsterSettings)
+    # Migrated to the manifest-config pattern (09/A-4): non-secret config lives
+    # under ``connector_config.<id>`` and is read via ``ConnectorConfig`` — no
+    # typed section here. s3, bigquery, databricks, gcs, dbt, postgres, mysql,
+    # mongodb, dynamodb, airflow and dagster all follow this.
     # Opt-in MCP client bridge (F-7); inert unless configured AND enabled.
     mcp: McpSettings = Field(default_factory=McpSettings)
     embeddings: EmbeddingsSettings = Field(default_factory=EmbeddingsSettings)
@@ -765,18 +648,32 @@ def _overlay_secrets(
     """Fill missing/placeholder config fields from the dacli.json secrets block.
 
     Explicit values from config.yaml / env take precedence; dacli.json only fills
-    holes (empty or unresolved ``${VAR}``), so wizard-stored credentials make the
-    agent work without a .env file.
+    holes (empty or unresolved ``${VAR}``), so wizard-/connect-stored credentials
+    make the agent work without a .env file.
+
+    A secret whose section names a typed ``Settings`` field fills that section
+    (e.g. ``llm.api_key``). A secret whose section names a *connector* on the
+    manifest-config pattern (09/A-4) — i.e. anything not a typed field — lands
+    under ``connector_config.<id>`` instead, where ``ConnectorConfig`` reads it.
+    This is the bridge that lets ``/connect`` (which writes ``secrets.<id>.*``)
+    reach a migrated connector.
     """
+    typed = set(Settings.model_fields)
     for section, fields in secrets.items():
         if not isinstance(fields, dict):
             continue
-        sec = config_data.get(section)
-        if not isinstance(sec, dict):
-            continue
+        if section in typed and section != "connector_config":
+            target = config_data.get(section)
+            if not isinstance(target, dict):
+                continue  # only fill a section the user already declared
+        else:
+            cc = config_data.setdefault("connector_config", {})
+            if not isinstance(cc, dict):
+                continue
+            target = cc.setdefault(section, {})
         for field, val in fields.items():
-            if val and _is_secret_placeholder(sec.get(field)):
-                sec[field] = val
+            if val and _is_secret_placeholder(target.get(field)):
+                target[field] = val
     return config_data
 
 

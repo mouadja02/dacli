@@ -17,6 +17,7 @@ import re
 import time
 from typing import Any
 
+from dacli.config.settings import ConnectorConfig
 from dacli.connectors.base import OperationSpec, Risk, ToolResult
 from dacli.connectors.cli_base import CliConnector
 from dacli.core.verify import PostCondition, VerificationContext, result_succeeded
@@ -93,8 +94,7 @@ class MySQLConnector(CliConnector):
 
     def __init__(self, settings: Any, runner=None):
         super().__init__(settings, runner=runner)
-        cfg = getattr(settings, "mysql", None)
-        self.binary = getattr(cfg, "mysql_binary", "mysql") or "mysql"
+        self.binary = ConnectorConfig(settings, "mysql").get("mysql_binary", "mysql") or "mysql"
 
     def operations(self) -> list[OperationSpec]:
         sql_param = {
@@ -147,32 +147,28 @@ class MySQLConnector(CliConnector):
         return self._unknown_op(op)
 
     # ------------------------------------------------------------------
-    def _cfg(self):
-        return getattr(self.settings, "mysql", None)
+    def _cfg(self) -> ConnectorConfig:
+        return ConnectorConfig(self.settings, "mysql")
 
     def _timeout(self) -> int:
-        cfg = self._cfg()
-        return getattr(cfg, "timeout", 300) if cfg else 300
+        return self._cfg().get("timeout", 300)
 
     def _conn_flags(self) -> list[str]:
+        # host/port carry the typed-section defaults so the wire path is
+        # unchanged when unconfigured.
         cfg = self._cfg()
-        flags: list[str] = []
-        if cfg:
-            if getattr(cfg, "host", ""):
-                flags += ["-h", str(cfg.host)]
-            if getattr(cfg, "port", ""):
-                flags += ["-P", str(cfg.port)]
-            if getattr(cfg, "user", ""):
-                flags += ["-u", str(cfg.user)]
-            if getattr(cfg, "database", ""):
-                flags += ["-D", str(cfg.database)]
+        flags = ["-h", str(cfg.get("host", "localhost")), "-P", str(cfg.get("port", 3306))]
+        if cfg.get("user", ""):
+            flags += ["-u", str(cfg.get("user"))]
+        if cfg.get("database", ""):
+            flags += ["-D", str(cfg.get("database"))]
         return flags
 
     def _env(self) -> dict[str, str]:
         cfg = self._cfg()
         env = dict(os.environ)
-        if cfg and getattr(cfg, "password", ""):
-            env["MYSQL_PWD"] = cfg.password
+        if cfg.get("password", ""):
+            env["MYSQL_PWD"] = cfg.get("password")
         return env
 
     async def _mysql(self, sql: str):
@@ -220,7 +216,7 @@ class MySQLConnector(CliConnector):
         started = time.time()
         cfg = self._cfg()
         schema = self._escape_literal(
-            args.get("schema") or (getattr(cfg, "database", "") if cfg else "")
+            args.get("schema") or cfg.get("database", "")
         )
         obj = self._escape_literal(args.get("object") or "")
         scope = {"schema": schema, "object": obj}

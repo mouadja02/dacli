@@ -21,6 +21,7 @@ import re
 import time
 from typing import Any
 
+from dacli.config.settings import ConnectorConfig
 from dacli.connectors.base import OperationSpec, Risk, ToolResult
 from dacli.connectors.cli_base import CliConnector
 from dacli.core.verify import PostCondition, VerificationContext, result_succeeded
@@ -102,8 +103,7 @@ class PostgresConnector(CliConnector):
 
     def __init__(self, settings: Any, runner=None):
         super().__init__(settings, runner=runner)
-        cfg = getattr(settings, "postgres", None)
-        self.binary = getattr(cfg, "psql_binary", "psql") or "psql"
+        self.binary = ConnectorConfig(settings, "postgres").get("psql_binary", "psql") or "psql"
 
     def operations(self) -> list[OperationSpec]:
         sql_param = {
@@ -156,34 +156,30 @@ class PostgresConnector(CliConnector):
         return self._unknown_op(op)
 
     # ------------------------------------------------------------------
-    def _cfg(self):
-        return getattr(self.settings, "postgres", None)
+    def _cfg(self) -> ConnectorConfig:
+        return ConnectorConfig(self.settings, "postgres")
 
     def _timeout(self) -> int:
-        cfg = self._cfg()
-        return getattr(cfg, "timeout", 300) if cfg else 300
+        return self._cfg().get("timeout", 300)
 
     def _conn_flags(self) -> list[str]:
+        # host/port carry the psql defaults the typed section used, so the wire
+        # path (TCP localhost, not a unix socket) is unchanged when unconfigured.
         cfg = self._cfg()
-        flags: list[str] = []
-        if cfg:
-            if getattr(cfg, "host", ""):
-                flags += ["-h", str(cfg.host)]
-            if getattr(cfg, "port", ""):
-                flags += ["-p", str(cfg.port)]
-            if getattr(cfg, "user", ""):
-                flags += ["-U", str(cfg.user)]
-            if getattr(cfg, "database", ""):
-                flags += ["-d", str(cfg.database)]
+        flags = ["-h", str(cfg.get("host", "localhost")), "-p", str(cfg.get("port", 5432))]
+        if cfg.get("user", ""):
+            flags += ["-U", str(cfg.get("user"))]
+        if cfg.get("database", ""):
+            flags += ["-d", str(cfg.get("database"))]
         return flags
 
     def _env(self) -> dict[str, str]:
         cfg = self._cfg()
         env = dict(os.environ)
-        if cfg and getattr(cfg, "password", ""):
-            env["PGPASSWORD"] = cfg.password
-        if cfg and getattr(cfg, "sslmode", ""):
-            env["PGSSLMODE"] = cfg.sslmode
+        if cfg.get("password", ""):
+            env["PGPASSWORD"] = cfg.get("password")
+        if cfg.get("sslmode", ""):
+            env["PGSSLMODE"] = cfg.get("sslmode")
         return env
 
     async def _psql(self, sql: str, *, tuples_only: bool = False):

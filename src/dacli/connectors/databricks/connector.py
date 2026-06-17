@@ -18,6 +18,7 @@ import re
 import time
 from typing import Any
 
+from dacli.config.settings import ConnectorConfig
 from dacli.connectors.base import OperationSpec, Risk, ToolResult
 from dacli.connectors.cli_base import CliConnector
 from dacli.core.verify import PostCondition, VerificationContext, result_succeeded
@@ -67,8 +68,7 @@ class DatabricksConnector(CliConnector):
 
     def __init__(self, settings: Any, runner=None):
         super().__init__(settings, runner=runner)
-        cfg = getattr(settings, "databricks", None)
-        self.binary = getattr(cfg, "databricks_binary", "databricks") or "databricks"
+        self.binary = ConnectorConfig(settings, "databricks").get("databricks_binary", "databricks") or "databricks"
 
     def operations(self) -> list[OperationSpec]:
         return [
@@ -111,25 +111,24 @@ class DatabricksConnector(CliConnector):
         return self._unknown_op(op)
 
     # ------------------------------------------------------------------
-    def _cfg(self):
-        return getattr(self.settings, "databricks", None)
+    def _cfg(self) -> ConnectorConfig:
+        return ConnectorConfig(self.settings, "databricks")
 
     def _timeout(self) -> int:
-        cfg = self._cfg()
-        return getattr(cfg, "timeout", 300) if cfg else 300
+        return self._cfg().get("timeout", 300)
 
     async def _query(self, sql: str) -> ToolResult:
         started = time.time()
         cfg = self._cfg()
         body: dict[str, Any] = {
-            "warehouse_id": getattr(cfg, "warehouse_id", "") if cfg else "",
+            "warehouse_id": cfg.get("warehouse_id", ""),
             "statement": sql,
             "wait_timeout": "50s",
         }
-        if cfg and getattr(cfg, "catalog", ""):
-            body["catalog"] = cfg.catalog
-        if cfg and getattr(cfg, "db_schema", ""):
-            body["schema"] = cfg.db_schema
+        if cfg.get("catalog", ""):
+            body["catalog"] = cfg.get("catalog")
+        if cfg.get("schema", ""):
+            body["schema"] = cfg.get("schema")
         argv = [self.binary, "api", "post", "/api/2.0/sql/statements", "--json", json.dumps(body)]
         res = await self._run(argv, timeout=self._timeout())
         if not res.ok:
@@ -146,8 +145,8 @@ class DatabricksConnector(CliConnector):
     async def _introspect(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         cfg = self._cfg()
-        catalog = args.get("catalog") or (getattr(cfg, "catalog", "") if cfg else "")
-        schema = args.get("schema") or (getattr(cfg, "db_schema", "") if cfg else "")
+        catalog = args.get("catalog") or cfg.get("catalog", "")
+        schema = args.get("schema") or cfg.get("schema", "")
         table = args.get("table") or ""
         full_name = ".".join([p for p in (catalog, schema, table) if p])
         scope = {"catalog": catalog or None, "schema": schema or None, "object": table}

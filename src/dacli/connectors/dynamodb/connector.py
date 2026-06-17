@@ -15,6 +15,7 @@ import json
 import time
 from typing import Any
 
+from dacli.config.settings import ConnectorConfig
 from dacli.connectors.base import OperationSpec, Risk, ToolResult
 from dacli.connectors.cli_base import CliConnector
 from dacli.core.verify import PostCondition, VerificationContext, result_succeeded, data_is_list
@@ -65,8 +66,7 @@ class DynamoDBConnector(CliConnector):
 
     def __init__(self, settings: Any, runner=None):
         super().__init__(settings, runner=runner)
-        cfg = getattr(settings, "dynamodb", None)
-        self.binary = getattr(cfg, "aws_binary", "aws") or "aws"
+        self.binary = ConnectorConfig(settings, "dynamodb").get("aws_binary", "aws") or "aws"
 
     def operations(self) -> list[OperationSpec]:
         table = {"type": "string", "description": "Table name."}
@@ -151,20 +151,19 @@ class DynamoDBConnector(CliConnector):
         return self._unknown_op(op)
 
     # ------------------------------------------------------------------
-    def _cfg(self):
-        return getattr(self.settings, "dynamodb", None)
+    def _cfg(self) -> ConnectorConfig:
+        return ConnectorConfig(self.settings, "dynamodb")
 
     def _timeout(self) -> int:
-        cfg = self._cfg()
-        return getattr(cfg, "timeout", 300) if cfg else 300
+        return self._cfg().get("timeout", 300)
 
     def _base(self, *sub: str) -> list[str]:
         cfg = self._cfg()
         argv = [self.binary, "dynamodb", *sub, "--output", "json"]
-        if cfg and getattr(cfg, "region", ""):
-            argv += ["--region", cfg.region]
-        if cfg and getattr(cfg, "profile", ""):
-            argv += ["--profile", cfg.profile]
+        if cfg.get("region", ""):
+            argv += ["--region", cfg.get("region")]
+        if cfg.get("profile", ""):
+            argv += ["--profile", cfg.get("profile")]
         return argv
 
     @staticmethod

@@ -165,8 +165,7 @@ class PipelineWiringTest(unittest.TestCase):
     """The agent's context pipeline feeds dbt models through live_provider."""
 
     def _pipeline(self, project_dir: str):
-        settings = Settings()
-        settings.dbt.project_dir = project_dir
+        settings = Settings(connector_config={"dbt": {"project_dir": project_dir}})
         system = SystemConnector(settings=None, memory=None)
         registry = _empty_registry()
         return build_context_pipeline(

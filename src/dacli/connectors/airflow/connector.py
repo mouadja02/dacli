@@ -20,6 +20,7 @@ import base64
 import time
 from typing import Any
 
+from dacli.config.settings import ConnectorConfig
 from dacli.connectors.base import OperationSpec, Risk, ToolResult
 from dacli.connectors.http_base import HttpConnector
 from dacli.core.verify import PostCondition, VerificationContext, result_succeeded, data_has_keys
@@ -74,24 +75,22 @@ def airflow_dag_absent() -> PostCondition:
 class AirflowConnector(HttpConnector):
     name = "airflow"
 
-    def _cfg(self):
-        return getattr(self.settings, "airflow", None)
+    def _cfg(self) -> ConnectorConfig:
+        return ConnectorConfig(self.settings, "airflow")
 
     def _base_url(self) -> str:
-        cfg = self._cfg()
-        return (getattr(cfg, "base_url", "") if cfg else "") or ""
+        return self._cfg().get("base_url", "") or ""
 
     def _timeout(self) -> int:
-        cfg = self._cfg()
-        return getattr(cfg, "timeout", 600) if cfg else 600
+        return self._cfg().get("timeout", 600)
 
     def _default_headers(self) -> dict[str, str]:
         cfg = self._cfg()
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
-        if cfg and getattr(cfg, "token", ""):
-            headers["Authorization"] = f"Bearer {cfg.token}"
-        elif cfg and getattr(cfg, "username", ""):
-            raw = f"{cfg.username}:{getattr(cfg, 'password', '')}".encode()
+        if cfg.get("token", ""):
+            headers["Authorization"] = f"Bearer {cfg.get('token')}"
+        elif cfg.get("username", ""):
+            raw = f"{cfg.get('username')}:{cfg.get('password', '')}".encode()
             headers["Authorization"] = "Basic " + base64.b64encode(raw).decode("ascii")
         return headers
 
@@ -221,8 +220,7 @@ class AirflowConnector(HttpConnector):
             return self._fail("trigger_airflow_dag", f"HTTP {res.status}: {res.text[:500]}", started)
         run_id = (res.data or {}).get("dag_run_id")
         state = (res.data or {}).get("state")
-        cfg = self._cfg()
-        interval = getattr(cfg, "poll_interval", 5) if cfg else 5
+        interval = self._cfg().get("poll_interval", 5)
         max_attempts = max(1, self._timeout() // max(interval, 1))
         for _attempt in range(max_attempts):
             if state in _TERMINAL:

@@ -3,7 +3,48 @@ name: MySQL
 description: Run SQL on MySQL with transactional DML rollback and mysqldump snapshots
 icon: "🐬"
 class: dacli.connectors.mysql.connector.MySQLConnector
-required_config: [database]
+# Config declared here (manifest-config pattern, 09/A-4); read via
+# ``ConnectorConfig(settings, "mysql")``.
+config_fields:
+  - name: host
+    type: str
+    required: false
+    default: "localhost"
+    description: "Database host."
+  - name: port
+    type: int
+    required: false
+    default: 3306
+    description: "Database port."
+  - name: database
+    type: str
+    required: true
+    description: "Database name."
+  - name: user
+    type: str
+    required: false
+    default: ""
+    description: "Database user."
+  - name: password
+    type: str
+    required: false
+    secret: true
+    description: "Database password (sets MYSQL_PWD)."
+  - name: mysql_binary
+    type: str
+    required: false
+    default: "mysql"
+    description: "Path to the mysql CLI binary."
+  - name: mysqldump_binary
+    type: str
+    required: false
+    default: "mysqldump"
+    description: "Path to the mysqldump CLI binary (for snapshots)."
+  - name: timeout
+    type: int
+    required: false
+    default: 300
+    description: "Command timeout in seconds."
 enabled: false
 default_scope: read_only
 golden_task:

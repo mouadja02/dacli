@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from dacli.config.settings import ConnectorConfig
 from dacli.connectors.base import OperationSpec, Risk, ToolResult
 from dacli.connectors.cli_base import CliConnector
 from dacli.core.verify import PostCondition, VerificationContext, result_succeeded
@@ -89,8 +90,7 @@ class DbtConnector(CliConnector):
 
     def __init__(self, settings: Any, runner=None):
         super().__init__(settings, runner=runner)
-        cfg = getattr(settings, "dbt", None)
-        self.binary = getattr(cfg, "dbt_binary", "dbt") or "dbt"
+        self.binary = ConnectorConfig(settings, "dbt").get("dbt_binary", "dbt") or "dbt"
 
     # ------------------------------------------------------------------
     def operations(self) -> list[OperationSpec]:
@@ -158,22 +158,21 @@ class DbtConnector(CliConnector):
         return await self._run_command(command, select=args.get("select"))
 
     # ------------------------------------------------------------------
-    def _cfg(self):
-        return getattr(self.settings, "dbt", None)
+    def _cfg(self) -> ConnectorConfig:
+        return ConnectorConfig(self.settings, "dbt")
 
     def _project_dir(self) -> str:
-        cfg = self._cfg()
-        return (getattr(cfg, "project_dir", "") or ".") if cfg else "."
+        return self._cfg().get("project_dir", "") or "."
 
     def _common_flags(self) -> list[str]:
         cfg = self._cfg()
         flags: list[str] = []
-        if cfg and getattr(cfg, "project_dir", ""):
-            flags += ["--project-dir", cfg.project_dir]
-        if cfg and getattr(cfg, "profiles_dir", ""):
-            flags += ["--profiles-dir", cfg.profiles_dir]
-        if cfg and getattr(cfg, "target", ""):
-            flags += ["--target", cfg.target]
+        if cfg.get("project_dir", ""):
+            flags += ["--project-dir", cfg.get("project_dir")]
+        if cfg.get("profiles_dir", ""):
+            flags += ["--profiles-dir", cfg.get("profiles_dir")]
+        if cfg.get("target", ""):
+            flags += ["--target", cfg.get("target")]
         return flags
 
     async def _run_command(self, command: str, select: str | None) -> ToolResult:
@@ -181,8 +180,7 @@ class DbtConnector(CliConnector):
         argv = [self.binary, command, *self._common_flags()]
         if select:
             argv += ["--select", select]
-        cfg = self._cfg()
-        timeout = getattr(cfg, "timeout", 900) if cfg else 900
+        timeout = self._cfg().get("timeout", 900)
         res = await self._run(argv, cwd=self._project_dir(), timeout=timeout)
         results = self._read_run_results()
         data = {

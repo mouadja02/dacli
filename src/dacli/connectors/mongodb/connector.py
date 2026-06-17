@@ -18,6 +18,7 @@ import json
 import time
 from typing import Any
 
+from dacli.config.settings import ConnectorConfig
 from dacli.connectors.base import OperationSpec, Risk, ToolResult
 from dacli.connectors.cli_base import CliConnector
 from dacli.core.verify import PostCondition, VerificationContext, result_succeeded, data_is_list
@@ -75,8 +76,7 @@ class MongoDBConnector(CliConnector):
 
     def __init__(self, settings: Any, runner=None):
         super().__init__(settings, runner=runner)
-        cfg = getattr(settings, "mongodb", None)
-        self.binary = getattr(cfg, "mongosh_binary", "mongosh") or "mongosh"
+        self.binary = ConnectorConfig(settings, "mongodb").get("mongosh_binary", "mongosh") or "mongosh"
 
     def operations(self) -> list[OperationSpec]:
         coll = {"type": "string", "description": "Collection name."}
@@ -166,28 +166,24 @@ class MongoDBConnector(CliConnector):
         return self._unknown_op(op)
 
     # ------------------------------------------------------------------
-    def _cfg(self):
-        return getattr(self.settings, "mongodb", None)
+    def _cfg(self) -> ConnectorConfig:
+        return ConnectorConfig(self.settings, "mongodb")
 
     def _timeout(self) -> int:
-        cfg = self._cfg()
-        return getattr(cfg, "timeout", 300) if cfg else 300
+        return self._cfg().get("timeout", 300)
 
     def _db(self) -> str:
-        cfg = self._cfg()
-        return (getattr(cfg, "database", "") if cfg else "") or "test"
+        return self._cfg().get("database", "") or "test"
 
     def _sample_size(self) -> int:
-        cfg = self._cfg()
-        return getattr(cfg, "sample_size", 100) if cfg else 100
+        return self._cfg().get("sample_size", 100)
 
     def _coll_expr(self, collection: str) -> str:
         return (f"db.getSiblingDB({json.dumps(self._db())})"
                 f".getCollection({json.dumps(collection)})")
 
     async def _eval(self, js: str):
-        cfg = self._cfg()
-        uri = getattr(cfg, "uri", "") if cfg else ""
+        uri = self._cfg().get("uri", "")
         argv = [self.binary]
         if uri:
             argv.append(uri)

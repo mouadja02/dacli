@@ -3,7 +3,38 @@ name: Apache Airflow
 description: Operate and debug Airflow DAGs — trigger, monitor, pause, and inspect runs
 icon: "🌀"
 class: dacli.connectors.airflow.connector.AirflowConnector
-required_config: [base_url]
+# Config declared here (manifest-config pattern, 09/A-4); read via
+# ``ConnectorConfig(settings, "airflow")``.
+config_fields:
+  - name: base_url
+    type: str
+    required: true
+    description: "Airflow base URL, e.g. https://airflow.example.com."
+  - name: username
+    type: str
+    required: false
+    default: ""
+    description: "Basic-auth username (alternative to token)."
+  - name: password
+    type: str
+    required: false
+    secret: true
+    description: "Basic-auth password."
+  - name: token
+    type: str
+    required: false
+    secret: true
+    description: "Bearer token (alternative to basic auth)."
+  - name: poll_interval
+    type: int
+    required: false
+    default: 5
+    description: "Seconds between run-state polls."
+  - name: timeout
+    type: int
+    required: false
+    default: 600
+    description: "Overall timeout in seconds for a polled run."
 enabled: false
 default_scope: read_only
 golden_task:

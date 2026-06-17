@@ -3,7 +3,28 @@ name: Dagster
 description: Launch and inspect Dagster runs and asset materializations via GraphQL
 icon: "🎯"
 class: dacli.connectors.dagster.connector.DagsterConnector
-required_config: [base_url]
+# Config declared here (manifest-config pattern, 09/A-4); read via
+# ``ConnectorConfig(settings, "dagster")``.
+config_fields:
+  - name: base_url
+    type: str
+    required: true
+    description: "Dagster base URL, e.g. https://dagster.example.com."
+  - name: token
+    type: str
+    required: false
+    secret: true
+    description: "Dagster Cloud API token."
+  - name: poll_interval
+    type: int
+    required: false
+    default: 5
+    description: "Seconds between run-status polls."
+  - name: timeout
+    type: int
+    required: false
+    default: 600
+    description: "Overall timeout in seconds for a polled run."
 enabled: false
 default_scope: read_only
 golden_task:

@@ -16,27 +16,22 @@ from dacli.connectors.cli_base import CliResult
 
 
 # ---------------------------------------------------------------------------
-# settings stubs (the connectors read ``getattr(settings, "<id>", settings)``)
+# settings stubs (manifest-config pattern, 09/A-4: connectors read their config
+# via ``ConnectorConfig(settings, "<id>")`` from ``connector_config.<id>``).
 # ---------------------------------------------------------------------------
 def sim_settings(connector_id: str) -> Any:
     cfgs = {
-        # s3 migrated to the manifest-config pattern (09/A-4): a plain dict read
-        # via ConnectorConfig from connector_config.s3, not a typed section.
         "s3": {"bucket": "b", "prefix": "", "region": "", "profile": "",
                "aws_binary": "aws", "timeout": 300},
-        "gcs": types.SimpleNamespace(bucket="b", prefix="", project="p",
-                                     credentials_path="", gcloud_binary="gcloud",
-                                     timeout=300),
-        "bigquery": types.SimpleNamespace(project="proj", dataset="ds", location="US",
-                                          bq_binary="bq", timeout=300),
-        "databricks": types.SimpleNamespace(host="h", token="t", warehouse_id="w",
-                                            catalog="main", db_schema="default",
-                                            databricks_binary="databricks", timeout=300),
+        "gcs": {"bucket": "b", "prefix": "", "project": "p",
+                "credentials_path": "", "gcloud_binary": "gcloud", "timeout": 300},
+        "bigquery": {"project": "proj", "dataset": "ds", "location": "US",
+                     "bq_binary": "bq", "timeout": 300},
+        "databricks": {"host": "h", "token": "t", "warehouse_id": "w",
+                       "catalog": "main", "schema": "default",
+                       "databricks_binary": "databricks", "timeout": 300},
     }
-    cfg = cfgs[connector_id]
-    if connector_id == "s3":
-        return types.SimpleNamespace(connector_config={"s3": cfg})
-    return types.SimpleNamespace(**{connector_id: cfg})
+    return types.SimpleNamespace(connector_config={connector_id: cfgs[connector_id]})
 
 
 # Back-compat alias used by the package __init__.

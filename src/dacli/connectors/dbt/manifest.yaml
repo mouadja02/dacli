@@ -3,7 +3,33 @@ name: dbt
 description: Compile, run, test, and build dbt models; parse the manifest for lineage
 icon: "🔧"
 class: dacli.connectors.dbt.connector.DbtConnector
-required_config: [project_dir]
+# Config declared here (manifest-config pattern, 09/A-4); read via
+# ``ConnectorConfig(settings, "dbt")``.
+config_fields:
+  - name: project_dir
+    type: str
+    required: true
+    description: "Path to the dbt project (where dbt_project.yml lives)."
+  - name: profiles_dir
+    type: str
+    required: false
+    default: ""
+    description: "Path to profiles.yml (defaults to ~/.dbt)."
+  - name: target
+    type: str
+    required: false
+    default: ""
+    description: "dbt target/profile output to use."
+  - name: dbt_binary
+    type: str
+    required: false
+    default: "dbt"
+    description: "Path to the dbt CLI binary."
+  - name: timeout
+    type: int
+    required: false
+    default: 900
+    description: "Command timeout in seconds."
 enabled: false
 default_scope: read_only
 golden_task:

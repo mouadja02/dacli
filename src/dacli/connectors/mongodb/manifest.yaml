@@ -3,7 +3,32 @@ name: MongoDB
 description: Query and mutate MongoDB collections with sample-inferred schemas
 icon: "🍃"
 class: dacli.connectors.mongodb.connector.MongoDBConnector
-required_config: [uri, database]
+# Config declared here (manifest-config pattern, 09/A-4); read via
+# ``ConnectorConfig(settings, "mongodb")``.
+config_fields:
+  - name: uri
+    type: str
+    required: true
+    description: "mongodb://… connection string (may embed credentials)."
+  - name: database
+    type: str
+    required: true
+    description: "Default database name."
+  - name: sample_size
+    type: int
+    required: false
+    default: 100
+    description: "Documents sampled for schema inference."
+  - name: mongosh_binary
+    type: str
+    required: false
+    default: "mongosh"
+    description: "Path to the mongosh CLI binary."
+  - name: timeout
+    type: int
+    required: false
+    default: 300
+    description: "Command timeout in seconds."
 enabled: false
 default_scope: read_only
 golden_task:

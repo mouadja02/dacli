@@ -3,7 +3,28 @@ name: DynamoDB
 description: Scan/get/put/delete DynamoDB items with point-in-time-recovery rollback
 icon: "⚡"
 class: dacli.connectors.dynamodb.connector.DynamoDBConnector
-required_config: [region]
+# Config declared here (manifest-config pattern, 09/A-4); read via
+# ``ConnectorConfig(settings, "dynamodb")``.
+config_fields:
+  - name: region
+    type: str
+    required: true
+    description: "AWS region (e.g. us-east-1)."
+  - name: profile
+    type: str
+    required: false
+    default: ""
+    description: "Named AWS CLI profile to use."
+  - name: aws_binary
+    type: str
+    required: false
+    default: "aws"
+    description: "Path to the aws CLI binary."
+  - name: timeout
+    type: int
+    required: false
+    default: 300
+    description: "Command timeout in seconds."
 enabled: false
 default_scope: risky
 golden_task:

@@ -21,6 +21,7 @@ from dacli.core.logging_setup import get_logger
 
 log = get_logger(__name__)
 
+from dacli.config.settings import ConnectorConfig
 from dacli.connectors.base import OperationSpec, Risk, ToolResult
 from dacli.connectors.cli_base import CliConnector
 from dacli.core.verify import PostCondition, VerificationContext, result_succeeded
@@ -113,8 +114,7 @@ class BigQueryConnector(CliConnector):
 
     def __init__(self, settings: Any, runner=None):
         super().__init__(settings, runner=runner)
-        cfg = getattr(settings, "bigquery", None)
-        self.binary = getattr(cfg, "bq_binary", "bq") or "bq"
+        self.binary = ConnectorConfig(settings, "bigquery").get("bq_binary", "bq") or "bq"
 
     def operations(self) -> list[OperationSpec]:
         sql_param = {
@@ -168,21 +168,20 @@ class BigQueryConnector(CliConnector):
         return self._unknown_op(op)
 
     # ------------------------------------------------------------------
-    def _cfg(self):
-        return getattr(self.settings, "bigquery", None)
+    def _cfg(self) -> ConnectorConfig:
+        return ConnectorConfig(self.settings, "bigquery")
 
     def _base_argv(self) -> list[str]:
         cfg = self._cfg()
         argv = [self.binary, "--format=json"]
-        if cfg and getattr(cfg, "project", ""):
-            argv += [f"--project_id={cfg.project}"]
-        if cfg and getattr(cfg, "location", ""):
-            argv += [f"--location={cfg.location}"]
+        if cfg.get("project", ""):
+            argv += [f"--project_id={cfg.get('project')}"]
+        if cfg.get("location", ""):
+            argv += [f"--location={cfg.get('location')}"]
         return argv
 
     def _timeout(self) -> int:
-        cfg = self._cfg()
-        return getattr(cfg, "timeout", 300) if cfg else 300
+        return self._cfg().get("timeout", 300)
 
     async def _query(self, sql: str) -> ToolResult:
         started = time.time()
@@ -218,8 +217,8 @@ class BigQueryConnector(CliConnector):
     async def _introspect(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
         cfg = self._cfg()
-        project = args.get("project") or (getattr(cfg, "project", "") if cfg else "")
-        dataset = args.get("dataset") or (getattr(cfg, "dataset", "") if cfg else "")
+        project = args.get("project") or cfg.get("project", "")
+        dataset = args.get("dataset") or cfg.get("dataset", "")
         table = args.get("table") or ""
         ref = ".".join([p for p in (dataset, table) if p])
         if project:

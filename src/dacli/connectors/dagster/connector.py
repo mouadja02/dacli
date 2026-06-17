@@ -13,6 +13,7 @@ import asyncio
 import time
 from typing import Any
 
+from dacli.config.settings import ConnectorConfig
 from dacli.connectors.base import OperationSpec, Risk, ToolResult
 from dacli.connectors.http_base import HttpConnector
 from dacli.core.verify import PostCondition, VerificationContext, result_succeeded, data_has_keys
@@ -59,22 +60,20 @@ def asset_materialized() -> PostCondition:
 class DagsterConnector(HttpConnector):
     name = "dagster"
 
-    def _cfg(self):
-        return getattr(self.settings, "dagster", None)
+    def _cfg(self) -> ConnectorConfig:
+        return ConnectorConfig(self.settings, "dagster")
 
     def _base_url(self) -> str:
-        cfg = self._cfg()
-        return (getattr(cfg, "base_url", "") if cfg else "") or ""
+        return self._cfg().get("base_url", "") or ""
 
     def _timeout(self) -> int:
-        cfg = self._cfg()
-        return getattr(cfg, "timeout", 600) if cfg else 600
+        return self._cfg().get("timeout", 600)
 
     def _default_headers(self) -> dict[str, str]:
         cfg = self._cfg()
         headers = {"Content-Type": "application/json"}
-        if cfg and getattr(cfg, "token", ""):
-            headers["Dagster-Cloud-Api-Token"] = cfg.token
+        if cfg.get("token", ""):
+            headers["Dagster-Cloud-Api-Token"] = cfg.get("token")
         return headers
 
     def operations(self) -> list[OperationSpec]:
@@ -196,8 +195,7 @@ class DagsterConnector(HttpConnector):
         run = launch.get("run", {}) or {}
         run_id = run.get("runId")
         status = run.get("status")
-        cfg = self._cfg()
-        interval = getattr(cfg, "poll_interval", 5) if cfg else 5
+        interval = self._cfg().get("poll_interval", 5)
         max_attempts = max(1, self._timeout() // max(interval, 1))
         for _attempt in range(max_attempts):
             if status in _TERMINAL:

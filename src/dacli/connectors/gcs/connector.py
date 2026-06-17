@@ -14,6 +14,7 @@ import json
 import time
 from typing import Any
 
+from dacli.config.settings import ConnectorConfig
 from dacli.connectors.base import OperationSpec, Risk, ToolResult
 from dacli.core.logging_setup import get_logger
 
@@ -57,8 +58,7 @@ class GCSConnector(CliConnector):
 
     def __init__(self, settings: Any, runner=None):
         super().__init__(settings, runner=runner)
-        cfg = getattr(settings, "gcs", None)
-        self.binary = getattr(cfg, "gcloud_binary", "gcloud") or "gcloud"
+        self.binary = ConnectorConfig(settings, "gcs").get("gcloud_binary", "gcloud") or "gcloud"
 
     def operations(self) -> list[OperationSpec]:
         key_param = {
@@ -131,23 +131,21 @@ class GCSConnector(CliConnector):
         return self._unknown_op(op)
 
     # ------------------------------------------------------------------
-    def _cfg(self):
-        return getattr(self.settings, "gcs", None)
+    def _cfg(self) -> ConnectorConfig:
+        return ConnectorConfig(self.settings, "gcs")
 
     def _bucket(self, args: dict[str, Any]) -> str:
-        cfg = self._cfg()
-        return args.get("bucket") or (getattr(cfg, "bucket", "") if cfg else "")
+        return args.get("bucket") or self._cfg().get("bucket", "")
 
     def _global_flags(self) -> list[str]:
         cfg = self._cfg()
         flags: list[str] = []
-        if cfg and getattr(cfg, "project", ""):
-            flags += [f"--project={cfg.project}"]
+        if cfg.get("project", ""):
+            flags += [f"--project={cfg.get('project')}"]
         return flags
 
     def _timeout(self) -> int:
-        cfg = self._cfg()
-        return getattr(cfg, "timeout", 300) if cfg else 300
+        return self._cfg().get("timeout", 300)
 
     def _uri(self, bucket: str, key: str) -> str:
         return f"gs://{bucket}/{key}"
@@ -162,8 +160,8 @@ class GCSConnector(CliConnector):
         bucket = self._bucket(args)
         cfg = self._cfg()
         prefix = args.get("prefix")
-        if prefix is None and cfg and getattr(cfg, "prefix", ""):
-            prefix = cfg.prefix
+        if prefix is None and cfg.get("prefix", ""):
+            prefix = cfg.get("prefix")
         uri = self._uri(bucket, prefix or "")
         argv = [self.binary, "storage", "ls", uri, "--format=json", *self._global_flags()]
         res = await self._run(argv, timeout=self._timeout())

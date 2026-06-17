@@ -3,7 +3,48 @@ name: PostgreSQL
 description: Run SQL on PostgreSQL with transactional rollback and EXPLAIN previews
 icon: "🐘"
 class: dacli.connectors.postgres.connector.PostgresConnector
-required_config: [database]
+# Config declared here (manifest-config pattern, 09/A-4); read via
+# ``ConnectorConfig(settings, "postgres")``.
+config_fields:
+  - name: host
+    type: str
+    required: false
+    default: "localhost"
+    description: "Database host."
+  - name: port
+    type: int
+    required: false
+    default: 5432
+    description: "Database port."
+  - name: database
+    type: str
+    required: true
+    description: "Database name."
+  - name: user
+    type: str
+    required: false
+    default: ""
+    description: "Database user."
+  - name: password
+    type: str
+    required: false
+    secret: true
+    description: "Database password (sets PGPASSWORD)."
+  - name: sslmode
+    type: str
+    required: false
+    default: ""
+    description: "TLS mode, e.g. require / verify-full (sets PGSSLMODE)."
+  - name: psql_binary
+    type: str
+    required: false
+    default: "psql"
+    description: "Path to the psql CLI binary."
+  - name: timeout
+    type: int
+    required: false
+    default: 300
+    description: "Command timeout in seconds."
 enabled: false
 default_scope: read_only
 golden_task:

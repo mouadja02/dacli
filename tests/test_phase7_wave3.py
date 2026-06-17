@@ -44,9 +44,9 @@ def _transport(handler):
 # ===========================================================================
 class AirflowConnectorTest(unittest.TestCase):
     def _conn(self, handler):
-        cfg = types.SimpleNamespace(base_url="http://af", username="u", password="p",
-                                    token="", poll_interval=1, timeout=10)
-        return AirflowConnector(_settings(airflow=cfg), transport=_transport(handler))
+        cfg = {"base_url": "http://af", "username": "u", "password": "p",
+               "token": "", "poll_interval": 1, "timeout": 10}
+        return AirflowConnector(_settings(connector_config={"airflow": cfg}), transport=_transport(handler))
 
     def test_trigger_waits_for_success(self):
         def handler(method, path, body):
@@ -121,8 +121,8 @@ class AirflowConnectorTest(unittest.TestCase):
 # ===========================================================================
 class DagsterConnectorTest(unittest.TestCase):
     def _conn(self, handler):
-        cfg = types.SimpleNamespace(base_url="http://dg", token="", poll_interval=1, timeout=10)
-        return DagsterConnector(_settings(dagster=cfg), transport=_transport(handler))
+        cfg = {"base_url": "http://dg", "token": "", "poll_interval": 1, "timeout": 10}
+        return DagsterConnector(_settings(connector_config={"dagster": cfg}), transport=_transport(handler))
 
     def test_launch_waits_for_success(self):
         def handler(method, path, body):

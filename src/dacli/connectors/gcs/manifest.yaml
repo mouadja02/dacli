@@ -3,7 +3,38 @@ name: Google Cloud Storage
 description: List, read, upload, and delete GCS objects with versioned rollback
 icon: "🗄️"
 class: dacli.connectors.gcs.connector.GCSConnector
-required_config: [bucket]
+# Config declared here (manifest-config pattern, 09/A-4); read via
+# ``ConnectorConfig(settings, "gcs")``.
+config_fields:
+  - name: bucket
+    type: str
+    required: true
+    description: "Default GCS bucket name."
+  - name: prefix
+    type: str
+    required: false
+    default: ""
+    description: "Object-name prefix to prepend to all paths."
+  - name: project
+    type: str
+    required: false
+    default: ""
+    description: "GCP project id."
+  - name: credentials_path
+    type: str
+    required: false
+    default: ""
+    description: "Path to a service-account JSON."
+  - name: gcloud_binary
+    type: str
+    required: false
+    default: "gcloud"
+    description: "Path to the gcloud CLI binary."
+  - name: timeout
+    type: int
+    required: false
+    default: 300
+    description: "Command timeout in seconds."
 enabled: false
 default_scope: read_only
 golden_task:

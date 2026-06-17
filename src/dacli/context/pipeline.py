@@ -48,7 +48,9 @@ def build_context_pipeline(settings, memory, registry, llm, system_connector) ->
     # configured, models parsed from its target/manifest.json (mtime-cached).
     # With no dbt project this provider is exactly the assembler's default
     # catalog path, so existing behaviour is unchanged.
-    dbt_project_dir = getattr(getattr(settings, "dbt", None), "project_dir", "") or ""
+    from dacli.config.settings import ConnectorConfig
+
+    dbt_project_dir = ConnectorConfig(settings, "dbt").get("project_dir", "") or ""
     dbt_source = DbtManifestSource(dbt_project_dir) if dbt_project_dir else None
 
     def _live_entries(_task):

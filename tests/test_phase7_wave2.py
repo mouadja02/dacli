@@ -46,9 +46,9 @@ def _runner(responder):
 # ===========================================================================
 class PostgresConnectorTest(unittest.TestCase):
     def _conn(self, responder):
-        cfg = types.SimpleNamespace(host="h", port=5432, database="db", user="u",
-                                    password="p", sslmode="", psql_binary="psql", timeout=300)
-        return PostgresConnector(_settings(postgres=cfg), runner=_runner(responder))
+        cfg = {"host": "h", "port": 5432, "database": "db", "user": "u",
+               "password": "p", "sslmode": "", "psql_binary": "psql", "timeout": 300}
+        return PostgresConnector(_settings(connector_config={"postgres": cfg}), runner=_runner(responder))
 
     def test_create_confirmed_by_information_schema(self):
         def responder(argv, stdin):
@@ -102,9 +102,9 @@ class PostgresConnectorTest(unittest.TestCase):
 # ===========================================================================
 class MySQLConnectorTest(unittest.TestCase):
     def _conn(self, responder):
-        cfg = types.SimpleNamespace(host="h", port=3306, database="db", user="u",
-                                    password="p", mysql_binary="mysql", timeout=300)
-        return MySQLConnector(_settings(mysql=cfg), runner=_runner(responder))
+        cfg = {"host": "h", "port": 3306, "database": "db", "user": "u",
+               "password": "p", "mysql_binary": "mysql", "timeout": 300}
+        return MySQLConnector(_settings(connector_config={"mysql": cfg}), runner=_runner(responder))
 
     def test_create_confirmed(self):
         def responder(argv, stdin):
@@ -131,9 +131,9 @@ class MySQLConnectorTest(unittest.TestCase):
 # ===========================================================================
 class MongoDBConnectorTest(unittest.TestCase):
     def _conn(self, responder):
-        cfg = types.SimpleNamespace(uri="mongodb://h", database="app", sample_size=50,
-                                    mongosh_binary="mongosh", timeout=300)
-        return MongoDBConnector(_settings(mongodb=cfg), runner=_runner(responder))
+        cfg = {"uri": "mongodb://h", "database": "app", "sample_size": 50,
+               "mongosh_binary": "mongosh", "timeout": 300}
+        return MongoDBConnector(_settings(connector_config={"mongodb": cfg}), runner=_runner(responder))
 
     def test_introspect_infers_schema(self):
         payload = {"exists": True, "count": 3,
@@ -184,8 +184,8 @@ class MongoDBConnectorTest(unittest.TestCase):
 # ===========================================================================
 class DynamoDBConnectorTest(unittest.TestCase):
     def _conn(self, responder):
-        cfg = types.SimpleNamespace(region="us-east-1", profile="", aws_binary="aws", timeout=300)
-        return DynamoDBConnector(_settings(dynamodb=cfg), runner=_runner(responder))
+        cfg = {"region": "us-east-1", "profile": "", "aws_binary": "aws", "timeout": 300}
+        return DynamoDBConnector(_settings(connector_config={"dynamodb": cfg}), runner=_runner(responder))
 
     def test_put_then_present(self):
         def responder(argv, stdin):

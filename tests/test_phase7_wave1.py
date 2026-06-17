@@ -65,9 +65,10 @@ class DbtConnectorTest(unittest.TestCase):
         return d
 
     def _conn(self, project_dir):
-        cfg = types.SimpleNamespace(project_dir=project_dir, profiles_dir="",
-                                    target="", dbt_binary="dbt", timeout=900)
-        return DbtConnector(_settings(dbt=cfg), runner=_runner(lambda argv, stdin: CliResult(0, "ok", "", argv)))
+        cfg = {"project_dir": project_dir, "profiles_dir": "",
+               "target": "", "dbt_binary": "dbt", "timeout": 900}
+        return DbtConnector(_settings(connector_config={"dbt": cfg}),
+                            runner=_runner(lambda argv, stdin: CliResult(0, "ok", "", argv)))
 
     def test_run_succeeds_and_nodes_pass(self):
         proj = self._project(run_results={"results": [
@@ -95,9 +96,9 @@ class DbtConnectorTest(unittest.TestCase):
 
     def test_run_nonzero_rc_fails(self):
         proj = self._project(run_results={"results": []})
-        cfg = types.SimpleNamespace(project_dir=proj, profiles_dir="", target="",
-                                    dbt_binary="dbt", timeout=900)
-        conn = DbtConnector(_settings(dbt=cfg),
+        cfg = {"project_dir": proj, "profiles_dir": "", "target": "",
+               "dbt_binary": "dbt", "timeout": 900}
+        conn = DbtConnector(_settings(connector_config={"dbt": cfg}),
                             runner=_runner(lambda argv, stdin: CliResult(1, "", "compilation error", argv)))
         res = _run(conn.invoke("dbt_build", {}))
         self.assertEqual(res.status, ToolStatus.ERROR)
@@ -129,9 +130,9 @@ class DbtConnectorTest(unittest.TestCase):
 # ===========================================================================
 class BigQueryConnectorTest(unittest.TestCase):
     def _conn(self, responder):
-        cfg = types.SimpleNamespace(project="proj", dataset="ds", location="US",
-                                    bq_binary="bq", timeout=300)
-        return BigQueryConnector(_settings(bigquery=cfg), runner=_runner(responder))
+        cfg = {"project": "proj", "dataset": "ds", "location": "US",
+               "bq_binary": "bq", "timeout": 300}
+        return BigQueryConnector(_settings(connector_config={"bigquery": cfg}), runner=_runner(responder))
 
     def test_create_table_confirmed_by_bq_show(self):
         def responder(argv, stdin):
@@ -195,10 +196,10 @@ class BigQueryConnectorTest(unittest.TestCase):
 # ===========================================================================
 class DatabricksConnectorTest(unittest.TestCase):
     def _conn(self, responder):
-        cfg = types.SimpleNamespace(host="h", token="t", warehouse_id="w",
-                                    catalog="main", db_schema="default",
-                                    databricks_binary="databricks", timeout=300)
-        return DatabricksConnector(_settings(databricks=cfg), runner=_runner(responder))
+        cfg = {"host": "h", "token": "t", "warehouse_id": "w",
+               "catalog": "main", "schema": "default",
+               "databricks_binary": "databricks", "timeout": 300}
+        return DatabricksConnector(_settings(connector_config={"databricks": cfg}), runner=_runner(responder))
 
     def test_succeeded_state_passes(self):
         payload = {"status": {"state": "SUCCEEDED"},
@@ -285,9 +286,9 @@ class S3ConnectorTest(unittest.TestCase):
 
 class GCSConnectorTest(unittest.TestCase):
     def _conn(self, responder):
-        cfg = types.SimpleNamespace(bucket="b", prefix="", project="p",
-                                    credentials_path="", gcloud_binary="gcloud", timeout=300)
-        return GCSConnector(_settings(gcs=cfg), runner=_runner(responder))
+        cfg = {"bucket": "b", "prefix": "", "project": "p",
+               "credentials_path": "", "gcloud_binary": "gcloud", "timeout": 300}
+        return GCSConnector(_settings(connector_config={"gcs": cfg}), runner=_runner(responder))
 
     def test_put_then_present(self):
         def responder(argv, stdin):
