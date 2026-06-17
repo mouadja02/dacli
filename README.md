@@ -8,7 +8,7 @@
 
 [![CI](https://github.com/mouadja02/dacli/actions/workflows/ci.yml/badge.svg)](https://github.com/mouadja02/dacli/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-699-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-720-brightgreen.svg)](#testing)
 [![Reliability](https://img.shields.io/badge/reliability-pass%5Ek-orange.svg)](docs/EVALUATION.md)
 [![Architecture](https://img.shields.io/badge/architecture-six--component%20harness-8A2BE2.svg)](docs/ARCHITECTURE.md)
 
@@ -328,7 +328,8 @@ executes step by step, and verifies each step against the platform before moving
 
 `/help` · `/keys` · `/init` · `/status` · `/doctor` · `/usage` · `/context` · `/audit` · `/tools` · `/connect [tool]` ·
 `/new-connector` · `/testmode [tool]` · `/import-connector` · `/push-connector` · `/debug-connector <name>` ·
-`/setup` · `/history` · `/sessions` · `/catalog [connector]` · `/schema <object>` · `/load <id>` · `/export` ·
+`/setup` · `/history` · `/find <text>` · `/last-error` · `/expand <id>` · `/transcript` · `/sessions` ·
+`/catalog [connector]` · `/schema <object>` · `/load <id>` · `/export` ·
 `/config` · `/theme <name>` · `/prompt` · `/clear` · `/cls` · `/reset` · `/exit`
 
 ---

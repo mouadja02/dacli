@@ -154,6 +154,47 @@ async def _history(ctx, args):
     ctx.ui.history(ctx.memory.get_full_history())
 
 
+@command("/find")
+async def _find(ctx, args):
+    if not args:
+        ctx.ui.notice("Usage: /find <text>", style="muted")
+        return
+    ctx.ui.find(" ".join(args), ctx.memory.get_full_history())
+
+
+@command("/last-error")
+async def _last_error(ctx, args):
+    ctx.ui.last_error()
+
+
+@command("/expand")
+async def _expand(ctx, args):
+    if not args:
+        ctx.ui.notice(
+            "Usage: /expand <id>  (the id shown after a tool result, e.g. t3)",
+            style="muted",
+        )
+        return
+    ctx.ui.expand(args[0])
+
+
+@command("/transcript")
+async def _transcript(ctx, args):
+    from dacli.tui import transcript_app
+
+    if not transcript_app.is_available():
+        # \[ keeps Rich from eating [tui] as a markup tag (notice renders markup).
+        ctx.ui.notice(
+            "Full-screen transcript needs the Textual extra: pip install dacli\\[tui]",
+            style="warning",
+        )
+        return
+    app = transcript_app.build_app(
+        ctx.memory.get_full_history(), ctx.ui.transcript_log.records()
+    )
+    await app.run_async()
+
+
 @command("/sessions")
 async def _sessions(ctx, args):
     ctx.ui.sessions_table(ctx.memory.list_sessions())

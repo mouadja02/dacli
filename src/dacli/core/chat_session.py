@@ -190,6 +190,12 @@ async def run_chat(
         )
         return
 
+    # Point the transcript log at the session spill store so /expand can fetch
+    # an elided result back off-context instead of re-running the tool (P11).
+    spill_store = getattr(agent, "_context", {}).get("store")
+    if spill_store is not None:
+        chat_ui.bind_result_store(spill_store)
+
     # Persist startup + a secret-redacted snapshot of the effective config.
     store.record_startup()
     store.snapshot_config(settings)
