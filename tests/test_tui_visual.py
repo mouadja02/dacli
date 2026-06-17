@@ -254,7 +254,7 @@ def test_streaming_markdown_failure_falls_back_cleanly(monkeypatch):
     ui.on_stream_start()
     with monkeypatch.context() as m:
         m.setattr(
-            "dacli.tui.ui.Markdown",
+            "dacli.tui.stream.Markdown",
             lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
         )
         ui.on_text("# Heading\n")
