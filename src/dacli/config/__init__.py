@@ -14,6 +14,7 @@ CLI_COMMANDS = [
     ("/usage", "Show token usage and cost (overall, by model, this session)"),
     ("/context", "Explain the assembled context (sources, tokens, budget)"),
     ("/audit", "Show governance decisions for this session (why the agent acted)"),
+    ("/why-failed [dag]", "Explain the most recent pipeline failure + a governed fix"),
     ("/tools", "Show enabled tools and capabilities"),
     ("/connect [tool]", "Configure a connector — interactive, or pass a name"),
     ("/new-connector", "Generate a new connector from natural language description"),

@@ -149,6 +149,23 @@ async def _audit(ctx, args):
     reports.print_audit(ledger, ctx.memory.session_id, ctx.ui, full=("full" in args))
 
 
+@command("/why-failed")
+async def _why_failed(ctx, args):
+    from dacli.config.settings import ConnectorConfig
+    from dacli.core.why_failed import explain_failure
+
+    dag = args[0] if args else None
+    source = "airflow" if dag else "dbt"
+    project_dir = ConnectorConfig(ctx.settings, "dbt").get("project_dir", "") or "."
+    gov = getattr(ctx.agent, "governor", None)
+    explanation = await explain_failure(
+        source=source, dispatcher=ctx.agent.dispatcher,
+        lineage=getattr(gov, "lineage", None), dag=dag,
+        dbt_project_dir=project_dir,
+    )
+    ctx.ui.why_failed_panel(explanation)
+
+
 @command("/history")
 async def _history(ctx, args):
     ctx.ui.history(ctx.memory.get_full_history())

@@ -274,6 +274,57 @@ def lineage(object_name, config, as_json):
         ui.lineage_panel(object_name, up, down)
 
 
+@cli.command(name="why-failed")
+@click.option("--source", type=click.Choice(["dbt", "airflow"]), default=None,
+              help="Which platform's failure to explain (default: airflow if --dag, else dbt)")
+@click.option("--dag", "dag_id", type=str, default=None, help="Airflow DAG id to inspect")
+@click.option("--run", "run_id", type=str, default=None,
+              help="A specific run id (default: the most recent failed run)")
+@click.option("--apply", "apply_fix", is_flag=True,
+              help="Route the proposed fix through the governance gate (approval-gated)")
+@click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
+@click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON")
+def why_failed(source, dag_id, run_id, apply_fix, config, as_json):
+    """Explain why the most recent pipeline run failed, and propose a governed fix.
+
+    Locates the failure (dbt run-results or an orchestrator connector), reads its
+    logs read-only through the governed dispatcher, correlates it to the failing
+    object via lineage, and prints a root cause plus a proposed fix. The fix is
+    never applied unless --apply is given, and even then it runs through the
+    normal classify → approve → verify → rollback gate.
+    """
+    from dacli.config.settings import ConnectorConfig
+    from dacli.core.why_failed import explain_failure
+
+    settings = load_config(config)
+    source = source or ("airflow" if dag_id else "dbt")
+
+    memory = AgentMemory(
+        state_path=settings.agent.state_path,
+        history_path=settings.agent.history_path,
+        memory_window=settings.agent.memory_window,
+    )
+    # Build the agent (no initialize() -> no network) for its governed dispatcher
+    # and lineage store — the same pattern as `diff` and `context`.
+    agent = DACLI(settings=settings, memory=memory)
+    project_dir = ConnectorConfig(settings, "dbt").get("project_dir", "") or "."
+
+    explanation = asyncio.run(explain_failure(
+        source=source, dispatcher=agent.dispatcher,
+        lineage=getattr(agent.governor, "lineage", None),
+        dag=dag_id, run=run_id,
+        dbt_project_dir=project_dir, apply=apply_fix,
+    ))
+
+    if as_json:
+        click.echo(explanation.to_json())
+    else:
+        ui.why_failed_panel(explanation)
+        if explanation.error and explanation.finding is None:
+            console.print(f"[muted]{explanation.error}[/muted]")
+    raise SystemExit(explanation.exit_code)
+
+
 @cli.command()
 @click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
 def validate(config):

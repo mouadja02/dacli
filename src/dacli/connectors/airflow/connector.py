@@ -125,6 +125,31 @@ class AirflowConnector(HttpConnector):
                 postconditions=[data_has_keys("task_instances", name="lists_tasks")],
             ),
             OperationSpec(
+                name="list_airflow_dag_runs",
+                description="List recent runs of a DAG, newest first, optionally filtered by "
+                            "state (e.g. 'failed'). Read-only.",
+                parameters={"type": "object", "properties": {
+                    **dag,
+                    "state": {"type": "string", "description": "Filter by run state "
+                              "(queued/running/success/failed)."},
+                    "limit": {"type": "integer", "description": "Max runs (default 25)."}},
+                    "required": ["dag_id"]},
+                capability="airflow.read", risk=Risk.SAFE,
+                display_name="List DAG Runs", category="read",
+                postconditions=[data_has_keys("dag_runs", name="lists_runs")],
+            ),
+            OperationSpec(
+                name="get_airflow_task_logs",
+                description="Fetch a task instance's logs for one try (read-only).",
+                parameters={"type": "object", "properties": {
+                    **dag, "dag_run_id": {"type": "string"}, "task_id": {"type": "string"},
+                    "try_number": {"type": "integer", "description": "Log attempt (default 1)."}},
+                    "required": ["dag_id", "dag_run_id", "task_id"]},
+                capability="airflow.read", risk=Risk.SAFE,
+                display_name="Get Task Logs", category="read",
+                postconditions=[data_has_keys("content", name="returns_logs")],
+            ),
+            OperationSpec(
                 name="trigger_airflow_dag",
                 description="Trigger a DAG run and wait for it to finish. Risky — external side effects.",
                 parameters={"type": "object", "properties": {
@@ -160,6 +185,10 @@ class AirflowConnector(HttpConnector):
             return await self._get_run(args)
         if op == "get_airflow_task_instances":
             return await self._task_instances(args)
+        if op == "list_airflow_dag_runs":
+            return await self._list_dag_runs(args)
+        if op == "get_airflow_task_logs":
+            return await self._task_logs(args)
         if op == "trigger_airflow_dag":
             return await self._trigger(args)
         if op == "pause_airflow_dag":
@@ -210,6 +239,39 @@ class AirflowConnector(HttpConnector):
                for t in (res.data or {}).get("task_instances", [])]
         return self._ok("get_airflow_task_instances",
                         {"dag_id": dag_id, "dag_run_id": run_id, "task_instances": tis}, started)
+
+    async def _list_dag_runs(self, args: dict[str, Any]) -> ToolResult:
+        started = time.time()
+        dag_id = args.get("dag_id")
+        params: dict[str, Any] = {"limit": int(args.get("limit") or 25),
+                                  "order_by": "-execution_date"}
+        if args.get("state"):
+            params["state"] = args["state"]
+        res = await self._request("GET", f"/api/v1/dags/{dag_id}/dagRuns", params=params)
+        if not res.ok:
+            return self._fail("list_airflow_dag_runs", f"HTTP {res.status}: {res.text[:500]}", started)
+        runs = [{"dag_run_id": r.get("dag_run_id"), "state": r.get("state"),
+                 "execution_date": r.get("execution_date")}
+                for r in (res.data or {}).get("dag_runs", [])]
+        return self._ok("list_airflow_dag_runs",
+                        {"dag_id": dag_id, "dag_runs": runs, "count": len(runs)}, started)
+
+    async def _task_logs(self, args: dict[str, Any]) -> ToolResult:
+        started = time.time()
+        dag_id, run_id, task_id = args.get("dag_id"), args.get("dag_run_id"), args.get("task_id")
+        try_number = int(args.get("try_number") or 1)
+        res = await self._request(
+            "GET",
+            f"/api/v1/dags/{dag_id}/dagRuns/{run_id}/taskInstances/{task_id}/logs/{try_number}")
+        if not res.ok:
+            return self._fail("get_airflow_task_logs", f"HTTP {res.status}: {res.text[:500]}", started)
+        # The REST API returns either text/plain or a JSON {"content": ...}.
+        content = (res.data or {}).get("content") if isinstance(res.data, dict) else None
+        if content is None:
+            content = res.text
+        return self._ok("get_airflow_task_logs",
+                        {"dag_id": dag_id, "dag_run_id": run_id, "task_id": task_id,
+                         "content": content}, started)
 
     async def _trigger(self, args: dict[str, Any]) -> ToolResult:
         started = time.time()
