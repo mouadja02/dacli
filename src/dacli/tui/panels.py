@@ -709,6 +709,44 @@ class PanelsMixin:
         self.console.print(responsive_table(self.console, cols, rows))
         self.console.print()
 
+    def lineage_panel(self, obj: str, upstream: list[Any], downstream: list[Any]) -> None:
+        """Upstream producers + downstream consumers for one object (P12)."""
+        header = Text()
+        header.append(f"{obj}\n", style="accent")
+        header.append("Downstream  ", style="muted")
+        header.append(f"{len(downstream)} consumer(s)", style="warning" if downstream else "muted")
+        header.append("   Upstream  ", style="muted")
+        header.append(f"{len(upstream)} source(s)", style="info")
+        self.console.print(
+            Panel(header, title="[accent]Lineage[/accent]", box=self.glyphs.box,
+                  border_style="border", padding=SPACING["panel_pad"])
+        )
+        if not downstream and not upstream:
+            self.console.print(
+                "[muted]No lineage known for this object — lineage is best-effort "
+                "(dbt manifest, view deps, orchestrator DAGs) and fills in as the "
+                "agent works. No lineage does not mean no consumers.[/muted]\n"
+            )
+            return
+
+        cols = [
+            Col("Kind", style="step", drop_rank=1),
+            Col("Object", style="accent", ratio=1, primary=True),
+            Col("Via", style="muted", drop_rank=2),
+        ]
+
+        def _rows(nodes):
+            return [[n.kind, n.label or n.name, n.name] for n in nodes]
+
+        if downstream:
+            self.console.print(Text("Downstream (blast radius)", style="warning"))
+            self.console.print(responsive_table(self.console, cols, _rows(downstream)))
+            self.console.print()
+        if upstream:
+            self.console.print(Text("Upstream (reads from)", style="info"))
+            self.console.print(responsive_table(self.console, cols, _rows(upstream)))
+            self.console.print()
+
     def status_panel(self, memory) -> None:
         # Render the current agent status: session panel, plan and statistics.
         summary = memory.get_progress_summary()

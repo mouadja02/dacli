@@ -47,5 +47,15 @@
       "name": "not_null_orders_order_id",
       "depends_on": {"nodes": ["model.jaffle.orders"]}
     }
+  },
+  "sources": {
+    "source.jaffle.raw.orders": {
+      "resource_type": "source",
+      "name": "orders",
+      "source_name": "raw",
+      "database": "raw",
+      "schema": "public",
+      "identifier": "orders"
+    }
   }
 }

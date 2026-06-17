@@ -247,6 +247,34 @@ def doctor(config, ping, as_json):
 
 
 @cli.command()
+@click.argument("object_name", metavar="OBJECT")
+@click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
+@click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON")
+def lineage(object_name, config, as_json):
+    """Show known upstream producers and downstream consumers of OBJECT.
+
+    Best-effort from the dbt manifest, cached view dependencies and orchestrator
+    DAGs. Unknown lineage is not a "safe" signal — it just means nothing is
+    recorded yet."""
+    from dacli.memory.graph.lineage import build_project_lineage
+
+    settings = load_config(config)
+    store = build_project_lineage(settings)
+    down = store.downstream(object_name)
+    up = store.upstream(object_name)
+    if as_json:
+        import json
+
+        click.echo(json.dumps({
+            "object": object_name,
+            "downstream": [n.to_dict() for n in down],
+            "upstream": [n.to_dict() for n in up],
+        }, indent=2))
+    else:
+        ui.lineage_panel(object_name, up, down)
+
+
+@cli.command()
 @click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
 def validate(config):
     # Validate configuration and test connections.
