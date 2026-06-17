@@ -440,18 +440,12 @@ class Settings(BaseModel):
     # an old config.yaml is harmlessly ignored via ``extra="ignore"`` above.
 
 
-#: Connector ids already warned about a legacy typed ``settings.<id>`` section,
-#: so repeated ConnectorConfig reads don't re-spam (mirrors _warned_env_vars and
-#: ``core.crypto._warned_secrets``).
-_warned_legacy_sections: set = set()
-
-
 class ConnectorConfig:
     """Attribute- and dict-style read access to ``Settings.connector_config[id]``.
 
     The runtime counterpart of a manifest's ``config_fields`` declaration (09/A-4):
-    a connector migrated to the manifest-config pattern reads its non-secret config
-    from ``settings.connector_config.<id>`` through this thin accessor instead of a
+    every built-in connector reads its non-secret config from
+    ``settings.connector_config.<id>`` through this thin accessor instead of a
     typed ``Settings`` section. It is fail-soft — never raising on a missing
     connector or a missing field when the caller supplies a default — mirroring
     ``core.connector_config.load_connector_config`` (the read side of the encrypted
@@ -462,27 +456,6 @@ class ConnectorConfig:
         self._data: dict[str, Any] = (
             getattr(settings, "connector_config", None) or {}
         ).get(connector_id, {})
-        if not self._data:
-            # Backwards-compat shim: a connector still carrying a typed
-            # ``settings.<id>`` section (not yet migrated) is read uniformly
-            # through this accessor. For a *migrated* connector whose typed
-            # section was deleted this is inert — the attribute no longer
-            # exists — so its config MUST live under ``connector_config.<id>``
-            # (the documented breaking change; see CONNECTOR_CONFIG_PATTERN.md).
-            old_section = getattr(settings, connector_id, None)
-            if old_section is not None and hasattr(old_section, "model_dump"):
-                if connector_id not in _warned_legacy_sections:
-                    _warned_legacy_sections.add(connector_id)
-                    from dacli.core.logging_setup import get_logger
-
-                    get_logger(__name__).warning(
-                        "Connector '%s' config read from the typed 'settings.%s' "
-                        "section (legacy schema). Move it under 'connector_config.%s' "
-                        "in config.yaml; the typed section will be removed in a future "
-                        "release.",
-                        connector_id, connector_id, connector_id,
-                    )
-                self._data = old_section.model_dump()
 
     def __getattr__(self, item: str) -> Any:
         # Guard against recursion before ``_data`` is set (e.g. during copy).

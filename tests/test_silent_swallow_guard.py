@@ -56,26 +56,3 @@ def test_no_unlogged_silent_swallows():
         f"exc_info=True), or mark '{SENTINEL}' if recording is impossible):\n  "
         + "\n  ".join(offenders)
     )
-
-
-def test_connector_deprecation_warns_once_through_dacli_logger(caplog):
-    import logging
-
-    from dacli.config import settings as settings_mod
-    from dacli.config.settings import ConnectorConfig, Settings
-
-    class _Legacy:
-        def model_dump(self):
-            return {"host": "db"}
-
-    s = Settings()
-    object.__setattr__(s, "legacy_db", _Legacy())
-    settings_mod._warned_legacy_sections.discard("legacy_db")
-
-    with caplog.at_level(logging.WARNING, logger="dacli"):
-        ConnectorConfig(s, "legacy_db")
-        ConnectorConfig(s, "legacy_db")
-
-    hits = [r for r in caplog.records if "legacy_db" in r.getMessage()]
-    assert len(hits) == 1
-    assert hits[0].name.startswith("dacli")

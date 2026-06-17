@@ -1,18 +1,18 @@
-"""Runtime config access for connectors without a Settings section.
+"""Read side of the encrypted connector *secrets* store.
 
-Built-in connectors read their config from a typed ``Settings`` section (e.g.
-``settings.snowflake``). **Generated** connectors have no such section — their
-credentials are collected by ``/connect`` and stored (Fernet-encrypted) in the
-``.dacli/dacli.json`` ``secrets`` block under the connector's id.
+Credentials collected by ``/connect`` are stored (Fernet-encrypted) in the
+``.dacli/dacli.json`` ``secrets`` block under the connector's id. This module
+decrypts and returns that section.
 
-This module is the read side of that store for generated connectors. The
-generator emits connectors whose ``__init__`` does::
+Non-secret config lives separately under ``connector_config.<id>`` in
+``config.yaml`` and is read via ``config.settings.ConnectorConfig`` (the
+manifest-config pattern, 09/A-4). The two are complementary: at load time
+``_overlay_secrets`` also folds the decrypted secrets into ``connector_config``
+so a connector can read everything through ``ConnectorConfig``. A generated
+connector may read its secrets directly here::
 
     from dacli.core.connector_config import load_connector_config
     self.cfg = load_connector_config("<connector_id>")
-
-so a generated connector reads its decrypted config the same way a built-in one
-reads ``self.settings.<id>`` — transparently, never touching plaintext on disk.
 """
 
 from __future__ import annotations

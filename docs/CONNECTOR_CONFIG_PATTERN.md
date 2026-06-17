@@ -11,8 +11,10 @@ two problems:
 2. Adding a connector meant editing a harness file that should stay
    connector-agnostic.
 
-The pattern below removes that split. **S3 is the proven, end-to-end migration;**
-the remaining built-ins follow it incrementally.
+The pattern below removes that split. **Every built-in connector now follows it**
+(s3 was the first); `Settings` carries no per-connector typed sections — only
+cross-cutting harness config (`llm`, `agent`, `context`, …) plus the
+`connector_config` bag and the opt-in `mcp` bridge.
 
 ---
 
@@ -98,10 +100,9 @@ s3:                              connector_config:
                                      region: us-east-1
 ```
 
-`ConnectorConfig` carries a one-release shim: when `connector_config.<id>` is
-empty it falls back to a still-present typed `settings.<id>` section (coercing it
-via `model_dump()`) and logs a warning to update the config. For **S3 this shim
-is inert** — the typed section was deleted, so the attribute no longer exists —
-which is why the move above is required, not optional. The shim only smooths the
-transition window for the *next* connector, between steps 2 and 3 of the recipe.
-Remove it in the next major release.
+`ConnectorConfig` reads only `connector_config.<id>` — the one-release
+typed-section fallback shim was removed once every built-in finished migrating
+(P10), so the move above is required, not optional, for all of them. A secret a
+connector collects via `/connect` (stored under `secrets.<id>`) reaches it the
+same way: `_overlay_secrets` routes any non-typed-section secret into
+`connector_config.<id>`.

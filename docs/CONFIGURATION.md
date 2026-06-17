@@ -50,27 +50,36 @@ behaves exactly as before.
 
 ### Platform credentials
 
-Each connector has its own section; all are optional until you enable the connector. Examples:
+Connector config lives under one `connector_config` block, keyed by connector id (the manifest-config
+pattern). Each connector's fields are declared in its `manifest.yaml` (`config_fields`); all are optional
+until you enable the connector. Examples:
 
 ```yaml
-snowflake:   { account: ..., user: ..., password: "${SNOWFLAKE_PASSWORD}", warehouse: ..., database: ..., schema: ..., role: ... }
-github:      { token: "${GITHUB_TOKEN}", owner: ..., repo: ..., branch: main }
-bigquery:    { project: ..., dataset: ..., location: US, bq_binary: bq }
-databricks:  { host: ..., token: "${DATABRICKS_TOKEN}", warehouse_id: ..., catalog: ..., schema: default }
-s3:          { bucket: ..., region: ..., profile: "", aws_binary: aws }
-gcs:         { bucket: ..., project: ..., gcloud_binary: gcloud }
-dbt:         { project_dir: ..., profiles_dir: ..., target: ..., dbt_binary: dbt }
-postgres:    { host: ..., port: 5432, database: ..., user: ..., password: ..., psql_binary: psql }
-mysql:       { host: ..., port: 3306, database: ..., user: ..., password: ..., mysql_binary: mysql }
-mongodb:     { uri: ..., database: ..., mongosh_binary: mongosh }
-dynamodb:    { region: ..., profile: "", aws_binary: aws }
-airflow:     { base_url: ..., username: ..., password: ..., token: "" }
-dagster:     { base_url: ..., token: "" }
-pinecone:    { api_key: "${PINECONE_API_KEY}", index_name: ..., environment: ... }
-embeddings:  { provider: openai, api_key: "${OPENAI_API_KEY}", model: text-embedding-3-small }
+connector_config:
+  snowflake:   { account: ..., user: ..., password: "${SNOWFLAKE_PASSWORD}", warehouse: ..., database: ..., schema: ..., role: ... }
+  github:      { token: "${GITHUB_TOKEN}", repository_url: "https://github.com/owner/repo", branch: main }
+  bigquery:    { project: ..., dataset: ..., location: US, bq_binary: bq }
+  databricks:  { host: ..., token: "${DATABRICKS_TOKEN}", warehouse_id: ..., catalog: ..., schema: default }
+  s3:          { bucket: ..., region: ..., profile: "", aws_binary: aws }
+  gcs:         { bucket: ..., project: ..., gcloud_binary: gcloud }
+  dbt:         { project_dir: ..., profiles_dir: ..., target: ..., dbt_binary: dbt }
+  postgres:    { host: ..., port: 5432, database: ..., user: ..., password: ..., psql_binary: psql }
+  mysql:       { host: ..., port: 3306, database: ..., user: ..., password: ..., mysql_binary: mysql }
+  mongodb:     { uri: ..., database: ..., mongosh_binary: mongosh }
+  dynamodb:    { region: ..., profile: "", aws_binary: aws }
+  airflow:     { base_url: ..., username: ..., password: ..., token: "" }
+  dagster:     { base_url: ..., token: "" }
+  pinecone:    { api_key: "${PINECONE_API_KEY}", index_name: ..., environment: ...,
+                 embedding_provider: openai, embedding_api_key: "${OPENAI_API_KEY}", embedding_model: text-embedding-3-small }
 ```
 
 CLI-first connectors take a `*_binary` override if the CLI isn't named the default on your PATH.
+
+> **Breaking change (09/A-4).** Connector config moved from top-level sections (`snowflake:`, `github:`,
+> …) into the `connector_config.<id>` block above. `github` no longer derives `owner`/`repo` from a
+> separate validator — set `repository_url` (the connector derives them) or pass `owner`/`repo`
+> explicitly. The `embeddings:` section folded into `connector_config.pinecone` as the `embedding_*`
+> fields. A legacy top-level section is silently ignored, so move yours under `connector_config`.
 
 ### `agent` — session behavior
 

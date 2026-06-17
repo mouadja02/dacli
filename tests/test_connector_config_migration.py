@@ -7,10 +7,8 @@ fail-soft :class:`ConnectorConfig` accessor instead of a typed ``Settings.s3``
 section. These tests pin that contract so the next connector can follow it.
 """
 import asyncio
-import types
 
 import pytest
-from pydantic import BaseModel
 
 from dacli.config.settings import ConnectorConfig, Settings
 
@@ -40,22 +38,6 @@ def test_connector_config_accessor_missing_connector():
     s = Settings()
     cfg = ConnectorConfig(s, "s3")
     assert cfg.get("bucket", "") == ""  # no crash, safe default
-
-
-def test_connector_config_shim_reads_legacy_typed_section():
-    """A not-yet-migrated typed section is read uniformly via the shim when no
-    ``connector_config`` value exists (the one-release backward-compat path)."""
-
-    class _LegacySection(BaseModel):
-        bucket: str = "legacy-bucket"
-        timeout: int = 42
-
-    # A settings object that still exposes a typed ``s3`` section but has no
-    # ``connector_config.s3`` value: the shim reads (and coerces) the section.
-    s = types.SimpleNamespace(connector_config={}, s3=_LegacySection())
-    cfg = ConnectorConfig(s, "s3")
-    assert cfg.get("bucket") == "legacy-bucket"
-    assert cfg.get("timeout") == 42
 
 
 # ---------------------------------------------------------------------------
