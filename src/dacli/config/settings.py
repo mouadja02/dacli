@@ -2,9 +2,8 @@ import re
 import os
 import yaml
 from pathlib import Path
-from urllib.parse import urlparse
 from typing import Any
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from dotenv import load_dotenv
 
 
@@ -149,70 +148,6 @@ class LLMSettings(BaseModel):
         ge=0.0,
         description="Base seconds for exponential backoff; delay ~= retry_base_delay * 2**attempt plus jitter.",
     )
-
-
-class GithubSettings(BaseModel):
-    # Github configuration. Optional so the agent can boot unconfigured.
-    token: str = ""
-    repository_url: str | None = None
-    owner: str = ""
-    repo: str = ""
-    branch: str = "main"
-    timeout: int = Field(
-        default=60, ge=1, description="Timeout in seconds for Github requests"
-    )
-    workflow_timeout: int = Field(
-        default=600, ge=30, description="Timeout in seconds for Github workflow runs"
-    )
-
-    @model_validator(mode="before")
-    def derive_owner_repo(cls, data: Any) -> Any:
-        # Auto-derive the owner and repo from the repository URL if not provided
-        if isinstance(data, dict):
-            url = data.get("repository_url", "")
-            if url:
-                parts = urlparse(url).path.strip("/").split("/")
-                if len(parts) >= 2:
-                    if not data.get("owner"):
-                        data["owner"] = parts[0]
-                    if not data.get("repo"):
-                        data["repo"] = parts[1].replace(".git", "")
-        return data
-
-
-class SnowflakeSettings(BaseModel):
-    # Snowflake connection configuration. All fields optional so the agent can
-    # boot before Snowflake is configured.
-    account: str = ""
-    user: str = ""
-    password: str = ""
-    warehouse: str = ""
-    role: str = ""
-    database: str = ""
-    db_schema: str = Field(default="PUBLIC", alias="schema")
-    query_timeout: int = Field(default=300, ge=1)
-    login_timeout: int = Field(default=60, ge=1)
-    network_timeout: int = Field(default=60, ge=1)
-
-    model_config = ConfigDict(populate_by_name=True)
-
-
-class PineconeSettings(BaseModel):
-    # Pinecone vector store configuration. Optional so the agent can boot
-    # before Pinecone is configured.
-    api_key: str = ""
-    index_name: str = ""
-    environment: str = ""
-    top_k: int = Field(default=5, ge=1, le=100)
-    include_metadata: bool = True
-
-
-class EmbeddingsSettings(BaseModel):
-    # Embeddings configuration for Pinecone. Optional so the agent can boot
-    # before embeddings are configured.
-    provider: str = ""
-    api_key: str = ""
-    model: str = ""
 
 
 class McpSettings(BaseModel):
@@ -479,16 +414,13 @@ class Settings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     llm: LLMSettings = Field(default_factory=LLMSettings)
-    snowflake: SnowflakeSettings = Field(default_factory=SnowflakeSettings)
-    github: GithubSettings = Field(default_factory=GithubSettings)
-    pinecone: PineconeSettings = Field(default_factory=PineconeSettings)
-    # Migrated to the manifest-config pattern (09/A-4): non-secret config lives
-    # under ``connector_config.<id>`` and is read via ``ConnectorConfig`` — no
-    # typed section here. s3, bigquery, databricks, gcs, dbt, postgres, mysql,
-    # mongodb, dynamodb, airflow and dagster all follow this.
+    # All built-in connectors use the manifest-config pattern (09/A-4): non-secret
+    # config lives under ``connector_config.<id>`` and is read via
+    # ``ConnectorConfig`` — no typed section here. snowflake, github, pinecone
+    # (with the folded embedding_* fields), s3, bigquery, databricks, gcs, dbt,
+    # postgres, mysql, mongodb, dynamodb, airflow and dagster all follow this.
     # Opt-in MCP client bridge (F-7); inert unless configured AND enabled.
     mcp: McpSettings = Field(default_factory=McpSettings)
-    embeddings: EmbeddingsSettings = Field(default_factory=EmbeddingsSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
     governance: GovernanceSettings = Field(default_factory=GovernanceSettings)

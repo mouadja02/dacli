@@ -3,7 +3,7 @@ import time
 from typing import Any
 
 from dacli.connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
-from dacli.config.settings import Settings
+from dacli.config.settings import ConnectorConfig, Settings
 from dacli.core.verify import PostCondition, VerificationContext, result_succeeded
 
 
@@ -379,18 +379,18 @@ class SnowflakeConnector(Connector):
                 "pip install 'dacli[snowflake]'"
             ) from e
         try:
-            snowflake_settings = self.settings.snowflake
+            cfg = ConnectorConfig(self.settings, "snowflake")
 
             self._connection = snowflake.connector.connect(
-                account=snowflake_settings.account,
-                user=snowflake_settings.user,
-                password=snowflake_settings.password,
-                role=snowflake_settings.role,
-                warehouse=snowflake_settings.warehouse,
-                database=snowflake_settings.database,
-                schema=snowflake_settings.db_schema,
-                login_timeout=snowflake_settings.login_timeout,
-                network_timeout=snowflake_settings.network_timeout
+                account=cfg.get("account", ""),
+                user=cfg.get("user", ""),
+                password=cfg.get("password", ""),
+                role=cfg.get("role", ""),
+                warehouse=cfg.get("warehouse", ""),
+                database=cfg.get("database", ""),
+                schema=cfg.get("schema", "PUBLIC"),
+                login_timeout=cfg.get("login_timeout", 60),
+                network_timeout=cfg.get("network_timeout", 60),
             )
             self._cursor = self._connection.cursor()
             self.is_connected = True
@@ -490,7 +490,7 @@ class SnowflakeConnector(Connector):
         """
         start_time = time.time()
         object_type = (args.get("object_type") or "table").lower()
-        database = args.get("database") or self.settings.snowflake.database
+        database = args.get("database") or ConnectorConfig(self.settings, "snowflake").get("database", "")
         schema = args.get("schema")
         obj = args.get("object")
         scope = {"database": database, "schema": schema, "object": obj}

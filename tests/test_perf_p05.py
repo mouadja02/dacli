@@ -36,11 +36,14 @@ def _settings():
     settings = Settings(
         llm={"provider": "scripted", "model": "scripted",
              "api_key": "scripted", "base_url": "https://api.test.local"},
-        github={"token": "x"},
-        snowflake={"account": "a", "user": "u", "password": "p",
-                   "warehouse": "w", "role": "r", "database": "d"},
-        pinecone={"api_key": "k", "index_name": "i", "environment": "e"},
-        embeddings={"provider": "openai", "api_key": "k", "model": "m"},
+        connector_config={
+            "github": {"token": "x"},
+            "snowflake": {"account": "a", "user": "u", "password": "p",
+                          "warehouse": "w", "role": "r", "database": "d"},
+            "pinecone": {"api_key": "k", "index_name": "i", "environment": "e",
+                         "embedding_provider": "openai", "embedding_api_key": "k",
+                         "embedding_model": "m"},
+        },
     )
     root = tempfile.mkdtemp(prefix="dacli_p05_test_")
     _TEMP_DIRS.append(root)

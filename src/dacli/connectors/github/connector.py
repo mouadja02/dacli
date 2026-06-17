@@ -4,10 +4,12 @@ import time
 import io
 import zipfile
 import httpx
+from types import SimpleNamespace
 from typing import Any, ClassVar
+from urllib.parse import urlparse
 
 from dacli.connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
-from dacli.config.settings import Settings
+from dacli.config.settings import ConnectorConfig, Settings
 from dacli.core.logging_setup import get_logger
 from dacli.core.verify import (
     PostCondition, VerificationContext, result_succeeded, data_has_keys,
@@ -125,8 +127,28 @@ class GithubConnector(Connector):
 
     @property
     def _gh(self):
-        # Shortcut to the GitHub settings
-        return self.settings.github
+        # Resolve github config from connector_config (manifest-config pattern,
+        # 09/A-4) into a namespace with the old typed-section defaults, deriving
+        # owner/repo from repository_url when not set explicitly (the behaviour
+        # the deleted GithubSettings validator used to provide).
+        cfg = ConnectorConfig(self.settings, "github")
+        owner = cfg.get("owner", "") or ""
+        repo = cfg.get("repo", "") or ""
+        url = cfg.get("repository_url", "") or ""
+        if url and (not owner or not repo):
+            parts = urlparse(url).path.strip("/").split("/")
+            if len(parts) >= 2:
+                owner = owner or parts[0]
+                repo = repo or parts[1].replace(".git", "")
+        return SimpleNamespace(
+            token=cfg.get("token", "") or "",
+            repository_url=url,
+            owner=owner,
+            repo=repo,
+            branch=cfg.get("branch", "main") or "main",
+            timeout=cfg.get("timeout", 60),
+            workflow_timeout=cfg.get("workflow_timeout", 600),
+        )
 
     # ------------------------------------------------------------------
     # Connector contract

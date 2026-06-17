@@ -192,18 +192,28 @@ You can always re-run this wizard later by using: `dacli --setup`
     # Secrets to collect per connector id: (settings section, field, label).
     # The LLM key is always required (not tied to an optional connector).
     _ALWAYS_SECRETS: ClassVar[list[tuple[str, str, str]]] = [("llm", "api_key", "LLM API key")]
+    # (store-section, field, label) per connector. Migrated connectors (09/A-4)
+    # store secrets under ``secrets.<id>.*``, which ``_overlay_secrets`` then
+    # routes into ``connector_config.<id>``; pinecone's embedding key folds in as
+    # ``embedding_api_key``.
     _SECRET_FIELDS: ClassVar[dict[str, list[tuple[str, str, str]]]] = {
         "snowflake": [("snowflake", "password", "Snowflake password")],
         "github": [("github", "token", "GitHub personal access token")],
         "pinecone": [
             ("pinecone", "api_key", "Pinecone API key"),
-            ("embeddings", "api_key", "Embeddings API key"),
+            ("pinecone", "embedding_api_key", "Embeddings API key"),
         ],
     }
 
     def _current_secret(self, section: str, field: str):
+        # A typed harness section (e.g. llm) is read directly; a connector on the
+        # manifest-config pattern is read from connector_config via ConnectorConfig.
         sec = getattr(self.settings, section, None)
-        return getattr(sec, field, None) if sec is not None else None
+        if sec is not None and hasattr(sec, field):
+            return getattr(sec, field, None)
+        from dacli.config.settings import ConnectorConfig
+
+        return ConnectorConfig(self.settings, section).get(field)
 
     @staticmethod
     def _is_missing(value) -> bool:

@@ -127,13 +127,13 @@ class UnsetEnvVarWarningTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cfg = Path(tmp) / "config.yaml"
             cfg.write_text(
-                'github:\n  token: "${DACLI_P06_DEFINITELY_UNSET}"\n',
+                'connector_config:\n  github:\n    token: "${DACLI_P06_DEFINITELY_UNSET}"\n',
                 encoding="utf-8",
             )
             stderr = io.StringIO()
             with redirect_stderr(stderr):
                 settings = load_config(str(cfg))
-        self.assertEqual(settings.github.token, "")
+        self.assertEqual(settings.connector_config.get("github", {}).get("token"), "")
         self.assertIn("DACLI_P06_DEFINITELY_UNSET", stderr.getvalue())
         self.assertIn("Unset environment variables", stderr.getvalue())
 

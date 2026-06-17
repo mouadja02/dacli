@@ -2,7 +2,7 @@ import time
 from typing import Any
 
 from dacli.connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
-from dacli.config.settings import Settings
+from dacli.config.settings import ConnectorConfig, Settings
 from dacli.core.verify import data_is_list, data_has_keys
 
 
@@ -26,6 +26,11 @@ class PineconeConnector(Connector):
         self._index: Any = None
         self._embeddings_client: Any = None
         self._embeddings_model: Any = None
+
+    def _cfg(self) -> ConnectorConfig:
+        # Non-secret config + the folded embedding_* fields (the old separate
+        # ``embeddings`` section migrated under this connector, 09/A-4).
+        return ConnectorConfig(self.settings, "pinecone")
 
     # ------------------------------------------------------------------
     # Connector contract
@@ -87,26 +92,24 @@ class PineconeConnector(Connector):
                 "The Pinecone SDK is not installed. Install it with: "
                 "pip install 'dacli[pinecone]'"
             ) from e
+        cfg = self._cfg()
         try:
-            pinecone_settings = self.settings.pinecone
-            pc = pinecone.Pinecone(api_key=pinecone_settings.api_key)
-            self._index = pc.Index(pinecone_settings.index_name)
+            pc = pinecone.Pinecone(api_key=cfg.get("api_key", ""))
+            self._index = pc.Index(cfg.get("index_name", ""))
         except Exception as e:
             self._is_connected = False
             raise ConnectionError(f"Failed to connect to Pinecone: {e!s}") from e
 
         try:
-            embedding_settings = self.settings.embeddings
-            if embedding_settings.provider == "openai":
+            provider = cfg.get("embedding_provider", "")
+            if provider == "openai":
                 from openai import OpenAI
 
-                self._embeddings_client = OpenAI(api_key=embedding_settings.api_key)
-                self._embeddings_model = embedding_settings.model
+                self._embeddings_client = OpenAI(api_key=cfg.get("embedding_api_key", ""))
+                self._embeddings_model = cfg.get("embedding_model", "")
             # TODO: Add support for other embedding providers (HuggingFace, etc.)
             else:
-                raise ValueError(
-                    f"Unsupported embedding provider: {embedding_settings.provider}"
-                )
+                raise ValueError(f"Unsupported embedding provider: {provider}")
 
         except Exception as e:
             self._is_connected = False
@@ -144,7 +147,7 @@ class PineconeConnector(Connector):
                 tool_name=self.name,
                 status=ToolStatus.SUCCESS,
                 data={
-                    "index_name": self.settings.pinecone.index_name,
+                    "index_name": self._cfg().get("index_name", ""),
                     "total_vectors": stats.get("total_vector_count", 0),
                     "dimensions": stats.get("dimension", 0),
                     "embedding_model": self._embeddings_model,
@@ -162,14 +165,13 @@ class PineconeConnector(Connector):
 
     def _get_embedding(self, text: str) -> list[float]:
         # Get embedding vector for text
-        if self.settings.embeddings.provider == "openai":
+        provider = self._cfg().get("embedding_provider", "")
+        if provider == "openai":
             response = self._embeddings_client.embeddings.create(
                 model=self._embeddings_model, input=text
             )
             return response.data[0].embedding
-        raise ValueError(
-            f"Unsupported embedding provider: {self.settings.embeddings.provider}"
-        )
+        raise ValueError(f"Unsupported embedding provider: {provider}")
 
     # ------------------------------------------------------------------
     # Operations
@@ -183,7 +185,7 @@ class PineconeConnector(Connector):
             stats = self._index.describe_index_stats()
             data = {
                 "exists": True,
-                "index_name": self.settings.pinecone.index_name,
+                "index_name": self._cfg().get("index_name", ""),
                 "dimension": stats.get("dimension", 0),
                 "total_vectors": stats.get("total_vector_count", 0),
                 "namespaces": list((stats.get("namespaces") or {}).keys()),
@@ -205,9 +207,10 @@ class PineconeConnector(Connector):
     async def _search(self, query: str, **kwargs) -> ToolResult:
         # Search Pinecone for relevant documentation.
         start_time = time.time()
-        top_k = kwargs.get("top_k", self.settings.pinecone.top_k)
+        cfg = self._cfg()
+        top_k = kwargs.get("top_k", cfg.get("top_k", 5))
         include_metadata = kwargs.get(
-            "include_metadata", self.settings.pinecone.include_metadata
+            "include_metadata", cfg.get("include_metadata", True)
         )
 
         try:

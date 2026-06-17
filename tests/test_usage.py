@@ -200,23 +200,32 @@ class StoreTest(unittest.TestCase):
 
 class OverlayTest(unittest.TestCase):
     def test_overlay_fills_placeholders_only(self):
+        # llm is a typed harness section; the connectors are on the manifest-config
+        # pattern, so their secrets land under connector_config.<id> (09/A-4).
         cfg = {
-            "snowflake": {"account": "ACC", "password": "${SF_PW}"},
-            "github": {"token": "explicit-real-token"},
             "llm": {"api_key": ""},
+            "connector_config": {
+                "snowflake": {"account": "ACC", "password": "${SF_PW}"},
+                "github": {"token": "explicit-real-token"},
+            },
         }
         secrets = {
             "snowflake": {"password": "PW"},
             "github": {"token": "should-not-override"},
             "llm": {"api_key": "LLM"},
-            "absent_section": {"x": "y"},
         }
         out = _overlay_secrets(cfg, secrets)
-        self.assertEqual(out["snowflake"]["password"], "PW")       # ${...} filled
-        self.assertEqual(out["llm"]["api_key"], "LLM")             # empty filled
-        self.assertEqual(out["github"]["token"], "explicit-real-token")  # kept
-        self.assertEqual(out["snowflake"]["account"], "ACC")
-        self.assertNotIn("absent_section", out)                    # no new sections
+        cc = out["connector_config"]
+        self.assertEqual(cc["snowflake"]["password"], "PW")        # ${...} filled
+        self.assertEqual(out["llm"]["api_key"], "LLM")             # typed section filled
+        self.assertEqual(cc["github"]["token"], "explicit-real-token")  # explicit kept
+        self.assertEqual(cc["snowflake"]["account"], "ACC")
+
+    def test_overlay_materializes_connector_secret(self):
+        # A /connect-stored secret with no prior config.yaml entry still reaches
+        # the connector by materializing connector_config.<id>.
+        out = _overlay_secrets({}, {"snowflake": {"password": "PW"}})
+        self.assertEqual(out["connector_config"]["snowflake"]["password"], "PW")
 
 
 if __name__ == "__main__":

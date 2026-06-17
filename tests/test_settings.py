@@ -53,12 +53,16 @@ class SettingsConstructibleTest(unittest.TestCase):
         self.assertEqual(settings.llm.api_key, "")
         self.assertEqual(settings.llm.base_url, "")
 
-    def test_unconfigured_sections_default_empty(self):
+    def test_unconfigured_connectors_default_empty(self):
+        # Connectors read via ConnectorConfig (manifest-config pattern, 09/A-4),
+        # which is fail-soft: a missing connector/field returns the default.
+        from dacli.config.settings import ConnectorConfig
+
         settings = Settings()
-        self.assertEqual(settings.snowflake.account, "")
-        self.assertEqual(settings.github.token, "")
-        self.assertEqual(settings.pinecone.api_key, "")
-        self.assertEqual(settings.embeddings.provider, "")
+        self.assertEqual(settings.connector_config, {})
+        self.assertEqual(ConnectorConfig(settings, "snowflake").get("account", ""), "")
+        self.assertEqual(ConnectorConfig(settings, "github").get("token", ""), "")
+        self.assertEqual(ConnectorConfig(settings, "pinecone").get("api_key", ""), "")
 
 
 class IsLlmConfiguredTest(unittest.TestCase):
@@ -133,9 +137,14 @@ class LoadConfigCacheTest(unittest.TestCase):
         self.assertEqual(s2.llm.model, "gpt-b")
 
     def test_wizard_secret_visible_after_invalidation(self):
-        self._write("snowflake:\n  account: acct\n  password: ''\n")
+        # snowflake is on the manifest-config pattern: its secret is stored under
+        # secrets.snowflake.* and _overlay_secrets routes it into
+        # connector_config.snowflake, where ConnectorConfig reads it.
+        from dacli.config.settings import ConnectorConfig
+
+        self._write("connector_config:\n  snowflake:\n    account: acct\n")
         s1 = load_config(str(self._cfg))
-        self.assertEqual(s1.snowflake.password, "")
+        self.assertEqual(ConnectorConfig(s1, "snowflake").get("password", ""), "")
 
         # The wizard writes an encrypted secret into dacli.json at the base dir
         # (parent of state_path). A .key there makes encryption deterministic.
@@ -146,7 +155,7 @@ class LoadConfigCacheTest(unittest.TestCase):
         )
         invalidate_config_cache()
         s2 = load_config(str(self._cfg))
-        self.assertEqual(s2.snowflake.password, "hunter2")
+        self.assertEqual(ConnectorConfig(s2, "snowflake").get("password"), "hunter2")
 
 
 if __name__ == "__main__":
