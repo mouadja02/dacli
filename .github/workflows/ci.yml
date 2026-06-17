@@ -24,10 +24,15 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - name: Install ruff
-        run: pip install ruff==0.15.16
+      - name: Install ruff + vulture
+        run: pip install ruff==0.15.16 "vulture>=2,<3"
       - name: ruff check
         run: ruff check .
+      # Dead-code gate at confidence 80 (P10): below that, dynamic dispatch
+      # (pydantic fields, registry-loaded connectors, op-/command-dispatch) is
+      # all false positives. The whitelist records the genuine ones.
+      - name: vulture (dead code)
+        run: vulture src .vulture_whitelist.py --min-confidence 80
 
   test:
     runs-on: ubuntu-latest

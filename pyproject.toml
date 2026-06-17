@@ -116,7 +116,9 @@ dacli = [
 
 [tool.ruff]
 target-version = "py310"
-extend-exclude = ["build", ".venv", ".claude"]
+# .vulture_whitelist.py is a list of bare symbol names for vulture, not real
+# code — every line is an intentional "undefined name" (F821).
+extend-exclude = ["build", ".venv", ".claude", ".vulture_whitelist.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "B", "SIM", "RUF", "UP", "C4", "PERF", "RET"]
