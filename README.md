@@ -8,7 +8,7 @@
 
 [![CI](https://github.com/mouadja02/dacli/actions/workflows/ci.yml/badge.svg)](https://github.com/mouadja02/dacli/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-742-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-759-brightgreen.svg)](#testing)
 [![Reliability](https://img.shields.io/badge/reliability-pass%5Ek-orange.svg)](docs/EVALUATION.md)
 [![Architecture](https://img.shields.io/badge/architecture-six--component%20harness-8A2BE2.svg)](docs/ARCHITECTURE.md)
 
@@ -315,6 +315,7 @@ executes step by step, and verifies each step against the platform before moving
 | `dacli catalog [--connector <id>]` | List known data objects from the catalog cache. |
 | `dacli schema <object>` | Show cached columns / row count for one object. |
 | `dacli lineage <object> [--json]` | Show known upstream producers / downstream consumers (dbt manifest, view deps, orchestrator DAGs). Best-effort; feeds blast-radius governance. |
+| `dacli why-failed [--source dbt\|airflow] [--dag <id>] [--run <id>] [--apply] [--json]` | Explain the most recent pipeline failure: locate the failed node (dbt run-results / orchestrator), read its logs read-only, correlate via lineage, and propose a governed fix. `--apply` routes the fix through classify → approve → verify → rollback; nothing is applied otherwise. |
 | `dacli run "<message>" [--json] [--approve approve\|deny] [--llm-script <file>]` | One headless agent turn with a machine-readable JSON result and a stable exit-code contract. |
 | `dacli replay <scenario.json> [--json]` | Replay a scenario file (ordered user turns + optional scripted LLM) headlessly — what the [CI gate](#extending-dacli) runs. |
 | `dacli connector install <name> --index <path\|url> [--force]` | Fetch a shared connector from an index, validate it in a sandboxed subprocess, register it **disabled**. |
@@ -327,7 +328,7 @@ executes step by step, and verifies each step against the platform before moving
 
 ### In-chat slash commands
 
-`/help` · `/keys` · `/init` · `/status` · `/doctor` · `/usage` · `/context` · `/audit` · `/tools` · `/connect [tool]` ·
+`/help` · `/keys` · `/init` · `/status` · `/doctor` · `/usage` · `/context` · `/audit` · `/why-failed [dag]` · `/tools` · `/connect [tool]` ·
 `/new-connector` · `/testmode [tool]` · `/import-connector` · `/push-connector` · `/debug-connector <name>` ·
 `/setup` · `/history` · `/find <text>` · `/last-error` · `/expand <id>` · `/transcript` · `/sessions` ·
 `/catalog [connector]` · `/schema <object>` · `/load <id>` · `/export` ·

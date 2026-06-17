@@ -747,6 +747,52 @@ class PanelsMixin:
             self.console.print(responsive_table(self.console, cols, _rows(upstream)))
             self.console.print()
 
+    def why_failed_panel(self, explanation: Any) -> None:
+        """Root cause + log excerpt + the proposed (governed, unapplied) fix."""
+        finding = explanation.finding
+        if finding is None:
+            self.console.print(
+                f"[muted]{explanation.error or 'no failure located'}[/muted]")
+            return
+
+        body = Text()
+        body.append("Source      ", style="muted")
+        body.append(f"{finding.source}\n", style="accent")
+        body.append("Failing     ", style="muted")
+        body.append(f"{finding.failing_node}  ({finding.status})\n", style="warning")
+        if finding.dag_id:
+            body.append("DAG / run   ", style="muted")
+            body.append(f"{finding.dag_id} / {finding.run_id}\n", style="step")
+        body.append("Root cause  ", style="muted")
+        body.append(f"{explanation.root_cause}", style="phase")
+        self.console.print(
+            Panel(body, title="[error]Why failed[/error]", box=self.glyphs.box,
+                  border_style="border", padding=SPACING["panel_pad"])
+        )
+
+        if finding.log_excerpt:
+            self.console.print(Text("Log excerpt", style="muted"))
+            self.console.print(Panel(finding.log_excerpt.strip()[:1500],
+                                     box=self.glyphs.box, border_style="muted"))
+
+        if explanation.downstream:
+            names = ", ".join(n.get("label") or n.get("name")
+                              for n in explanation.downstream[:8])
+            self.console.print(
+                f"[warning]Blast radius[/warning]  {len(explanation.downstream)} "
+                f"downstream consumer(s): {names}")
+
+        fix = explanation.proposed_fix
+        if fix is not None:
+            verb = "applied" if fix.applied else "proposed (not applied)"
+            self.console.print(
+                f"\n[accent]Proposed fix[/accent] [{verb}]  "
+                f"{fix.tool_name} {fix.args}\n[muted]{fix.rationale}[/muted]")
+            if not fix.applied:
+                self.console.print(
+                    "[muted]Re-run with --apply to route it through the governance "
+                    "gate (classify → approve → verify → rollback).[/muted]")
+
     def status_panel(self, memory) -> None:
         # Render the current agent status: session panel, plan and statistics.
         summary = memory.get_progress_summary()
