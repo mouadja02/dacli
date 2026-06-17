@@ -51,6 +51,29 @@ def _print_audit(ledger, session_id, *, full=False, limit=20, header=None, targe
     )
 
 
+def _open_transcript(config, session):
+    # `dacli --transcript`: browse a session's history full-screen. Tool records
+    # are in-session only, so this view shows the persisted conversation.
+    from dacli.tui import transcript_app
+
+    if not transcript_app.is_available():
+        console.print(
+            "[warning]Full-screen transcript needs the Textual extra: "
+            "pip install dacli\\[tui][/warning]"
+        )
+        return
+    settings = load_config(config)
+    memory = AgentMemory(
+        state_path=settings.agent.state_path,
+        history_path=settings.agent.history_path,
+        memory_window=settings.agent.memory_window,
+    )
+    if session and not memory.load_session(session):
+        console.print(f"[error]Session not found: {session}[/error]")
+        return
+    transcript_app.build_app(memory.get_full_history(), []).run()
+
+
 # ============================================================
 # CLI Commands
 # ============================================================
@@ -67,13 +90,19 @@ def _print_audit(ledger, session_id, *, full=False, limit=20, header=None, targe
 @click.option("--setup", is_flag=True, help="Run the setup wizard")
 @click.option("--debug", is_flag=True, help="Verbose DEBUG logging to .dacli/dacli.log "
                                             "(re-raises unexpected kernel errors)")
+@click.option("--transcript", is_flag=True, help="Open the full-screen transcript "
+                                                 "viewer for a session (needs dacli[tui])")
 @click.pass_context
-def cli(ctx, config, session, version, setup, debug):
+def cli(ctx, config, session, version, setup, debug, transcript):
     # DACLI: AI-powered Data Engineering Assistant
     # P02: --version short-circuits before any state setup so it touches no FS.
     # (--help is Click's eager option — it exits before this body runs.)
     if version:
         console.print(f"DACLI version {__version__}")
+        return
+
+    if transcript:
+        _open_transcript(config, session)
         return
 
     # P06: configure the logging tree once, at the single CLI entry point.

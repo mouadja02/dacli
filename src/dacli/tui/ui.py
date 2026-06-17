@@ -40,7 +40,7 @@ from .design import SPACING, TIER_STYLE, Glyphs, gauge, resolve_glyphs
 from .theme import ThemeSpec, get_theme
 from .render_util import _remediation_hint, _valid_pt_color
 from .stream import StreamMixin, StreamView
-from .transcript import TranscriptMixin
+from .transcript import TranscriptLog, TranscriptMixin
 from .panels import PanelsMixin
 
 # Re-exported for callers that import it from here (e.g. tui/__init__).
@@ -93,6 +93,13 @@ class DacliUI(StreamMixin, TranscriptMixin, PanelsMixin):
         self.activity = ""  # current background activity, shown in the spinner
         # Transient liveness line for a long-running tool (see tool_progress).
         self._progress_live: Live | None = None
+        # In-session tool-outcome log for /find, /last-error, /expand (P11). The
+        # spill store is bound once the agent is built (see bind_result_store).
+        self.transcript_log = TranscriptLog()
+
+    def bind_result_store(self, store: Any) -> None:
+        """Point the transcript log at the session spill store (post agent init)."""
+        self.transcript_log.store = store
 
     # ------------------------------------------------------------------
     # Theme
