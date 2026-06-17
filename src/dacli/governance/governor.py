@@ -34,6 +34,7 @@ from dacli.core.logging_setup import get_logger
 
 log = get_logger(__name__)
 from dacli.governance.classifier import ActionClassifier, Classification, Tier
+from dacli.governance.vocab import promote as _promote
 from dacli.governance.policy_engine import PolicyDecision, PolicyEngine, PolicyResult
 from dacli.governance.permissions import PermissionRegistry, Scope
 from dacli.governance.rollback import RollbackPlan, RollbackStrategist
@@ -123,6 +124,7 @@ class Governor:
         enforce: bool = True,
         use_shadow: bool = True,
         cost_confirm_usd: float | None = None,
+        lineage: Any = None,
     ):
         self.classifier = classifier or ActionClassifier(
             prod_markers=(policy.prod_markers if policy else None) or None
@@ -142,6 +144,10 @@ class Governor:
         # many USD raises the effective tier so the confirm path fires. None
         # (the default) never consults the estimator — zero behaviour change.
         self.cost_confirm_usd = cost_confirm_usd
+        #: P12 lineage store. When set, dropping/replacing an object with known
+        # downstream consumers names them and raises the tier. Best-effort and
+        # fail-soft: absence of lineage never blocks and never marks a thing safe.
+        self.lineage = lineage
 
     # ------------------------------------------------------------------
     # helpers
@@ -166,6 +172,48 @@ class Governor:
             return None
         cmd = args.get("command") or args.get("cmd")
         return str(cmd) if cmd else None
+
+    #: How many consumers to name inline before "+N more".
+    _LINEAGE_CITE_LIMIT = 5
+
+    def _apply_lineage(self, tool_name: str, args: dict[str, Any],
+                       classification: Classification, decision_id: str, actor: str) -> None:
+        if self.lineage is None:
+            return
+        try:
+            from dacli.memory.graph.lineage import action_targets
+
+            consumers: list[Any] = []
+            for target in action_targets(tool_name, args):
+                consumers.extend(self.lineage.downstream(target))
+            # Dedup across targets by (name, kind).
+            seen: set[tuple[str, str]] = set()
+            unique = []
+            for c in consumers:
+                key = (c.name.upper(), c.kind)
+                if key not in seen:
+                    seen.add(key)
+                    unique.append(c)
+            if not unique:
+                return
+
+            named = ", ".join(c.display() for c in unique[:self._LINEAGE_CITE_LIMIT])
+            more = len(unique) - self._LINEAGE_CITE_LIMIT
+            if more > 0:
+                named += f", +{more} more"
+            tier = classification.tier
+            reason = (f"lineage: {len(unique)} downstream consumer(s) read this object "
+                      f"({named}) → wider blast radius")
+            if tier in (Tier.WRITE, Tier.RISKY):
+                promoted = _promote(tier, 1)
+                reason += f"; promote {tier.value}→{promoted.value}"
+                classification.tier = promoted
+            classification.reasons.append(reason)
+            self._audit("lineage", tool_name, decision_id, actor,
+                        classification.tier.value, reason,
+                        consumers=[c.to_dict() for c in unique])
+        except Exception:
+            log.debug("lineage blast-radius check raised", exc_info=True)
 
     def _environment(self, connector_id: str, args: dict[str, Any], connector: Any,
                      classification: Classification) -> str | None:
@@ -248,6 +296,13 @@ class Governor:
             classification.reasons.append(reason)
             self._audit("cost", tool_name, decision_id, actor, tier.value,
                         reason, estimate=cost_estimate)
+
+        # 1c. Lineage / blast-radius (P12): dropping or replacing an object with
+        # known downstream consumers names them and raises the effective tier —
+        # lineage is evidence *for* the classification, not a parallel gate.
+        # Fail-soft: a missing store or a raising lookup never breaks review.
+        self._apply_lineage(tool_name, args, classification, decision_id, actor)
+        tier = classification.tier
 
         # 2. Permission / least-privilege scope.
         scope_check = self.permissions.check(connector_id, tier)

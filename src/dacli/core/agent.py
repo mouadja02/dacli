@@ -334,6 +334,15 @@ class DACLI:
         audit_path = (getattr(gov, "audit_path", None) or f"{state_dir}/audit.jsonl") if gov else f"{state_dir}/audit.jsonl"
         ledger = AuditLedger(path=audit_path)
 
+        # P12 lineage: best-effort blast-radius evidence (dbt + catalog + persisted
+        # store). Build failures are non-fatal — governance runs without it.
+        lineage = None
+        try:
+            from dacli.memory.graph.lineage import build_project_lineage
+            lineage = build_project_lineage(settings)
+        except Exception:
+            log.debug("lineage store unavailable", exc_info=True)
+
         # The classifier embeds the shell command classifier; give it the
         # terminal's egress posture so a `curl`/`wget` in a shell command is
         # judged against the same allowlist a connector fetch would be.
@@ -354,6 +363,7 @@ class DACLI:
             enforce=True,
             use_shadow=bool(getattr(gov, "shadow_execution", True)) if gov else True,
             cost_confirm_usd=getattr(gov, "cost_confirm_usd", None) if gov else None,
+            lineage=lineage,
         )
 
     def _resolve_environment(self, connector_id: str, args: dict, connector) -> str | None:
