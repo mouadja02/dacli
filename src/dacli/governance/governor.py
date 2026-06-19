@@ -124,6 +124,7 @@ class Governor:
         enforce: bool = True,
         use_shadow: bool = True,
         cost_confirm_usd: float | None = None,
+        on_cost: Callable[[float], None] | None = None,
         lineage: Any = None,
     ):
         self.classifier = classifier or ActionClassifier(
@@ -144,6 +145,10 @@ class Governor:
         # many USD raises the effective tier so the confirm path fires. None
         # (the default) never consults the estimator — zero behaviour change.
         self.cost_confirm_usd = cost_confirm_usd
+        #: Slice-C cost advisor sink. When a per-action USD estimate is computed
+        # (only happens while the cost gate is configured), it is reported here
+        # so the session's running warehouse spend can surface in the toolbar.
+        self._on_cost = on_cost
         #: P12 lineage store. When set, dropping/replacing an object with known
         # downstream consumers names them and raises the tier. Best-effort and
         # fail-soft: absence of lineage never blocks and never marks a thing safe.
@@ -287,6 +292,11 @@ class Governor:
         # never breaks review (the action is then judged on tier alone).
         cost_estimate = await self._estimate_cost(spec, args, connector)
         usd = (cost_estimate or {}).get("usd")
+        if usd is not None and self._on_cost is not None:
+            try:
+                self._on_cost(float(usd))
+            except Exception:
+                log.debug("on_cost sink raised", exc_info=True)
         if usd is not None and self.cost_confirm_usd is not None and usd > self.cost_confirm_usd:
             reason = (f"estimated cost ${usd:,.2f} exceeds the "
                       f"cost_confirm_usd threshold (${self.cost_confirm_usd:,.2f}) → confirm")

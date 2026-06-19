@@ -148,7 +148,8 @@ async def run_headless(
 
     ``llm`` injects a :class:`~reasoning.scripted.ScriptedLLM` for offline runs;
     ``None`` uses the configured provider. ``approve`` is ``"deny"`` (default,
-    fail-safe), ``"approve"``, or a list of booleans consumed in order.
+    fail-safe), ``"approve"``, a list of booleans consumed in order, or a
+    callable ``(ApprovalRequest) -> bool`` (a runbook policy envelope).
     """
     from dacli.core.agent import DACLI
     from dacli.core.memory import AgentMemory
@@ -194,7 +195,15 @@ async def run_headless(
 
     approvals = list(approve) if isinstance(approve, list) else None
 
-    def on_approval(_request: Any) -> bool:
+    def on_approval(request: Any) -> bool:
+        # A callable approver (runbook policy envelope) decides per request; any
+        # error in it is a denial (fail-closed). Else: a list is consumed in
+        # order, "approve" auto-approves, anything else denies.
+        if callable(approve):
+            try:
+                return bool(approve(request))
+            except Exception:
+                return False
         if approvals is not None:
             return bool(approvals.pop(0)) if approvals else False
         return approve == "approve"

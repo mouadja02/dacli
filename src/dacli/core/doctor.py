@@ -34,6 +34,7 @@ class Diagnostics:
     sandbox: dict[str, Any]
     terminal: dict[str, Any]
     connectors: dict[str, Any]
+    cost: dict[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -47,6 +48,7 @@ class Diagnostics:
             "sandbox": self.sandbox,
             "terminal": self.terminal,
             "connectors": self.connectors,
+            "cost": self.cost,
         }
 
     @property
@@ -214,5 +216,12 @@ def collect(settings: Any, *, config_path: str | None = None, ping: bool = False
             "enabled": len(enabled),
             "skipped": len(skipped),
             "skipped_detail": skipped,
+        },
+        cost={
+            # The F-4 gate threshold (None = off) and which enabled connectors
+            # the cost advisor can estimate/report on. Offline: no warehouse is
+            # queried here — `dacli cost` does that.
+            "confirm_usd": settings.governance.cost_confirm_usd,
+            "advisors": [c for c in ("snowflake", "bigquery", "databricks") if c in enabled],
         },
     )

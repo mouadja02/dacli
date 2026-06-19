@@ -363,8 +363,17 @@ class DACLI:
             enforce=True,
             use_shadow=bool(getattr(gov, "shadow_execution", True)) if gov else True,
             cost_confirm_usd=getattr(gov, "cost_confirm_usd", None) if gov else None,
+            on_cost=self._record_warehouse_cost,
             lineage=lineage,
         )
+
+    def _record_warehouse_cost(self, usd: float) -> None:
+        # Fold a per-action warehouse cost estimate into the session's running
+        # spend so the bottom toolbar can show it next to the LLM cost.
+        try:
+            self.store.record_warehouse_cost(getattr(self.memory, "session_id", ""), usd)
+        except Exception:
+            log.debug("could not record warehouse cost", exc_info=True)
 
     def _resolve_environment(self, connector_id: str, args: dict, connector) -> str | None:
         # Best-effort environment label for the policy engine: the connection's

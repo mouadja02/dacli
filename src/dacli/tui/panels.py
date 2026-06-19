@@ -570,6 +570,12 @@ class PanelsMixin:
         for cid, reason in conn["skipped_detail"].items():
             table.add_row("", f"[warning]{cid}[/warning]: {reason}")
 
+        cost = getattr(d, "cost", None) or {}
+        gate = cost.get("confirm_usd")
+        gate_txt = f"confirm above ${gate:g}" if gate is not None else "off"
+        advisors = ", ".join(cost.get("advisors") or []) or "none enabled"
+        table.add_row("cost", f"gate: {gate_txt}  [muted]·[/muted]  advisor: {advisors}")
+
         border = "border" if d.ok else "warning"
         self.console.print(
             Panel(
@@ -792,6 +798,54 @@ class PanelsMixin:
                 self.console.print(
                     "[muted]Re-run with --apply to route it through the governance "
                     "gate (classify → approve → verify → rollback).[/muted]")
+
+    def assertion_panel(self, outcomes: list[Any]) -> None:
+        """Render data-quality assertion outcomes (`dacli assert run`)."""
+        for outcome in outcomes:
+            if outcome.error:
+                self.console.print(
+                    f"[error]{outcome.name}[/error]  {outcome.predicate}\n"
+                    f"[muted]{outcome.error}[/muted]")
+                continue
+            verdict = ("[error]BREACH[/error]" if outcome.breached
+                       else "[success]ok[/success]")
+            value = f"{outcome.value:.4g}" if outcome.value is not None else "?"
+            self.console.print(
+                f"{verdict}  [accent]{outcome.name}[/accent]  "
+                f"{outcome.predicate}  [muted](measured {value})[/muted]")
+            fix = outcome.proposed_fix
+            if fix is not None:
+                verb = "applied" if fix.applied else "proposed (not applied)"
+                self.console.print(
+                    f"  [accent]fix[/accent] [{verb}]  {fix.tool_name} {fix.args}\n"
+                    f"  [muted]{fix.rationale}[/muted]")
+                if not fix.applied:
+                    self.console.print(
+                        "  [muted]Re-run with --apply to route it through the "
+                        "governance gate.[/muted]")
+
+    def cost_panel(self, connector: str, estimate: Any, session: Any) -> None:
+        """Render a warehouse cost estimate and/or session spend (`dacli cost`)."""
+        body = Text()
+        body.append("Connector   ", style="muted")
+        body.append(f"{connector}\n", style="accent")
+        if estimate is not None:
+            body.append("Estimate    ", style="muted")
+            body.append(f"{estimate.detail}\n", style="warning")
+        if session is not None:
+            body.append("Session     ", style="muted")
+            if session.error:
+                body.append(f"{session.error}\n", style="muted")
+            else:
+                bits = [f"{session.queries} query(ies)"]
+                if session.credits is not None:
+                    bits.append(f"{session.credits:g} credits")
+                if session.usd is not None:
+                    bits.append(f"≈ ${session.usd:,.2f}")
+                body.append("  ·  ".join(bits) + "\n", style="info")
+        self.console.print(
+            Panel(body, title="Warehouse cost", box=self.glyphs.box,
+                  border_style="border", padding=SPACING["panel_pad"]))
 
     def status_panel(self, memory) -> None:
         # Render the current agent status: session panel, plan and statistics.

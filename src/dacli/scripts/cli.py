@@ -499,6 +499,273 @@ def diff_cmd(connector, table_a, table_b, config, sample):
     ui.diff_panel(result.data)
 
 
+@cli.command(name="cost")
+@click.argument("connector")
+@click.option("--estimate", "estimate_sql", default=None,
+              help="Estimate the cost of this SQL before running it")
+@click.option("--session/--no-session", "want_session", default=True,
+              help="Report recent warehouse spend from the platform history view")
+@click.option("--limit", type=int, default=200, help="Rows of query history to aggregate")
+@click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
+@click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON")
+def cost_cmd(connector, estimate_sql, want_session, limit, config, as_json):
+    """Estimate a query's cost and report this session's warehouse spend.
+
+    Pre-run estimate reuses the connector's native estimator (BigQuery's
+    dry-run); session cost reads the platform's history view (Snowflake
+    QUERY_HISTORY / BigQuery INFORMATION_SCHEMA.JOBS / Databricks system tables)
+    read-only through the governed dispatcher. Supports snowflake, bigquery,
+    databricks.
+    """
+    from dacli.core import cost_advisor
+
+    settings = load_config(config)
+    memory = AgentMemory(
+        state_path=settings.agent.state_path,
+        history_path=settings.agent.history_path,
+        memory_window=settings.agent.memory_window,
+    )
+    # Build the agent (no initialize() -> no network) for its governed dispatcher
+    # — the same pattern as `diff` and `why-failed`.
+    agent = DACLI(settings=settings, memory=memory)
+
+    estimate = None
+    if estimate_sql:
+        conn = agent.registry.get_connector(connector)
+        if conn is None:
+            ui.error(f"connector '{connector}' is not available")
+            raise SystemExit(1)
+        op = next((o.name for o in conn.operations()
+                   if o.capability == f"{connector}.query"), f"execute_{connector}_query")
+        estimate = asyncio.run(cost_advisor.estimate(conn, op, {"query": estimate_sql}))
+
+    session = None
+    if want_session:
+        session = asyncio.run(cost_advisor.session_cost(connector, agent.dispatcher, limit=limit))
+
+    if as_json:
+        import json
+
+        click.echo(json.dumps({
+            "connector": connector,
+            "estimate": estimate.to_dict() if estimate else None,
+            "session": session.to_dict() if session else None,
+        }, indent=2, default=str))
+    else:
+        ui.cost_panel(connector, estimate, session)
+
+
+@cli.group(name="assert")
+def assert_grp():
+    """Author and run data-quality assertions with governed remediation (P14)."""
+
+
+@assert_grp.command(name="define")
+@click.argument("name")
+@click.option("--connector", required=True, help="Connector id (e.g. bigquery, snowflake)")
+@click.option("--table", required=True, help="Qualified table name")
+@click.option("--metric", type=click.Choice(["null_rate", "row_count"]), required=True)
+@click.option("--op", type=click.Choice([">", ">=", "<", "<=", "==", "!="]), required=True,
+              help="Breach predicate: the condition that, when true, is a breach")
+@click.option("--threshold", type=float, required=True)
+@click.option("--column", default=None, help="Column for null_rate")
+@click.option("--remediation-tool", default=None,
+              help="Tool to propose on breach (default: dbt_run on the table's model)")
+def assert_define(name, connector, table, metric, op, threshold, column, remediation_tool):
+    """Save an assertion under the state dir (does not run it)."""
+    from dacli.core.quality import Assertion, save_assertion
+
+    a = Assertion(name=name, connector=connector, table=table, metric=metric,
+                  op=op, threshold=threshold, column=column,
+                  remediation_tool=remediation_tool)
+    problem = a.validate()
+    if problem:
+        console.print(f"[error]{problem}[/error]")
+        raise SystemExit(1)
+    save_assertion(a)
+    console.print(f"[success]Saved assertion '{name}'[/success]  [muted]{a.describe()}[/muted]")
+
+
+@assert_grp.command(name="list")
+def assert_list():
+    """List saved assertions."""
+    from dacli.core.quality import load_assertions
+
+    store = load_assertions()
+    if not store:
+        console.print("[muted]No assertions saved. Define one with `dacli assert define`.[/muted]")
+        return
+    table = Table(show_header=True, header_style="muted", box=None)
+    table.add_column("name", style="accent")
+    table.add_column("connector", style="info")
+    table.add_column("predicate", style="step")
+    for a in store.values():
+        table.add_row(a.name, a.connector, a.describe())
+    console.print(table)
+
+
+@assert_grp.command(name="delete")
+@click.argument("name")
+def assert_delete(name):
+    """Delete a saved assertion."""
+    from dacli.core.quality import delete_assertion
+
+    if delete_assertion(name):
+        console.print(f"[success]Deleted '{name}'[/success]")
+    else:
+        console.print(f"[muted]No assertion named '{name}'[/muted]")
+        raise SystemExit(1)
+
+
+@assert_grp.command(name="run")
+@click.argument("name", required=False)
+@click.option("--apply", "apply_fix", is_flag=True,
+              help="Route a breach's proposed fix through the governance gate")
+@click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
+@click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON")
+def assert_run(name, apply_fix, config, as_json):
+    """Run one saved assertion (or all), measuring its metric through the governed path.
+
+    A breach proposes a governed remediation; with --apply it runs through the
+    normal classify → approve → verify → rollback gate. Exits non-zero on a
+    breach (or a read error) so CI can gate on data quality.
+    """
+    from dacli.core.quality import evaluate, load_assertions
+
+    settings = load_config(config)
+    store = load_assertions()
+    chosen = [store[name]] if name and name in store else (
+        [] if name else list(store.values()))
+    if name and name not in store:
+        console.print(f"[error]No assertion named '{name}'[/error]")
+        raise SystemExit(1)
+    if not chosen:
+        console.print("[muted]No assertions to run. Define one with `dacli assert define`.[/muted]")
+        return
+
+    memory = AgentMemory(
+        state_path=settings.agent.state_path,
+        history_path=settings.agent.history_path,
+        memory_window=settings.agent.memory_window,
+    )
+    # Build the agent (no initialize() -> no network) just for its governed
+    # dispatcher — the same pattern as `diff` and `why-failed`.
+    agent = DACLI(settings=settings, memory=memory)
+    outcomes = [
+        asyncio.run(evaluate(a, agent.dispatcher, apply=apply_fix)) for a in chosen
+    ]
+    if as_json:
+        import json
+
+        click.echo(json.dumps([o.to_dict() for o in outcomes], indent=2, default=str))
+    else:
+        ui.assertion_panel(outcomes)
+    raise SystemExit(max(o.exit_code for o in outcomes))
+
+
+def _parse_kv(pairs: tuple[str, ...]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for pair in pairs:
+        key, _, value = pair.partition("=")
+        out[key.strip()] = value
+    return out
+
+
+@cli.group(name="runbook")
+def runbook_grp():
+    """Save and run governed, parameterized headless tasks (P14)."""
+
+
+@runbook_grp.command(name="save")
+@click.argument("name")
+@click.option("--turn", "turns", multiple=True, required=True,
+              help="A user message (repeatable). Use {param} placeholders.")
+@click.option("--tool", "tools", multiple=True,
+              help="Tool name pre-approved within the envelope (repeatable; '*' = any)")
+@click.option("--max-tier", type=click.Choice(["safe", "write", "risky", "irreversible"]),
+              default="write", help="Blast-radius ceiling for the envelope")
+@click.option("--param", "params", multiple=True, help="Default param k=v (repeatable)")
+@click.option("--connectors/--no-connectors", "connectors", default=False,
+              help="Allow external connectors (default: built-ins only)")
+def runbook_save(name, turns, tools, max_tier, params, connectors):
+    """Persist a runbook with its policy envelope."""
+    from dacli.core.runbooks import PolicyEnvelope, Runbook, save_runbook
+
+    rb = Runbook(
+        name=name, turns=list(turns), params=_parse_kv(params),
+        envelope=PolicyEnvelope(tools=list(tools), max_tier=max_tier),
+        no_connectors=not connectors,
+    )
+    save_runbook(rb)
+    console.print(
+        f"[success]Saved runbook '{name}'[/success]  [muted]{len(rb.turns)} turn(s), "
+        f"envelope tools={list(tools) or '∅'} max_tier={max_tier}[/muted]")
+
+
+@runbook_grp.command(name="list")
+def runbook_list():
+    """List saved runbooks."""
+    from dacli.core.runbooks import list_runbooks
+
+    names = list_runbooks()
+    if not names:
+        console.print("[muted]No runbooks saved. Create one with `dacli runbook save`.[/muted]")
+        return
+    for n in names:
+        console.print(f"  [accent]{n}[/accent]")
+
+
+@runbook_grp.command(name="show")
+@click.argument("name")
+def runbook_show(name):
+    """Show a runbook's turns and policy envelope."""
+    from dacli.core.runbooks import load_runbook
+
+    rb = load_runbook(name)
+    if rb is None:
+        console.print(f"[error]No runbook named '{name}'[/error]")
+        raise SystemExit(1)
+    env = rb.envelope
+    console.print(f"[accent]{rb.name}[/accent]")
+    for i, t in enumerate(rb.turns, 1):
+        console.print(f"  [muted]turn {i}:[/muted] {t}")
+    if rb.params:
+        console.print(f"  [muted]params:[/muted] {rb.params}")
+    console.print(f"  [muted]envelope:[/muted] tools={env.tools or '∅'} max_tier={env.max_tier}")
+
+
+@runbook_grp.command(name="run")
+@click.argument("name")
+@click.option("--param", "params", multiple=True, help="Override param k=v (repeatable)")
+@click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
+@click.option("--llm-script", type=click.Path(exists=True),
+              help="JSON/YAML scripted LLM responses (offline, deterministic)")
+@click.option("--json", "as_json", is_flag=True, help="Emit the machine-readable JSON result")
+def runbook_run(name, params, config, llm_script, as_json):
+    """Run a saved runbook headlessly under its policy envelope.
+
+    In-envelope actions auto-approve; anything outside the envelope still
+    prompts (and on this non-interactive path, blocks — fail-closed). The
+    envelope and every decision land in the audit ledger.
+    """
+    from dacli.core.runbooks import load_runbook, run_runbook
+    from dacli.reasoning.scripted import ScriptedLLM
+
+    rb = load_runbook(name)
+    if rb is None:
+        console.print(f"[error]No runbook named '{name}'[/error]")
+        raise SystemExit(1)
+    settings = _load_settings_for_headless(config, offline=bool(llm_script))
+    llm = None
+    if llm_script:
+        import yaml
+
+        llm = ScriptedLLM(yaml.safe_load(Path(llm_script).read_text(encoding="utf-8")) or [])
+    result = asyncio.run(run_runbook(rb, settings=settings, params=_parse_kv(params), llm=llm))
+    _emit_headless(result, as_json)
+    raise SystemExit(result.exit_code)
+
+
 @cli.command()
 @click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
 @click.option("--session", "-s", type=str, help="Only show decisions for this session")
