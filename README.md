@@ -16,9 +16,9 @@
 
 <br>
 
-<img src="assets/demo.svg" alt="dacli: a governed plan, the pass^k reliability suite, and doctor — all offline, no API key" width="800">
+<img src="assets/demo.gif" alt="dacli: a governed plan, the pass^k reliability suite, and doctor — all offline, no API key" width="800">
 
-<sub>Everything in the clip runs offline — no API key, no network. Regenerate it with <code>python tools/make_demo_cast.py</code>.</sub>
+<sub>Everything in the clip runs offline — no API key, no network. Source cast: <code>tools/make_demo_cast.py</code>; a crisp vector version is <a href="assets/demo.svg"><code>assets/demo.svg</code></a>.</sub>
 
 </div>
 
