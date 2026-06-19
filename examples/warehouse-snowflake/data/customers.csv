@@ -1,0 +1,19 @@
+customer_id,full_name,email,country,plan,signup_date
+C001,Amina Khalil,amina.khalil@example.com,Morocco,pro,2024-01-12
+C002,James Carter,james.carter@example.com,USA,free,2024-01-15
+C003,Wei Zhang,wei.zhang@example.com,china,pro,2024-02-02
+C004,Sofia Rossi,,Italy,team,2024-02-09
+C005,John Smith,john.smith@example.com,United States,free,2024-02-20
+C006,Fatima Zahra, fatima.zahra@example.com ,Morocco,pro,2024-03-01
+C007,Liam O'Brien,liam.obrien@example.com,Ireland,team,2024-03-04
+C008,Priya Nair,priya.nair@example.com,India,free,2024-03-11
+C009,Carlos Mendez,carlos.mendez@example.com,Mexico,pro,2024-03-18
+C010,Hana Tanaka,hana.tanaka@example.com,Japan,team,2024-03-22
+C002,James Carter,james.carter@example.com,usa,free,2024-01-15
+C011,Noah Williams,noah.williams@example.com,USA,free,2024-04-01
+C012,Yuki Sato,yuki.sato@example.com,Japan,pro,2024-04-07
+C013,Omar Haddad,omar.haddad@example.com,Morocco,team,2024-04-15
+C014,Emma Johnson,EMMA.JOHNSON@example.com,United States,pro,2024-04-19
+C015,Lucas Silva,lucas.silva@example.com,Brazil,free,2024-05-02
+C016,Mei Lin,mei.lin@example.com,China,team,2024-05-08
+C017,David Brown,david.brown@example.com,uk,pro,2024-05-13

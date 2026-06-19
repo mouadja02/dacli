@@ -14,6 +14,12 @@
 
 [Quick start](#quick-start) · [Architecture](docs/ARCHITECTURE.md) · [Connectors](docs/CONNECTORS.md) · [Governance](docs/GOVERNANCE.md) · [Evaluation](docs/EVALUATION.md)
 
+<br>
+
+<img src="assets/demo.svg" alt="dacli: a governed plan, the pass^k reliability suite, and doctor — all offline, no API key" width="800">
+
+<sub>Everything in the clip runs offline — no API key, no network. Regenerate it with <code>python tools/make_demo_cast.py</code>.</sub>
+
 </div>
 
 ---
@@ -83,27 +89,13 @@ zero-copy clones, `dbt test`, row counts), not the model's own say-so.
 
 ## How it works
 
-```mermaid
-flowchart TD
-    U[CLI / TUI] --> K[Orchestration Kernel  𝒪<br/>plan → act → observe → verify]
-    K --> R[Reasoning ℛ<br/>model tiering + escalation]
-    K --> C[Context 𝒞<br/>priors + JIT + live search]
-    K --> M[Memory ℳ<br/>confidence · staleness · provenance]
-    K --> S[Skill Router 𝒮<br/>tool tier vs. sandbox tier]
-    K --> G[Governance 𝒢<br/>classify → policy → rollback → audit]
-
-    S --> TOOL[Tool tier<br/>direct typed connector call]
-    S --> SBX[Sandbox tier<br/>governed code execution<br/>results stay on disk]
-    G -. gates every action .-> TOOL
-    G -. gates every action .-> SBX
-
-    TOOL --> CONN[Connector layer · plugins]
-    SBX --> CONN
-    CONN --> P[(Snowflake · BigQuery · Databricks · dbt<br/>S3 · GCS · Postgres · MySQL · Mongo · DynamoDB<br/>Airflow · Dagster · GitHub · Pinecone)]
-```
+<div align="center">
+<img src="assets/architecture.svg" alt="dacli architecture: the six-component harness, two execution tiers, one governed dispatch path, and the environment as oracle" width="760">
+</div>
 
 Every state-changing action flows through one governed dispatch path — so the tool tier *and* the
-code-execution sandbox are governed and verified identically. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+code-execution sandbox are governed and verified identically. The diagram is rendered from
+[`assets/architecture.mmd`](assets/architecture.mmd); see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 for the full design.
 
 ---
@@ -294,6 +286,11 @@ connectors to enable — validating each with a live health check. Then just des
 
 dacli decomposes the goal into an inspectable plan, asks for approval where the blast radius warrants it,
 executes step by step, and verifies each step against the platform before moving on.
+
+**Worked example.** [`examples/warehouse-snowflake/`](examples/warehouse-snowflake/) builds a
+Bronze → Silver → Gold warehouse in Snowflake from two dirty CSVs — raw load, dedup/conform, analytics
+marts, a data-quality gate, and a Time Travel rollback. No Snowflake account? The same folder replays the
+governed plan offline (`dacli replay examples/warehouse-snowflake/scenario.json`).
 
 ---
 

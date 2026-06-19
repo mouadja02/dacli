@@ -1,0 +1,30 @@
+{
+  "no_connectors": true,
+  "approve": "deny",
+  "turns": [
+    "Stand up a Snowflake warehouse from examples/warehouse-snowflake/data: Bronze (RAW, verbatim VARCHAR load), Silver (CORE, typed + deduped + country-normalized), Gold (MART: customer revenue, daily revenue). Verify each layer before the next."
+  ],
+  "llm_script": [
+    {
+      "text": "Decomposing the build into three governed layers. Each create is confirmed against INFORMATION_SCHEMA before the next layer runs.",
+      "tool_calls": [
+        {
+          "name": "update_plan",
+          "arguments": {
+            "todos": [
+              {"content": "Bronze: RAW schema + RAW.CUSTOMERS, RAW.ORDERS (all VARCHAR), COPY INTO from stage", "status": "completed"},
+              {"content": "Silver: CORE.CUSTOMERS (dedup C002, trim/lower email, normalize country), CORE.ORDERS (typed amount + timestamp)", "status": "completed"},
+              {"content": "Gold: MART.CUSTOMER_REVENUE, MART.DAILY_REVENUE (paid orders only)", "status": "completed"},
+              {"content": "Quality gate: assert null-email rate = 0; flag orphan order O1012 -> C999", "status": "in_progress"}
+            ]
+          }
+        }
+      ],
+      "usage": {"input": 120, "output": 60}
+    },
+    {
+      "text": "Plan ready. Running it needs the Snowflake connector enabled (dacli setup --profile snowflake_only); this hermetic replay stops here. See the README for the SQL each step issues and the Time Travel rollback at the end.",
+      "usage": {"input": 30, "output": 22}
+    }
+  ]
+}

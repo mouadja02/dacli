@@ -1,0 +1,40 @@
+%%{init: {"theme":"base","themeVariables":{
+  "fontFamily":"ui-monospace, SFMono-Regular, Menlo, monospace",
+  "primaryColor":"#0d1117","primaryTextColor":"#e6edf3","primaryBorderColor":"#30363d",
+  "lineColor":"#8b949e","clusterBkg":"#0d1117","clusterBorder":"#30363d",
+  "fontSize":"14px"}}}%%
+flowchart TB
+  U["CLI / TUI"]:::io --> K
+
+  subgraph HARNESS["six-component harness"]
+    direction LR
+    K["𝒪 Orchestration kernel<br/>plan → act → observe → verify"]:::core
+    R["ℛ Reasoning<br/>model tiering + escalation"]:::comp
+    C["𝒞 Context<br/>priors · JIT · live search"]:::comp
+    M["ℳ Memory<br/>confidence · staleness · provenance"]:::comp
+    S["𝒮 Skill router<br/>tool tier vs. sandbox tier"]:::comp
+    G["𝒢 Governance<br/>classify → policy → rollback → audit"]:::gov
+  end
+
+  K --- R & C & M & S
+  K --- G
+
+  S --> TOOL["tool tier<br/>typed connector call"]:::tier
+  S --> SBX["sandbox tier<br/>governed code · results on disk"]:::tier
+  G -. gates every action .-> TOOL
+  G -. gates every action .-> SBX
+
+  TOOL --> DISP{{"one governed dispatch path<br/>verify · audit"}}:::disp
+  SBX --> DISP
+  DISP --> CONN["connector microkernel · 14 plugins"]:::tier
+  CONN --> P[("Snowflake · BigQuery · Databricks · dbt<br/>S3 · GCS · Postgres · MySQL · Mongo · DynamoDB<br/>Airflow · Dagster · GitHub · Pinecone")]:::plat
+
+  P -. "the environment is the oracle<br/>(EXPLAIN · dry_run · row counts · Time Travel)" .-> G
+
+  classDef io fill:#161b22,stroke:#30363d,color:#e6edf3;
+  classDef core fill:#1f2d3d,stroke:#388bfd,color:#e6edf3,font-weight:bold;
+  classDef comp fill:#161b22,stroke:#30363d,color:#e6edf3;
+  classDef gov fill:#3d1f29,stroke:#f85149,color:#e6edf3,font-weight:bold;
+  classDef tier fill:#161b22,stroke:#8957e5,color:#e6edf3;
+  classDef disp fill:#2d2a14,stroke:#d29922,color:#e6edf3;
+  classDef plat fill:#0d1117,stroke:#238636,color:#e6edf3;
