@@ -367,6 +367,7 @@ class DacliUI(StreamMixin, TranscriptMixin, PanelsMixin):
         session: str,
         test_mode: str = "",
         cost: str = "",
+        wh_cost: str = "",
         width: int | None = None,
     ):
         """Return prompt-toolkit formatted text for the bottom bar.
@@ -413,6 +414,8 @@ class DacliUI(StreamMixin, TranscriptMixin, PanelsMixin):
         ]
         if cost:
             segments.append((cost, esc(cost), 2))
+        if wh_cost:
+            segments.append((f"wh {wh_cost}", f"wh {esc(wh_cost)}", 2))
         segments.append((f"{g.bar_session}{session}", f"{g.bar_session}{esc(session)}", 3))
         if test_mode:
             segments.append(

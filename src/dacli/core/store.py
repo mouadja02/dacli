@@ -269,6 +269,22 @@ class DacliStore:
         sess = self._data["usage"]["sessions"].get(session_id)
         return float(sess.get("costUSD", 0.0)) if sess else 0.0
 
+    def record_warehouse_cost(self, session_id: str, usd: float) -> None:
+        """Fold an observed/estimated warehouse cost into the session bucket.
+
+        Separate from the LLM ``costUSD`` so the toolbar can show both. The
+        session bucket is created lazily, mirroring record_usage.
+        """
+        if not usd:
+            return
+        sess = self._data["usage"]["sessions"].setdefault(session_id, _empty_bucket())
+        sess["warehouseUSD"] = round(sess.get("warehouseUSD", 0.0) + float(usd), 6)
+
+    def session_warehouse_usd(self, session_id: str) -> float:
+        """This session's accumulated warehouse cost — O(1), toolbar-safe."""
+        sess = self._data["usage"]["sessions"].get(session_id)
+        return float(sess.get("warehouseUSD", 0.0)) if sess else 0.0
+
     def usage_summary(self, session_id: str | None = None) -> dict[str, Any]:
         u = self._data["usage"]
         return {

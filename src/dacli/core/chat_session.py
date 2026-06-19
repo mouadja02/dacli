@@ -247,6 +247,15 @@ async def run_chat(
         except Exception:
             return ""
 
+    def _warehouse_cost() -> str:
+        # Live per-session warehouse $spend (P14), shown next to the LLM cost.
+        # Blank until a governed warehouse action records an estimate.
+        try:
+            usd = store.session_warehouse_usd(memory.session_id)
+            return reports.fmt_cost(usd) if usd else ""
+        except Exception:
+            return ""
+
     def bottom_toolbar():
         from dacli.core.test_mode import test_mode as _tm
 
@@ -258,6 +267,7 @@ async def run_chat(
             session=memory.session_id,
             test_mode=_tm.toolbar_text(),
             cost=_session_cost(),
+            wh_cost=_warehouse_cost(),
         )
 
     pt_session = PromptSession(
