@@ -211,6 +211,27 @@ model, so it runs hermetically:
 dacli replay examples/warehouse-snowflake/scenario.json
 ```
 
+## Verified run (real Snowflake)
+
+This example was run end to end against a live Snowflake account — driven by
+`dacli`, every write through the governed dispatch path. Captured results:
+
+```text
+layer counts   RAW 18/22  ->  CORE 17/22 (C002 deduped)  ->  MART 17 / 19 daily
+top customer   Wei Zhang · China · 3 paid orders · $447
+total paid     $1,933 across 17 customers
+countries      10 canonical (usa/USA/United States -> United States, uk -> United Kingdom, ...)
+quality gate   1 null email (C004) · 1 orphan order (O1012 -> C999)  — both caught
+rollback       DROP MART.DAILY_REVENUE gated (Time Travel = verified rollback);
+               restored with UNDROP -> 19 rows back
+```
+
+One honest caveat: `dacli run` is **headless**, and Snowflake's `UNDROP` itself
+classifies as irreversible-without-rollback, so the agent pauses for a human
+confirm it can't get without a TTY. In interactive `dacli` you approve it inline;
+here the restore was issued directly. The `DROP` gating — the part the
+architecture is built around — runs headlessly as shown.
+
 ## A real planning turn
 
 Asked to outline the Bronze load headlessly (`dacli run "…" --approve deny`,

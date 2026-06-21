@@ -27,6 +27,7 @@ htmlcov/
 config.yaml
 config/connectors.yaml
 src/dacli/config/connectors.yaml
+config/policy.yaml
 .dacli
 
 # Credential encryption key — NEVER commit. Covered by .dacli for the default
