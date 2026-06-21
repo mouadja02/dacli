@@ -16,9 +16,15 @@
 
 <br>
 
+<video src="https://github.com/mouadja02/dacli/raw/main/assets/dacli-promo.mp4" controls muted width="820"></video>
+
+<sub>35-second tour — the thesis, the governed tier ramp, pass^k, and the connectors.</sub>
+
+<br>
+
 <img src="assets/demo.gif" alt="dacli: a governed plan, the pass^k reliability suite, and doctor — all offline, no API key" width="800">
 
-<sub>Everything in the clip runs offline — no API key, no network. Source cast: <code>tools/make_demo_cast.py</code>; a crisp vector version is <a href="assets/demo.svg"><code>assets/demo.svg</code></a>.</sub>
+<sub>And the real terminal, offline — no API key, no network. Source cast: <code>tools/make_demo_cast.py</code>; a crisp vector version is <a href="assets/demo.svg"><code>assets/demo.svg</code></a>.</sub>
 
 </div>
 

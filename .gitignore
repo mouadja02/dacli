@@ -30,9 +30,6 @@ src/dacli/config/connectors.yaml
 config/policy.yaml
 .dacli
 
-# Rendered promo video (25 MB) — attach to the GitHub Release, don't bloat git
-assets/dacli-promo.mp4
-
 # Credential encryption key — NEVER commit. Covered by .dacli for the default
 # location; this also catches a custom DACLI_STATE_PATH outside .dacli.
 .key
