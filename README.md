@@ -47,9 +47,13 @@
 
 <br>
 
-<video src="https://github.com/mouadja02/dacli/raw/main/assets/dacli-promo.mp4" controls muted width="820"></video>
+<div align="center">
 
-<sub>35-second tour — the thesis, the governed tier ramp, pass^k, and the connectors.</sub>
+[![dacli — the 35-second tour](assets/dacli-promo-preview.gif)](assets/dacli-promo.mp4)
+
+<sub>The thesis, the governed tier ramp, and pass^k. Full 35s tour with sound: <a href="assets/dacli-promo.mp4"><code>assets/dacli-promo.mp4</code></a> (click to play).</sub>
+
+</div>
 
 ## Design
 
