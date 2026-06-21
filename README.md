@@ -51,7 +51,7 @@
 
 [![dacli — the 35-second tour](assets/dacli-promo-preview.gif)](assets/dacli-promo.mp4)
 
-<sub>The thesis, the governed tier ramp, and pass^k. Full 35s tour with sound: <a href="assets/dacli-promo.mp4"><code>assets/dacli-promo.mp4</code></a> (click to play).</sub>
+<sub>The full 35-second tour — thesis, governed tier ramp, pass^k, connectors. With sound: <a href="assets/dacli-promo.mp4"><code>assets/dacli-promo.mp4</code></a> (click to play).</sub>
 
 </div>
 
