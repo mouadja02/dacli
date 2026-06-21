@@ -151,8 +151,8 @@ Embedding dacli as a library:
 pip install dacli
 ```
 
-> Not on PyPI yet. Until the first release lands, install [from source](#from-source)
-> — after that, `pipx`/`uv` is the one-line path.
+> On PyPI as of v0.3.0 — `pipx`/`uv`/`pip` is the one-line path. To hack on it,
+> install [from source](#from-source) instead.
 
 ### First 2 minutes
 
