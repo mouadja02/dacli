@@ -16,10 +16,15 @@ the same guard ``ConnectorRegistry.validate_postconditions`` uses).
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import inspect
+import json
+import logging
+import os
+import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from collections.abc import Callable
@@ -110,9 +115,16 @@ class ExtensionAPI:
     module that registers two tools and then raises commits neither.
     """
 
-    def __init__(self, name: str, *, config_provider: Callable[[str], dict] | None = None):
+    def __init__(
+        self,
+        name: str,
+        *,
+        config_provider: Callable[[str], dict] | None = None,
+        session_log: SessionLog | None = None,
+    ):
         self.name = name
         self._config_provider = config_provider
+        self._session_log = session_log
         self.tools: dict[str, RegisteredTool] = {}
         self.commands: dict[str, dict[str, Any]] = {}
         self.shortcuts: dict[str, dict[str, Any]] = {}
@@ -199,6 +211,19 @@ class ExtensionAPI:
     def on(self, event: str, handler: Callable) -> None:
         self.event_handlers.append((event, handler))
 
+    def append_entry(self, entry: Any) -> None:
+        """Append state to the session log so it outlives a reload (Pi's
+        ``appendEntry``). The next loaded version replays it on ``session_start``."""
+        if self._session_log is None:
+            raise RuntimeError("append_entry needs a session log; load via ExtensionHost")
+        self._session_log.append(self.name, entry)
+
+    def entries(self) -> list[Any]:
+        """This extension's session-log entries, oldest first."""
+        if self._session_log is None:
+            return []
+        return self._session_log.entries(self.name)
+
 
 class ExtensionRegistry:
     """Merged view of every loaded extension, plus the ones that failed to load."""
@@ -271,7 +296,12 @@ def _import_extension(name: str, init_path: Path):
     module = importlib.util.module_from_spec(spec)
     sys.modules[mod_name] = module  # so the package can import its own siblings
     try:
-        spec.loader.exec_module(module)
+        # Compile from source rather than spec.loader.exec_module: a reload of an
+        # edit that keeps the file's size and mtime-second would otherwise reuse a
+        # stale __pycache__ entry and run the old code. module_from_spec already
+        # set __path__, so sibling imports still resolve.
+        code = compile(init_path.read_text(encoding="utf-8"), str(init_path), "exec")
+        exec(code, module.__dict__)
     except BaseException:
         sys.modules.pop(mod_name, None)
         raise
@@ -385,3 +415,250 @@ class ExtensionDispatchRegistry:
         # Staging (test mode) is a connector-under-test concern; extensions don't
         # go through it, so the dispatcher's staging gate treats them as trusted.
         return True
+
+
+# ---------------------------------------------------------------------------
+# Hot reload (M05)
+#
+# Pi's defining UX: edit an extension, /reload, keep working — no restart
+# (reporting/01, reporting/03). The ExtensionHost owns the live registry and
+# swaps it in place. A changed module is validated in a child process before it
+# is imported here (the LLM-authored module must never run with the agent's
+# privileges unvalidated — same rule as core/connector_generator.py); a changed
+# module that fails validation keeps its previously loaded version. State
+# survives the swap through an append-only SessionLog the host owns and hands to
+# every module it (re)loads.
+# ---------------------------------------------------------------------------
+log = logging.getLogger(__name__)
+
+_VALIDATION_TIMEOUT_S = 20.0
+
+# Run in a child: import the module, confirm register(api) exists and runs
+# cleanly against a throwaway ExtensionAPI (this is where a missing post-condition
+# or a bad risk surfaces). Verdict is the last JSON line on stdout, mirroring
+# core/connector_generator.py's validator. argv: <__init__.py path> <name>.
+_EXT_VALIDATION_SCRIPT = """\
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+
+def _verdict(ok, message):
+    print(json.dumps({"ok": ok, "message": message}))
+    sys.exit(0)
+
+
+path, name = sys.argv[1], sys.argv[2]
+from dacli.core.extensions import ExtensionAPI
+
+spec = importlib.util.spec_from_file_location(
+    f"dacli_ext_check_{name}", path, submodule_search_locations=[str(Path(path).parent)]
+)
+if spec is None or spec.loader is None:
+    _verdict(False, "cannot build import spec")
+mod = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = mod
+try:
+    spec.loader.exec_module(mod)
+except Exception as exc:
+    _verdict(False, f"import failed: {exc}")
+
+register = getattr(mod, "register", None)
+if not callable(register):
+    _verdict(False, "module exports no register(api)")
+try:
+    register(ExtensionAPI(name))
+except Exception as exc:
+    _verdict(False, f"register(api) failed: {exc}")
+
+_verdict(True, "valid")
+"""
+
+
+def _validate_extension_in_subprocess(name: str, init_path: Path) -> tuple[bool, str]:
+    package_root = str(Path(__file__).resolve().parent.parent.parent)
+    env = dict(os.environ)
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = (
+        package_root + os.pathsep + existing if existing else package_root
+    )
+    try:
+        proc = subprocess.run(  # fixed argv, no shell
+            [sys.executable, "-c", _EXT_VALIDATION_SCRIPT, str(init_path), name],
+            capture_output=True,
+            text=True,
+            timeout=_VALIDATION_TIMEOUT_S,
+            env=env,
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"validation timed out after {_VALIDATION_TIMEOUT_S:.0f}s"
+    except Exception as exc:
+        return False, f"validation subprocess could not run: {exc}"
+
+    for line in reversed((proc.stdout or "").strip().splitlines()):
+        try:
+            verdict = json.loads(line)
+            return bool(verdict.get("ok")), str(verdict.get("message", ""))
+        except (json.JSONDecodeError, ValueError):
+            continue
+    detail = (proc.stderr or proc.stdout or "").strip()
+    return False, f"validation failed (exit {proc.returncode}): {detail[-300:]}"
+
+
+def _fingerprint(ext_dir: Path) -> str:
+    """Content hash of every ``*.py`` under the extension, so an edit is detected
+    by content, not mtime (which is too coarse to trust under a fast reload)."""
+    h = hashlib.sha256()
+    for f in sorted(ext_dir.rglob("*.py")):
+        h.update(f.relative_to(ext_dir).as_posix().encode())
+        h.update(b"\0")
+        h.update(f.read_bytes())
+    return h.hexdigest()
+
+
+class SessionLog:
+    """Append-only, per-extension state that outlives a module reload.
+
+    The host owns one log per session and hands it to every ExtensionAPI it
+    builds. After a reload the module is a fresh import with fresh in-memory
+    state, but the log is the same object — so a ``session_start`` handler can
+    replay what the prior version appended (Pi's appendEntry)."""
+
+    def __init__(self):
+        self._entries: dict[str, list[Any]] = {}
+
+    def append(self, ext: str, entry: Any) -> None:
+        self._entries.setdefault(ext, []).append(entry)
+
+    def entries(self, ext: str) -> list[Any]:
+        return list(self._entries.get(ext, []))
+
+
+@dataclass
+class ReloadResult:
+    loaded: list[str] = field(default_factory=list)      # newly discovered
+    reloaded: list[str] = field(default_factory=list)    # changed and re-adopted
+    unchanged: list[str] = field(default_factory=list)
+    removed: list[str] = field(default_factory=list)     # gone from disk
+    failed: dict[str, str] = field(default_factory=dict)  # name -> why; prior kept
+
+    def report(self) -> str:
+        parts: list[str] = []
+        if self.loaded:
+            parts.append(f"loaded {', '.join(self.loaded)}")
+        if self.reloaded:
+            parts.append(f"reloaded {', '.join(self.reloaded)}")
+        if self.removed:
+            parts.append(f"dropped {', '.join(self.removed)}")
+        if self.unchanged:
+            parts.append(f"{len(self.unchanged)} unchanged")
+        for name, why in self.failed.items():
+            parts.append(f"{name} failed, kept prior ({why})")
+        return "; ".join(parts) or "no extensions"
+
+
+class ExtensionHost:
+    """Owns the live :class:`ExtensionRegistry` and reloads it in place.
+
+    :meth:`load` does the first discovery; :meth:`reload` is the ``/reload``
+    entry — it re-discovers, validates each changed module in a child process,
+    imports only what validated, and emits ``session_shutdown`` →
+    ``session_start(reason="reload")`` around the swap. A changed module that
+    fails validation is never imported and keeps its previously loaded version.
+    """
+
+    def __init__(
+        self,
+        extensions_dir: str | Path | None = None,
+        *,
+        config_provider: Callable[[str], dict] | None = None,
+    ):
+        self._dir = Path(extensions_dir) if extensions_dir else None
+        self._config_provider = config_provider
+        self.log = SessionLog()
+        self.registry = ExtensionRegistry()
+        self._good: dict[str, ExtensionAPI] = {}
+        self._fingerprints: dict[str, str] = {}
+        self._failed: dict[str, str] = {}
+
+    def _base(self) -> Path:
+        return self._dir if self._dir else paths.resource_dir("extensions")
+
+    def load(self) -> ReloadResult:
+        return self._sync(reason="startup", shutdown=False)
+
+    def reload(self) -> ReloadResult:
+        return self._sync(reason="reload", shutdown=True)
+
+    def _sync(self, *, reason: str, shutdown: bool) -> ReloadResult:
+        if shutdown:
+            self._emit("session_shutdown", reason)
+        result = ReloadResult()
+
+        base = self._base()
+        discovered: dict[str, Path] = {}
+        if base.exists():
+            for init_path in sorted(base.glob("*/__init__.py")):
+                discovered[init_path.parent.name] = init_path
+
+        for name in list(self._good):
+            if name not in discovered:
+                del self._good[name]
+                self._fingerprints.pop(name, None)
+                self._failed.pop(name, None)
+                result.removed.append(name)
+
+        for name, init_path in discovered.items():
+            known = name in self._good
+            fp = _fingerprint(init_path.parent)
+            if known and self._fingerprints.get(name) == fp:
+                result.unchanged.append(name)
+                continue
+
+            ok, message = _validate_extension_in_subprocess(name, init_path)
+            if not ok:
+                self._failed[name] = message
+                result.failed[name] = message
+                continue
+            try:
+                api = self._import_and_register(name, init_path)
+            except Exception as exc:
+                self._failed[name] = f"load error: {exc}"
+                result.failed[name] = self._failed[name]
+                continue
+            self._good[name] = api
+            self._fingerprints[name] = fp
+            self._failed.pop(name, None)
+            (result.reloaded if known else result.loaded).append(name)
+
+        self._rebuild()
+        self._emit("session_start", reason)
+        return result
+
+    def _import_and_register(self, name: str, init_path: Path) -> ExtensionAPI:
+        module = _import_extension(name, init_path)
+        register = getattr(module, "register", None)
+        if not callable(register):
+            raise ImportError("module exports no register(api)")
+        api = ExtensionAPI(
+            name, config_provider=self._config_provider, session_log=self.log
+        )
+        register(api)
+        return api
+
+    def _rebuild(self) -> None:
+        registry = ExtensionRegistry()
+        for api in self._good.values():
+            registry._merge(api)
+        for name, why in self._failed.items():
+            registry.record_failure(name, why)
+        self.registry = registry
+
+    def _emit(self, event: str, reason: str) -> None:
+        for name, handler in self.registry.handlers_for(event):
+            try:
+                handler(reason)
+            except Exception as exc:
+                # A lifecycle hook that raises must not abort the reload.
+                log.warning("extension %s %s handler raised: %s", name, event, exc)
