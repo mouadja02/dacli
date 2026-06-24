@@ -1,0 +1,48 @@
+{
+  "config": {
+    "found": "bool",
+    "path": "str",
+    "requested": "NoneType"
+  },
+  "connectors": {
+    "enabled": "int",
+    "skipped": "int",
+    "skipped_detail": {}
+  },
+  "cost": {
+    "advisors": "list",
+    "confirm_usd": "NoneType"
+  },
+  "governance": {
+    "enabled": "bool",
+    "policy": "str",
+    "policy_default": "bool"
+  },
+  "llm": {
+    "key": "bool",
+    "model": "str",
+    "ping": "str",
+    "provider": "str",
+    "source": "NoneType"
+  },
+  "log": {
+    "path": "str"
+  },
+  "ok": "bool",
+  "problems": "list",
+  "sandbox": {
+    "enabled": "bool",
+    "fallback": "bool",
+    "image_present": "NoneType",
+    "runtime": "str"
+  },
+  "state_dir": {
+    "kind": "str",
+    "path": "str"
+  },
+  "terminal": {
+    "enabled": "bool",
+    "scope": "str",
+    "shell": "str"
+  }
+}
