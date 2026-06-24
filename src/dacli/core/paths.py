@@ -29,8 +29,14 @@ STATE_PATH_ENV = "DACLI_STATE_PATH"
 #: of :func:`state_dir`; kept here so the one definition is shared, not duplicated.
 DEFAULT_STATE_PATH = ".dacli/state/"
 
+#: Name of the per-project overlay dir. The one place the literal lives.
+OVERLAY_DIRNAME = ".dacli"
+
 #: A directory is a dacli project if it (or an ancestor) holds one of these.
-_PROJECT_MARKERS = (".dacli", "config.yaml", ".git")
+_PROJECT_MARKERS = (OVERLAY_DIRNAME, "config.yaml", ".git")
+
+#: Resource kinds the agent owns under the ``.dacli`` overlay (reporting/03).
+RESOURCE_KINDS = ("extensions", "skills", "themes", "secrets", "workspaces")
 
 
 def packaged_asset(*parts: str) -> Path:
@@ -62,6 +68,11 @@ def project_root(start: Path | None = None) -> Path | None:
     return None
 
 
+def project_overlay_dir(root: Path) -> Path:
+    """The ``.dacli`` overlay dir under a given project (or repo) root."""
+    return root / OVERLAY_DIRNAME
+
+
 def state_dir() -> Path:
     """Project-local ``<project_root>/.dacli`` when in a project, else
     :func:`user_config_dir`. ``DACLI_STATE_PATH`` (its parent) overrides both."""
@@ -69,7 +80,64 @@ def state_dir() -> Path:
     if override:
         return Path(override).parent
     root = project_root()
-    return root / ".dacli" if root is not None else user_config_dir()
+    return project_overlay_dir(root) if root is not None else user_config_dir()
+
+
+def bundled_seeds_dir(kind: str) -> Path:
+    """The wheel-shipped seed dir for ``kind`` — lowest precedence in the overlay.
+
+    Populated in M08; until then the dir may not exist, which just means the
+    overlay falls through to the writable default.
+    """
+    return packaged_asset("seeds", kind)
+
+
+def _secrets_base_dir(state_path: str | None = None) -> Path:
+    """Base dir for the encryption key and the secrets store.
+
+    Priority: an explicit ``state_path`` > ``DACLI_STATE_PATH`` (both are a
+    ``state/`` dir whose *parent* is the base) > an existing legacy cwd
+    ``.dacli/.key`` > :func:`state_dir`. Kept legacy-compatible so an install
+    that predates the per-user move keeps decrypting its store unchanged.
+    """
+    sp = state_path or os.environ.get(STATE_PATH_ENV)
+    if sp:
+        return Path(sp).parent
+    legacy = Path(DEFAULT_STATE_PATH).parent
+    if (legacy / ".key").exists():
+        return legacy
+    return state_dir()
+
+
+def resource_dir(
+    kind: str, *, state_path: str | None = None, create: bool = False
+) -> Path:
+    """Resolve the directory for a resource ``kind``, project overlay first.
+
+    Precedence: project ``<root>/.dacli/<kind>`` > global ``<user_config_dir>/<kind>``
+    > the bundled seed dir. Returns the first that exists; with none present, the
+    writable default (the project overlay inside a project, else global), created
+    when ``create`` is set.
+
+    ``secrets`` is special: it resolves the legacy-compatible key/store base via
+    :func:`_secrets_base_dir` (``state_path`` applies only here), not a ``secrets/``
+    subdir, so an existing store stays readable.
+    """
+    if kind not in RESOURCE_KINDS:
+        raise ValueError(f"unknown resource kind: {kind!r}")
+    if kind == "secrets":
+        return _secrets_base_dir(state_path)
+
+    root = project_root()
+    project = project_overlay_dir(root) / kind if root is not None else None
+    glob = user_config_dir() / kind
+    for cand in (project, glob, bundled_seeds_dir(kind)):
+        if cand is not None and cand.exists():
+            return cand
+    target = project if project is not None else glob
+    if create:
+        target.mkdir(parents=True, exist_ok=True)
+    return target
 
 
 def resolve_config_path(explicit: str | None) -> Path | None:

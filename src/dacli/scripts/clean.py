@@ -22,8 +22,10 @@ import sys
 
 from pathlib import Path
 
+from dacli.core import paths
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
-SANDBOX_WORKDIR = REPO_ROOT / ".dacli" / "sandbox"
+SANDBOX_WORKDIR = paths.project_overlay_dir(REPO_ROOT) / "sandbox"
 
 
 def _rmtree(path: Path) -> bool:

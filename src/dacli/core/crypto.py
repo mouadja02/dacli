@@ -56,22 +56,15 @@ def resolve_base_dir(state_path: str | None = None) -> Path:
     All callers — :mod:`core.store`, :func:`config.settings._load_dacli_secrets`,
     and this module — resolve through here so the three never drift apart.
 
-    The env var name and the cwd-relative default are owned by :mod:`core.paths`
-    (the one resolver). With no explicit override the base dir comes from
-    :func:`core.paths.state_dir` — project-local ``.dacli`` inside a project,
-    the per-user config dir outside one (P09) — so a fresh key no longer lands
-    in a broadly-readable cwd. Back-compat: an existing cwd ``.dacli/.key`` is
-    detected and kept, so installs that predate the move keep working.
+    The whole resolution — env var, legacy cwd ``.dacli/.key`` detection, and
+    the project-vs-user default — lives in :mod:`core.paths` (the one resolver);
+    this delegates to it via the ``secrets`` resource kind. Back-compat is
+    preserved: an existing cwd ``.dacli/.key`` is detected and kept, so installs
+    that predate the per-user move keep decrypting their store unchanged.
     """
     from dacli.core import paths
 
-    sp = state_path or os.environ.get(paths.STATE_PATH_ENV)
-    if sp:
-        return Path(sp).parent
-    legacy = Path(paths.DEFAULT_STATE_PATH).parent
-    if (legacy / _KEY_FILE).exists():
-        return legacy
-    return paths.state_dir()
+    return paths.resource_dir("secrets", state_path=state_path)
 
 
 def _resolve_base_dir() -> Path:
