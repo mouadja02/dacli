@@ -143,45 +143,29 @@ def test_session_state_survives_reload(tmp_path):
     assert _call(host, "bump").data == 2
 
 
-def test_session_events_fire_shutdown_then_start_on_reload(tmp_path):
-    _write_ext(
-        tmp_path,
-        "lifecycle",
-        """
-        def register(api):
-            def on_start(reason):
-                api.append_entry(("start", reason))
-            def on_shutdown(reason):
-                api.append_entry(("shutdown", reason))
-            api.on("session_start", on_start)
-            api.on("session_shutdown", on_shutdown)
+def _lifecycle(version):
+    return f"""
+    def register(api):
+        def on_start(reason):
+            api.append_entry(("start", reason))
+        def on_shutdown(reason):
+            api.append_entry(("shutdown", reason))
+        api.on("session_start", on_start)
+        api.on("session_shutdown", on_shutdown)
 
-            @api.tool(name="noop", description="%s", risk="safe",
-                      postconditions=["result_succeeded"])
-            async def noop(args, ctx):
-                return ctx.ok(None)
-        """ % "v1",
-    )
+        @api.tool(name="noop", description="{version}", risk="safe",
+                  postconditions=["result_succeeded"])
+        async def noop(args, ctx):
+            return ctx.ok(None)
+    """
+
+
+def test_session_events_fire_shutdown_then_start_on_reload(tmp_path):
+    _write_ext(tmp_path, "lifecycle", _lifecycle("v1"))
     host = ExtensionHost(tmp_path)
     host.load()
-    _write_ext(
-        tmp_path,
-        "lifecycle",
-        """
-        def register(api):
-            def on_start(reason):
-                api.append_entry(("start", reason))
-            def on_shutdown(reason):
-                api.append_entry(("shutdown", reason))
-            api.on("session_start", on_start)
-            api.on("session_shutdown", on_shutdown)
 
-            @api.tool(name="noop", description="%s", risk="safe",
-                      postconditions=["result_succeeded"])
-            async def noop(args, ctx):
-                return ctx.ok(None)
-        """ % "v2",
-    )
+    _write_ext(tmp_path, "lifecycle", _lifecycle("v2"))
     host.reload()
 
     assert host.log.entries("lifecycle") == [
