@@ -585,6 +585,11 @@ class ExtensionHost:
     def _base(self) -> Path:
         return self._dir if self._dir else paths.resource_dir("extensions")
 
+    def base_dir(self) -> Path:
+        """Where extensions live for this host — the generator writes here before
+        :meth:`reload`."""
+        return self._base()
+
     def load(self) -> ReloadResult:
         return self._sync(reason="startup", shutdown=False)
 
