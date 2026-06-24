@@ -203,7 +203,8 @@ class ExtensionAPI:
 
     def config(self) -> dict[str, Any]:
         """This extension's config, secrets decrypted at call time. The provider
-        is wired in M07; with none set this is an empty dict."""
+        is :meth:`core.secrets.SecretStore.config` (M07); with none set, an empty
+        dict."""
         if self._config_provider is None:
             return {}
         return self._config_provider(self.name)
