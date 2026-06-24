@@ -116,6 +116,8 @@ dacli = [
     "connectors/templates/*",
     "skills/**/SKILL.md",
     "config/*.yaml",
+    "seeds/**/*.py",
+    "seeds/**/*.md",
 ]
 
 [tool.ruff]
