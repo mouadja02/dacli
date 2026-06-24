@@ -1,48 +1,48 @@
 {
   "config": {
-    "found": "bool",
-    "path": "str",
-    "requested": "NoneType"
+    "found": "<value>",
+    "path": "<value>",
+    "requested": "<value>"
   },
   "connectors": {
-    "enabled": "int",
-    "skipped": "int",
+    "enabled": "<value>",
+    "skipped": "<value>",
     "skipped_detail": {}
   },
   "cost": {
-    "advisors": "list",
-    "confirm_usd": "NoneType"
+    "advisors": "<value>",
+    "confirm_usd": "<value>"
   },
   "governance": {
-    "enabled": "bool",
-    "policy": "str",
-    "policy_default": "bool"
+    "enabled": "<value>",
+    "policy": "<value>",
+    "policy_default": "<value>"
   },
   "llm": {
-    "key": "bool",
-    "model": "str",
-    "ping": "str",
-    "provider": "str",
-    "source": "NoneType"
+    "key": "<value>",
+    "model": "<value>",
+    "ping": "<value>",
+    "provider": "<value>",
+    "source": "<value>"
   },
   "log": {
-    "path": "str"
+    "path": "<value>"
   },
-  "ok": "bool",
-  "problems": "list",
+  "ok": "<value>",
+  "problems": "<value>",
   "sandbox": {
-    "enabled": "bool",
-    "fallback": "bool",
-    "image_present": "NoneType",
-    "runtime": "str"
+    "enabled": "<value>",
+    "fallback": "<value>",
+    "image_present": "<value>",
+    "runtime": "<value>"
   },
   "state_dir": {
-    "kind": "str",
-    "path": "str"
+    "kind": "<value>",
+    "path": "<value>"
   },
   "terminal": {
-    "enabled": "bool",
-    "scope": "str",
-    "shell": "str"
+    "enabled": "<value>",
+    "scope": "<value>",
+    "shell": "<value>"
   }
 }

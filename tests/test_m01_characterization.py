@@ -255,10 +255,12 @@ class InventorySnapshots(unittest.TestCase):
 
         diag = doctor.collect(Settings()).to_dict()
 
+        # Pin the key structure only — leaf values (and even their types, for the
+        # nullable fields) are environment-specific (config.path, sandbox probes).
         def shape(value):
             if isinstance(value, dict):
                 return {k: shape(v) for k, v in sorted(value.items())}
-            return type(value).__name__
+            return "<value>"
 
         _assert_or_record("doctor_shape", shape(diag))
 
