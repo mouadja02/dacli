@@ -17,16 +17,61 @@ the same guard ``ConnectorRegistry.validate_postconditions`` uses).
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from collections.abc import Callable
 
-from dacli.connectors.base import OperationSpec, Risk
+from dacli.connectors.base import OperationSpec, Risk, ToolResult, ToolStatus
 from dacli.connectors.registry import ConfigField
 from dacli.core import paths
-from dacli.core.verify import require_postconditions
+from dacli.core.verify import (
+    PostCondition,
+    data_is_list,
+    require_postconditions,
+    result_succeeded,
+    shell_deletes_observed,
+    shell_exit_zero,
+    shell_writes_observed,
+)
+
+
+# Post-conditions an extension may name as a string in ``postconditions=[...]``
+# (reporting/03 writes ``["result_succeeded"]``). Only the zero-arg factories are
+# nameable; a parameterized check is passed as a PostCondition object.
+_POSTCONDITION_ALIASES: dict[str, Callable[[], PostCondition]] = {
+    "result_succeeded": result_succeeded,
+    "data_is_list": data_is_list,
+    "shell_exit_zero": shell_exit_zero,
+    "shell_writes_observed": shell_writes_observed,
+    "shell_deletes_observed": shell_deletes_observed,
+}
+
+
+def _resolve_postconditions(label: str, pcs: list[Any]) -> list[PostCondition]:
+    """Turn an extension's ``postconditions`` into PostCondition objects the
+    verifier runs — resolving string aliases, passing objects through."""
+    resolved: list[PostCondition] = []
+    for pc in pcs:
+        if isinstance(pc, PostCondition):
+            resolved.append(pc)
+        elif isinstance(pc, str):
+            factory = _POSTCONDITION_ALIASES.get(pc)
+            if factory is None:
+                known = ", ".join(sorted(_POSTCONDITION_ALIASES))
+                raise ValueError(
+                    f"{label}: unknown post-condition {pc!r}; name one of "
+                    f"{known}, or pass a PostCondition object"
+                )
+            resolved.append(factory())
+        else:
+            raise TypeError(
+                f"{label}: post-condition must be a name or PostCondition, "
+                f"got {type(pc).__name__}"
+            )
+    return resolved
 
 
 def _coerce_risk(risk: Any) -> Risk:
@@ -96,6 +141,7 @@ class ExtensionAPI:
             )
         pcs = list(postconditions)
         require_postconditions(f"{self.name}.{name}", pcs)
+        pcs = _resolve_postconditions(f"{self.name}.{name}", pcs)
         spec = OperationSpec(
             name=name,
             description=description,
@@ -263,3 +309,79 @@ def load_extensions(
             continue
         registry._merge(api)
     return registry
+
+
+# ---------------------------------------------------------------------------
+# Governed dispatch (M04)
+#
+# The Dispatcher (connectors/dispatcher.py) already wraps every call in the
+# governance + post-condition spine. To run an extension tool through that exact
+# spine we present the ExtensionRegistry behind the small surface the Dispatcher
+# consumes — resolve / get_operation_spec / is_builtin — and wrap each tool's
+# handler in a connector-shaped object. Wire, don't rebuild.
+# ---------------------------------------------------------------------------
+@dataclass
+class ToolContext:
+    """Handed to a tool handler as ``ctx``. ``ok``/``fail`` build the ToolResult
+    the dispatcher governs, verifies, and audits."""
+
+    tool_name: str
+
+    def ok(self, data: Any = None, **metadata: Any) -> ToolResult:
+        return ToolResult(
+            tool_name=self.tool_name, status=ToolStatus.SUCCESS,
+            data=data, metadata=dict(metadata),
+        )
+
+    def fail(self, error: Any, **metadata: Any) -> ToolResult:
+        return ToolResult(
+            tool_name=self.tool_name, status=ToolStatus.ERROR,
+            error=str(error), metadata=dict(metadata),
+        )
+
+
+class _ExtensionTool:
+    """One registered tool wearing the connector surface the Dispatcher and
+    Governor read: ``name`` (the extension id, so it's scoped and audited like a
+    connector) and ``invoke``. ``health`` is here only for the staging gate."""
+
+    _on_progress: Any = None
+
+    def __init__(self, tool: RegisteredTool):
+        self._tool = tool
+        self.name = tool.extension
+
+    async def invoke(self, op: Any, args: dict[str, Any]) -> ToolResult:
+        ctx = ToolContext(self._tool.spec.name)
+        out = self._tool.handler(dict(args or {}), ctx)
+        if inspect.isawaitable(out):
+            out = await out
+        # The contract is ctx.ok/ctx.fail; a handler returning a bare value is
+        # taken as a success payload rather than failing the call.
+        return out if isinstance(out, ToolResult) else ctx.ok(out)
+
+    async def health(self) -> ToolResult:
+        return ToolResult(tool_name=self.name, status=ToolStatus.SUCCESS)
+
+
+class ExtensionDispatchRegistry:
+    """Adapts an :class:`ExtensionRegistry` to the surface ``Dispatcher`` calls,
+    so an extension tool runs the same review → execute → verify → audit path a
+    connector op does."""
+
+    def __init__(self, registry: ExtensionRegistry):
+        self._registry = registry
+
+    def resolve(self, tool_name: str) -> tuple[_ExtensionTool, str] | None:
+        tool = self._registry.resolve(tool_name)
+        if tool is None:
+            return None
+        return _ExtensionTool(tool), tool.spec.name
+
+    def get_operation_spec(self, tool_name: str) -> OperationSpec | None:
+        return self._registry.get_operation_spec(tool_name)
+
+    def is_builtin(self, name: str) -> bool:
+        # Staging (test mode) is a connector-under-test concern; extensions don't
+        # go through it, so the dispatcher's staging gate treats them as trusted.
+        return True
