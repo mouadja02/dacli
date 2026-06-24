@@ -29,8 +29,11 @@ STATE_PATH_ENV = "DACLI_STATE_PATH"
 #: of :func:`state_dir`; kept here so the one definition is shared, not duplicated.
 DEFAULT_STATE_PATH = ".dacli/state/"
 
+#: Name of the per-project overlay dir. The one place the literal lives.
+OVERLAY_DIRNAME = ".dacli"
+
 #: A directory is a dacli project if it (or an ancestor) holds one of these.
-_PROJECT_MARKERS = (".dacli", "config.yaml", ".git")
+_PROJECT_MARKERS = (OVERLAY_DIRNAME, "config.yaml", ".git")
 
 #: Resource kinds the agent owns under the ``.dacli`` overlay (reporting/03).
 RESOURCE_KINDS = ("extensions", "skills", "themes", "secrets", "workspaces")
@@ -65,6 +68,11 @@ def project_root(start: Path | None = None) -> Path | None:
     return None
 
 
+def project_overlay_dir(root: Path) -> Path:
+    """The ``.dacli`` overlay dir under a given project (or repo) root."""
+    return root / OVERLAY_DIRNAME
+
+
 def state_dir() -> Path:
     """Project-local ``<project_root>/.dacli`` when in a project, else
     :func:`user_config_dir`. ``DACLI_STATE_PATH`` (its parent) overrides both."""
@@ -72,7 +80,7 @@ def state_dir() -> Path:
     if override:
         return Path(override).parent
     root = project_root()
-    return root / ".dacli" if root is not None else user_config_dir()
+    return project_overlay_dir(root) if root is not None else user_config_dir()
 
 
 def bundled_seeds_dir(kind: str) -> Path:
@@ -121,7 +129,7 @@ def resource_dir(
         return _secrets_base_dir(state_path)
 
     root = project_root()
-    project = root / ".dacli" / kind if root is not None else None
+    project = project_overlay_dir(root) / kind if root is not None else None
     glob = user_config_dir() / kind
     for cand in (project, glob, bundled_seeds_dir(kind)):
         if cand is not None and cand.exists():

@@ -147,6 +147,12 @@ def test_user_prompt_overlay_under_state_dir(monkeypatch, tmp_path):
     assert paths.user_prompt_overlay() == tmp_path / "s" / "system_prompt.md"
 
 
+# ---- project_overlay_dir --------------------------------------------------
+
+def test_project_overlay_dir(tmp_path):
+    assert paths.project_overlay_dir(tmp_path) == tmp_path / ".dacli"
+
+
 # ---- resource_dir ---------------------------------------------------------
 
 def _project(tmp_path, monkeypatch):
