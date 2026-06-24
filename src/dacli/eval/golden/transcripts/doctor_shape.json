@@ -1,0 +1,48 @@
+{
+  "config": {
+    "found": "<value>",
+    "path": "<value>",
+    "requested": "<value>"
+  },
+  "connectors": {
+    "enabled": "<value>",
+    "skipped": "<value>",
+    "skipped_detail": {}
+  },
+  "cost": {
+    "advisors": "<value>",
+    "confirm_usd": "<value>"
+  },
+  "governance": {
+    "enabled": "<value>",
+    "policy": "<value>",
+    "policy_default": "<value>"
+  },
+  "llm": {
+    "key": "<value>",
+    "model": "<value>",
+    "ping": "<value>",
+    "provider": "<value>",
+    "source": "<value>"
+  },
+  "log": {
+    "path": "<value>"
+  },
+  "ok": "<value>",
+  "problems": "<value>",
+  "sandbox": {
+    "enabled": "<value>",
+    "fallback": "<value>",
+    "image_present": "<value>",
+    "runtime": "<value>"
+  },
+  "state_dir": {
+    "kind": "<value>",
+    "path": "<value>"
+  },
+  "terminal": {
+    "enabled": "<value>",
+    "scope": "<value>",
+    "shell": "<value>"
+  }
+}

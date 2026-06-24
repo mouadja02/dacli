@@ -1,0 +1,44 @@
+{
+  "dispatched": [
+    {
+      "args": {
+        "query": "SELECT ID, NAME FROM analytics.users"
+      },
+      "tool": "execute_snowflake_query"
+    }
+  ],
+  "final": {
+    "content": "done",
+    "error": null,
+    "iteration": 2,
+    "needs_user_input": false
+  },
+  "results": [
+    {
+      "data": [
+        {
+          "ID": 1,
+          "NAME": "ada"
+        },
+        {
+          "ID": 2,
+          "NAME": "linus"
+        }
+      ],
+      "error": null,
+      "metadata": {
+        "catalog_effects": [],
+        "columns": [
+          "ID",
+          "NAME"
+        ],
+        "query": "SELECT ID, NAME FROM analytics.users",
+        "rows_returned": 2,
+        "tier": "safe",
+        "total_rows": 2
+      },
+      "status": "success",
+      "tool_name": "snowflake"
+    }
+  ]
+}

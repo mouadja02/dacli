@@ -1,0 +1,33 @@
+{
+  "dispatched": [
+    {
+      "args": {
+        "path": "dbt_project.yml"
+      },
+      "tool": "read_github_file"
+    }
+  ],
+  "final": {
+    "content": "done",
+    "error": null,
+    "iteration": 2,
+    "needs_user_input": false
+  },
+  "results": [
+    {
+      "data": {
+        "content": "name: warehouse\nversion: 1.0\n",
+        "path": "dbt_project.yml",
+        "sha": "feedface",
+        "size": 31
+      },
+      "error": null,
+      "metadata": {
+        "operation": "read_file",
+        "tier": "safe"
+      },
+      "status": "success",
+      "tool_name": "github"
+    }
+  ]
+}

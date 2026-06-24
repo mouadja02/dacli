@@ -1,0 +1,138 @@
+[
+  [
+    "/help",
+    "Show this help message"
+  ],
+  [
+    "/keys",
+    "Show keyboard shortcuts"
+  ],
+  [
+    "/init",
+    "Generate a DACLI.md priors draft from your config"
+  ],
+  [
+    "/status",
+    "Show current progress and state"
+  ],
+  [
+    "/doctor",
+    "Diagnose config/state/LLM/connectors (where things resolve, what's live)"
+  ],
+  [
+    "/usage",
+    "Show token usage and cost (overall, by model, this session)"
+  ],
+  [
+    "/context",
+    "Explain the assembled context (sources, tokens, budget)"
+  ],
+  [
+    "/audit",
+    "Show governance decisions for this session (why the agent acted)"
+  ],
+  [
+    "/why-failed [dag]",
+    "Explain the most recent pipeline failure + a governed fix"
+  ],
+  [
+    "/tools",
+    "Show enabled tools and capabilities"
+  ],
+  [
+    "/connect [tool]",
+    "Configure a connector \u2014 interactive, or pass a name"
+  ],
+  [
+    "/new-connector",
+    "Generate a new connector from natural language description"
+  ],
+  [
+    "/testmode [tool]",
+    "Toggle staging test mode (health-gated, side-effect-free) for new connectors"
+  ],
+  [
+    "/import-connector",
+    "Import a tested connector from sandbox to local"
+  ],
+  [
+    "/push-connector",
+    "Git commit and push a new connector"
+  ],
+  [
+    "/debug-connector <name>",
+    "Debug a failing connector with LLM assistance"
+  ],
+  [
+    "/setup",
+    "Run the tool configuration wizard"
+  ],
+  [
+    "/history",
+    "Show conversation history"
+  ],
+  [
+    "/find <text>",
+    "Search history and tool results for matching turns"
+  ],
+  [
+    "/last-error",
+    "Re-show the most recent failed tool result"
+  ],
+  [
+    "/expand <id>",
+    "Re-render a tool result in full from the off-context spill"
+  ],
+  [
+    "/transcript",
+    "Open the full-screen transcript viewer (needs dacli[tui])"
+  ],
+  [
+    "/sessions",
+    "List available sessions"
+  ],
+  [
+    "/catalog [connector]",
+    "List known data objects from the catalog cache"
+  ],
+  [
+    "/schema <object>",
+    "Show cached columns/row-count for one object"
+  ],
+  [
+    "/load <id>",
+    "Load a previous session"
+  ],
+  [
+    "/export",
+    "Export current state to JSON"
+  ],
+  [
+    "/config",
+    "Show current configuration"
+  ],
+  [
+    "/theme <name>",
+    "Switch UI theme (dark, light, ocean, mono)"
+  ],
+  [
+    "/prompt",
+    "View/edit the system prompt"
+  ],
+  [
+    "/clear",
+    "Clear conversation history"
+  ],
+  [
+    "/cls",
+    "Clear the screen (keeps conversation history)"
+  ],
+  [
+    "/reset",
+    "Reset agent state"
+  ],
+  [
+    "/exit",
+    "Exit the CLI"
+  ]
+]

@@ -1,0 +1,39 @@
+{
+  "dispatched": [
+    {
+      "args": {
+        "command": "cat hello.txt"
+      },
+      "tool": "run_shell_command"
+    }
+  ],
+  "final": {
+    "content": "done",
+    "error": null,
+    "iteration": 2,
+    "needs_user_input": false
+  },
+  "results": [
+    {
+      "data": {
+        "command": "cat hello.txt",
+        "deletes": [],
+        "egress_hosts": [],
+        "exit_code": 0,
+        "output": "hi there",
+        "output_lines": 1,
+        "overwrites": [],
+        "spilled": false,
+        "timed_out": false,
+        "writes": []
+      },
+      "error": null,
+      "metadata": {
+        "spilled": false,
+        "tier": "safe"
+      },
+      "status": "success",
+      "tool_name": "run_shell_command"
+    }
+  ]
+}
