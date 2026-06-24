@@ -63,6 +63,31 @@ class DecryptValueTest(unittest.TestCase):
         self.assertEqual(decrypt_value("", base_dir=None), "")
 
 
+class ResolveBaseDirTest(unittest.TestCase):
+    """resolve_base_dir now delegates to paths.resource_dir('secrets'); the
+    legacy cwd .dacli/.key must still win so existing stores stay readable."""
+
+    def test_state_path_parent_wins(self):
+        self.assertEqual(
+            crypto.resolve_base_dir("/srv/app/.dacli/state/"),
+            Path("/srv/app/.dacli"),
+        )
+
+    def test_legacy_cwd_key_detected(self):
+        saved = os.environ.pop("DACLI_STATE_PATH", None)
+        with tempfile.TemporaryDirectory() as d:
+            cwd = os.getcwd()
+            os.chdir(d)
+            try:
+                Path(".dacli").mkdir()
+                Path(".dacli", ".key").touch()
+                self.assertEqual(crypto.resolve_base_dir(), Path(".dacli"))
+            finally:
+                os.chdir(cwd)
+                if saved is not None:
+                    os.environ["DACLI_STATE_PATH"] = saved
+
+
 class DerivedKeyCacheTest(unittest.TestCase):
     """A password key source must run PBKDF2 once, not once per decrypt."""
 

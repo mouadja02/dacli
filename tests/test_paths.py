@@ -147,6 +147,79 @@ def test_user_prompt_overlay_under_state_dir(monkeypatch, tmp_path):
     assert paths.user_prompt_overlay() == tmp_path / "s" / "system_prompt.md"
 
 
+# ---- resource_dir ---------------------------------------------------------
+
+def _project(tmp_path, monkeypatch):
+    (tmp_path / ".git").mkdir()
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
+def test_resource_dir_project_overlay_wins_over_global(monkeypatch, tmp_path):
+    monkeypatch.setenv("DACLI_HOME", str(tmp_path / "home"))
+    root = _project(tmp_path, monkeypatch)
+    proj = root / ".dacli" / "extensions"
+    proj.mkdir(parents=True)
+    (tmp_path / "home" / "extensions").mkdir(parents=True)
+    assert paths.resource_dir("extensions") == proj
+
+
+def test_resource_dir_global_wins_over_bundled(monkeypatch, tmp_path):
+    monkeypatch.setenv("DACLI_HOME", str(tmp_path / "home"))
+    monkeypatch.chdir(tmp_path)  # no project marker
+    glob = tmp_path / "home" / "extensions"
+    glob.mkdir(parents=True)
+    bundled = tmp_path / "bundled"
+    (bundled / "extensions").mkdir(parents=True)
+    monkeypatch.setattr(paths, "bundled_seeds_dir", lambda kind: bundled / kind)
+    assert paths.resource_dir("extensions") == glob
+
+
+def test_resource_dir_falls_through_to_bundled(monkeypatch, tmp_path):
+    monkeypatch.setenv("DACLI_HOME", str(tmp_path / "home"))
+    monkeypatch.chdir(tmp_path)
+    bundled = tmp_path / "bundled"
+    (bundled / "themes").mkdir(parents=True)
+    monkeypatch.setattr(paths, "bundled_seeds_dir", lambda kind: bundled / kind)
+    assert paths.resource_dir("themes") == bundled / "themes"
+
+
+def test_resource_dir_create_makes_writable_default(monkeypatch, tmp_path):
+    monkeypatch.setenv("DACLI_HOME", str(tmp_path / "home"))
+    monkeypatch.chdir(tmp_path)  # no project -> global is the writable target
+    monkeypatch.setattr(paths, "bundled_seeds_dir", lambda kind: tmp_path / "nope" / kind)
+    d = paths.resource_dir("skills", create=True)
+    assert d == tmp_path / "home" / "skills"
+    assert d.is_dir()
+
+
+def test_resource_dir_create_in_project_targets_overlay(monkeypatch, tmp_path):
+    root = _project(tmp_path, monkeypatch)
+    monkeypatch.setattr(paths, "bundled_seeds_dir", lambda kind: tmp_path / "nope" / kind)
+    d = paths.resource_dir("workspaces", create=True)
+    assert d == root / ".dacli" / "workspaces"
+    assert d.is_dir()
+
+
+def test_resource_dir_unknown_kind_raises():
+    with pytest.raises(ValueError):
+        paths.resource_dir("widgets")
+
+
+def test_resource_dir_secrets_is_project_base(monkeypatch, tmp_path):
+    monkeypatch.delenv("DACLI_STATE_PATH", raising=False)
+    root = _project(tmp_path, monkeypatch)
+    assert paths.resource_dir("secrets") == root / ".dacli"
+
+
+def test_resource_dir_secrets_finds_legacy_key(monkeypatch, tmp_path):
+    monkeypatch.delenv("DACLI_STATE_PATH", raising=False)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".dacli").mkdir()
+    (tmp_path / ".dacli" / ".key").touch()
+    assert paths.resource_dir("secrets") == Path(".dacli")
+
+
 # ---- packaging: resolves from the installed package, not __file__ math ----
 
 def test_packaged_policy_resolves_in_fresh_interpreter():
