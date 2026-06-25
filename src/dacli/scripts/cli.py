@@ -15,14 +15,12 @@ from dacli.config.settings import (
 )
 from dacli.connectors.registry import (
     ConnectorRegistry,
-    save_connectors_config,
     CONNECTORS_CONFIG_PATH,
 )
 from dacli.core.host import DacliHost
 from dacli.core.logging_setup import get_logger, setup_logging
 from dacli.core.memory import AgentMemory
 from dacli.governance.audit import AuditLedger
-from dacli.core.setup_wizard import SetupWizard, QuickSetup
 from dacli.prompts.system_prompt import (
     get_default_system_prompt,
     save_system_prompt,
@@ -145,43 +143,14 @@ def chat(ctx, config, session, run_setup):
 
 @cli.command()
 @click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
-@click.option(
-    "--profile",
-    "-p",
-    type=str,
-    help="Quick profile: full, none, or <connector>_only (e.g. github_only)",
-)
-def setup(config, profile):
-    """Run the interactive connector setup wizard."""
-    config_path = config or "config.yaml"
-    settings = load_config(config_path)
-    registry = ConnectorRegistry(settings, config_path=CONNECTORS_CONFIG_PATH)
+@click.option("--session", "-s", type=str, help="Session ID to resume")
+def setup(config, session):
+    """Start chat and walk through a first connection.
 
-    if profile:
-        # Use quick profile
-        QuickSetup.show_profiles(console, registry)
-        connectors_config = QuickSetup.get_profile(profile, registry)
-        if connectors_config:
-            save_connectors_config(connectors_config, CONNECTORS_CONFIG_PATH)
-            console.print(f"[success]✓ Applied profile: {profile}[/success]")
-        else:
-            console.print(f"[error]Unknown profile: {profile}[/error]")
-            console.print(
-                "Available profiles: "
-                + ", ".join(QuickSetup.list_profiles(registry).keys())
-            )
-    else:
-        # Run full wizard
-        asyncio.run(_run_setup_wizard(config_path, settings))
-
-
-async def _run_setup_wizard(_config_path: str, settings: Settings) -> dict:
-    """Run the setup wizard and save results."""
-    registry = ConnectorRegistry(settings, config_path=CONNECTORS_CONFIG_PATH)
-    wizard = SetupWizard(settings, registry, CONNECTORS_CONFIG_PATH)
-    connectors_config = await wizard.run()
-    save_connectors_config(connectors_config, CONNECTORS_CONFIG_PATH)
-    return connectors_config
+    Onboarding is conversational now (M12): there's no connector wizard. This is
+    ``dacli chat --setup`` — it opens the agent and offers to /connect a seed.
+    """
+    asyncio.run(run_chat(config, session, force_setup=True))
 
 
 def _find_config_template() -> Path | None:

@@ -8,7 +8,7 @@
 
 [![CI](https://github.com/mouadja02/dacli/actions/workflows/ci.yml/badge.svg)](https://github.com/mouadja02/dacli/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-807-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-684-brightgreen.svg)](#testing)
 [![Reliability](https://img.shields.io/badge/reliability-pass%5Ek-orange.svg)](docs/EVALUATION.md)
 [![Architecture](https://img.shields.io/badge/architecture-six--component%20harness-8A2BE2.svg)](docs/ARCHITECTURE.md)
 
@@ -337,8 +337,8 @@ governed plan offline (`dacli replay examples/warehouse-snowflake/scenario.json`
 
 ### In-chat slash commands
 
-`/help` · `/keys` · `/init` · `/status` · `/doctor` · `/usage` · `/context` · `/audit` · `/why-failed [dag]` · `/tools` · `/connect [tool]` ·
-`/new-connector` · `/testmode [tool]` · `/import-connector` · `/push-connector` · `/debug-connector <name>` ·
+`/help` · `/keys` · `/init` · `/status` · `/doctor` · `/usage` · `/context` · `/audit` · `/why-failed [dag]` · `/tools` · `/connect [ext]` ·
+`/new-extension` · `/reload` · `/testmode [tool]` ·
 `/setup` · `/history` · `/find <text>` · `/last-error` · `/expand <id>` · `/transcript` · `/sessions` ·
 `/catalog [connector]` · `/schema <object>` · `/load <id>` · `/export` ·
 `/config` · `/theme <name>` · `/prompt` · `/clear` · `/cls` · `/reset` · `/exit`
@@ -366,12 +366,11 @@ Reliability dashboard — suite: sim
 ----------------------------------------------------------------------------------------------
 connector          tasks  pass@1  pass^k   succ    esc   corr    gov  unguard     tok       ms
 ----------------------------------------------------------------------------------------------
-bigquery               3    1.00    1.00   1.00   0.00   0.00   0.00        0       0      0.1
-s3                     3    1.00    1.00   1.00   0.00   0.00   0.00        0       0      0.1
+github                 1    1.00    1.00   1.00   0.00   0.00   0.00        0       0      0.1
+snowflake              1    1.00    1.00   1.00   0.00   0.00   0.00        0       0      0.1
 shell                  7    1.00    1.00   1.00   0.00   0.00   0.29        0       0     19.5
-spine                  5    1.00    1.00   1.00   0.00   0.20   0.20        0       0      1.0
-...
-OVERALL               32    1.00    1.00   1.00   0.00   0.03   0.09        0       0     11.0
+spine                  3    1.00    1.00   1.00   0.00   0.20   0.20        0       0      1.0
+OVERALL               12    1.00    1.00   1.00   0.00   0.03   0.09        0       0     11.0
 ----------------------------------------------------------------------------------------------
 ✓ zero unguarded destructive executions.
 ```

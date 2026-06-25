@@ -1,19 +1,16 @@
 """Regression tests for the P08 TUI/UX upgrades that cross module seams.
 
 Covers the optional tool-progress callback (dispatcher → connector →
-``emit_progress``), the honest ctx % (assembler budget snapshot), and the
-quick-profile-first setup wizard. Pure-rendering cases live in test_tui.py.
+``emit_progress``) and the honest ctx % (assembler budget snapshot).
+Pure-rendering cases live in test_tui.py.
 """
 
 import asyncio
 import types
 
-from rich.console import Console
-from rich.prompt import Confirm, Prompt
 
 from dacli.connectors.base import Connector, OperationSpec, ToolResult, ToolStatus
 from dacli.connectors.dispatcher import Dispatcher
-from dacli.core.setup_wizard import SetupWizard
 
 
 # ---------------------------------------------------------------------------
@@ -165,63 +162,3 @@ def test_pipeline_caches_last_context(tmp_path):
     ctx = hooks["build"]("list the tables", [], set())
     assert hooks["last_context"]() is ctx
     assert ctx.budget  # the snapshot the toolbar reads
-
-
-# ---------------------------------------------------------------------------
-# Quick-profile-first wizard (U-7)
-# ---------------------------------------------------------------------------
-class _WizardRegistry:
-    setup_completed = False
-
-    def get_catalog(self):
-        return {
-            "snowflake": {
-                "icon": "S", "name": "Snowflake", "description": "warehouse",
-                "operations": {"q": {"name": "q", "description": "", "category": "c"}},
-                "required_config": [],
-            },
-        }
-
-
-def _quiet_wizard(monkeypatch):
-    wizard = SetupWizard(settings=types.SimpleNamespace(),
-                         registry=_WizardRegistry(), config_path="__nope__.yaml")
-    wizard.console = Console(record=True, width=80, force_terminal=False)
-    monkeypatch.setattr(wizard, "_collect_secrets", lambda: None)
-
-    async def _no_validate():
-        return {}
-
-    monkeypatch.setattr(wizard, "_validate_credentials", _no_validate)
-    return wizard
-
-
-def test_wizard_quick_profile_skips_granular_flow(monkeypatch):
-    wizard = _quiet_wizard(monkeypatch)
-    monkeypatch.setattr(Confirm, "ask", lambda *a, **k: True)
-    monkeypatch.setattr(Prompt, "ask", lambda *a, **k: "full")
-
-    def _fail(*a, **k):
-        raise AssertionError("granular flow must not run on the quick path")
-
-    monkeypatch.setattr(wizard, "_select_connectors", _fail)
-    monkeypatch.setattr(wizard, "_select_operations", _fail)
-
-    config = asyncio.run(wizard.run())
-    assert config["setup_completed"] is True
-    assert config["connectors"]["snowflake"]["enabled"] is True
-    assert config["connectors"]["snowflake"]["operations"] == {"q": True}
-
-
-def test_wizard_custom_path_still_runs_granular_flow(monkeypatch):
-    wizard = _quiet_wizard(monkeypatch)
-    monkeypatch.setattr(Confirm, "ask", lambda *a, **k: False)  # decline quick
-    called = []
-    monkeypatch.setattr(wizard, "_select_connectors",
-                        lambda: called.append("connectors"))
-    monkeypatch.setattr(wizard, "_select_operations",
-                        lambda: called.append("operations"))
-
-    config = asyncio.run(wizard.run())
-    assert called == ["connectors", "operations"]
-    assert config["setup_completed"] is True
