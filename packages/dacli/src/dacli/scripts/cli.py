@@ -963,22 +963,22 @@ def replay_cmd(scenario_file, as_json):
 
 @cli.command()
 @click.option("--output", "-o", type=click.Path(), help="Export the composed prompt to a file")
-@click.option("--edit", is_flag=True, help="Create the editable overlay (if missing) and open it")
+@click.option("--edit", is_flag=True, help="Create the SYSTEM.md override (if missing) and open it")
 def prompt(output, edit):
-    # View or customize the system prompt. The composed prompt (core.md + overlay)
-    # is the live source the agent runs on — one source of truth, no drift (07.E).
+    # View or customize the system prompt. A user SYSTEM.md replaces the packaged
+    # core; AGENTS.md adds operating notes on top (M14).
     current_prompt = get_default_system_prompt()
-    overlay = paths.user_prompt_overlay()
+    override = paths.system_md_target()
 
     if edit:
-        if not overlay.exists():
+        if not override.exists():
             save_system_prompt(current_prompt)
-            console.print(f"[success]Created overlay {overlay}[/success]")
+            console.print(f"[success]Created override {override}[/success]")
         else:
-            console.print(f"[info]Overlay already exists: {overlay}[/info]")
+            console.print(f"[info]Override already exists: {override}[/info]")
         editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
         if editor:
-            click.edit(filename=str(overlay))
+            click.edit(filename=str(override))
         else:
             console.print("[dim]Set $EDITOR to open it automatically.[/dim]")
         return
@@ -989,9 +989,9 @@ def prompt(output, edit):
     else:
         md = Markdown(current_prompt)
         console.print(Panel(md, title="System Prompt", border_style="cyan"))
-        console.print("\n[dim]The prompt is built-in and read-only.[/dim]")
+        console.print("\n[dim]The core prompt is built-in and read-only.[/dim]")
         console.print("[dim]To customize: run `dacli init` for editable DACLI.md priors,[/dim]")
-        console.print(f"[dim]or `dacli prompt --edit` to edit the overlay at {overlay}.[/dim]")
+        console.print(f"[dim]or `dacli prompt --edit` to write a SYSTEM.md override at {override}.[/dim]")
 
 
 # ============================================================

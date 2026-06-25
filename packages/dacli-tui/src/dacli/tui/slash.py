@@ -272,7 +272,7 @@ async def _prompt(ctx, args):
     )
     ctx.ui.notice(
         "Built-in and read-only. Customize via `dacli init` "
-        f"(DACLI.md) or the overlay at {paths.user_prompt_overlay()} "
+        f"(DACLI.md), or override it with a SYSTEM.md at {paths.system_md_target()} "
         "(`dacli prompt --edit`).",
         style="muted",
     )
