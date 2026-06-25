@@ -28,7 +28,7 @@ from dacli.connectors.registry import (
     save_connectors_config,
 )
 from dacli.core import __author__, __version__, paths
-from dacli.core.agent import DACLI
+from dacli.core.host import DacliHost
 from dacli.core.logging_setup import get_logger
 from dacli.core.memory import AgentMemory
 from dacli.core.setup_wizard import QuickSetup, SetupWizard, collect_llm_credentials
@@ -160,8 +160,8 @@ async def run_chat(
             "[prompt]Proceed with this action?[/prompt]", console=con, default=False
         )
 
-    # Initialize agent — UI methods wired directly as kernel callbacks.
-    agent = DACLI(
+    # Initialize the host (M09) — UI methods wired directly as kernel callbacks.
+    agent = DacliHost(
         settings=settings,
         memory=memory,
         on_status_update=chat_ui.status,
