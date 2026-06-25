@@ -18,7 +18,7 @@ from dacli.connectors.registry import (
     save_connectors_config,
     CONNECTORS_CONFIG_PATH,
 )
-from dacli.core.agent import DACLI
+from dacli.core.host import DacliHost
 from dacli.core.logging_setup import get_logger, setup_logging
 from dacli.core.memory import AgentMemory
 from dacli.governance.audit import AuditLedger
@@ -306,7 +306,7 @@ def why_failed(source, dag_id, run_id, apply_fix, config, as_json):
     )
     # Build the agent (no initialize() -> no network) for its governed dispatcher
     # and lineage store — the same pattern as `diff` and `context`.
-    agent = DACLI(settings=settings, memory=memory)
+    agent = DacliHost(settings=settings, memory=memory)
     project_dir = ConnectorConfig(settings, "dbt").get("project_dir", "") or "."
 
     explanation = asyncio.run(explain_failure(
@@ -425,7 +425,7 @@ def context(config, session, task, explain):
         return
 
     # Build the agent (no initialize() -> no network) just for its context pipeline.
-    agent = DACLI(settings=settings, memory=memory)
+    agent = DacliHost(settings=settings, memory=memory)
     build = agent._context["build"]
 
     working = [
@@ -439,27 +439,6 @@ def context(config, session, task, explain):
 
     ctx = build(task, working, set())
     reports.print_context_explain(ctx, task, explain, console)
-
-
-@cli.command(name="plan")
-@click.argument("goal")
-@click.option("--config", "-c", type=click.Path(), help="Path to config.yaml file")
-def plan_cmd(goal, config):
-    """Preview the plan + governance verdicts for GOAL — without executing.
-
-    Decomposes the goal into the planner's DAG and shows, per step, the
-    blast-radius tier, the policy decision that would fire (honoring
-    config/policy.yaml), and the rollback primitive that would be attached.
-    Static and offline: no LLM is constructed, nothing runs.
-    """
-    from dacli.core.plan_preview import build_plan_preview
-    from dacli.governance.policy_engine import PolicyEngine
-
-    settings = load_config(config)
-    gov = getattr(settings, "governance", None)
-    policy = PolicyEngine.from_path(getattr(gov, "policy_path", None) or "config/policy.yaml")
-    preview = build_plan_preview(goal, policy=policy, prod_markers=policy.prod_markers or None)
-    ui.plan_panel(preview)
 
 
 @cli.command(name="diff")
@@ -485,7 +464,7 @@ def diff_cmd(connector, table_a, table_b, config, sample):
     )
     # Build the agent (no initialize() -> no network) just for its governed
     # dispatcher — the same pattern as the `context` command.
-    agent = DACLI(settings=settings, memory=memory)
+    agent = DacliHost(settings=settings, memory=memory)
     result = asyncio.run(agent.dispatcher.execute("data_diff", {
         "connector": connector,
         "table_a": table_a,
@@ -527,7 +506,7 @@ def cost_cmd(connector, estimate_sql, want_session, limit, config, as_json):
     )
     # Build the agent (no initialize() -> no network) for its governed dispatcher
     # — the same pattern as `diff` and `why-failed`.
-    agent = DACLI(settings=settings, memory=memory)
+    agent = DacliHost(settings=settings, memory=memory)
 
     estimate = None
     if estimate_sql:
@@ -650,7 +629,7 @@ def assert_run(name, apply_fix, config, as_json):
     )
     # Build the agent (no initialize() -> no network) just for its governed
     # dispatcher — the same pattern as `diff` and `why-failed`.
-    agent = DACLI(settings=settings, memory=memory)
+    agent = DacliHost(settings=settings, memory=memory)
     outcomes = [
         asyncio.run(evaluate(a, agent.dispatcher, apply=apply_fix)) for a in chosen
     ]

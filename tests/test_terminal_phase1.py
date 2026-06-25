@@ -22,7 +22,6 @@ from dacli.connectors.shell.connector import ShellConnector
 
 from dacli.context.sources.terminal import ScrollbackStore, ScrollbackSource, bound_output
 
-from dacli.core.router import TierRouter, Tier as RTier
 from dacli.core.verify import (
     VerificationContext, run_postconditions,
     shell_exit_zero, shell_writes_observed, shell_deletes_observed,
@@ -45,17 +44,6 @@ from dacli.eval.sim.shell import make_sim_session
 
 def _run(coro):
     return asyncio.run(coro)
-
-
-class _FakeRegistry:
-    """Minimal registry stub: the digest of installed platform ids the router
-    reads to ground platform detection (02.4)."""
-
-    def __init__(self, ids):
-        self._ids = list(ids)
-
-    def get_tool_digest(self):
-        return [{"id": i} for i in self._ids]
 
 
 def _tmp(prefix="dacli_p1_"):
@@ -542,33 +530,6 @@ class ShellConnectorTest(unittest.TestCase):
 
 
 # ===========================================================================
-# W: router — the third tier + connector-preference (exit #5)
-# ===========================================================================
-class RouterShellTierTest(unittest.TestCase):
-    def route(self, task):
-        # Platform detection is grounded in installed connectors (02.4): a
-        # registry digest declares which platforms exist, so "row counts in
-        # BRONZE" is recognized as a single-platform (snowflake) op.
-        return _run(TierRouter(llm=None, registry=_FakeRegistry(["snowflake"])).route(task)).tier
-
-    def test_explicit_terminal_cue_routes_shell(self):
-        self.assertEqual(self.route("run `git status` in the terminal"), "shell")
-        self.assertEqual(self.route("open a shell command and check disk usage"), "shell")
-
-    def test_leading_glue_routes_shell(self):
-        self.assertEqual(self.route("ls the workspace directory"), "shell")
-        self.assertEqual(self.route("grep for TODO in the source"), "shell")
-
-    def test_existing_tiers_unchanged(self):
-        self.assertEqual(self.route("show me the row counts in BRONZE"), "tool")
-        self.assertEqual(self.route(
-            "diff yesterday's S3 dump against the BRONZE table then load the delta"), "sandbox")
-
-    def test_shell_tier_exists(self):
-        self.assertEqual(RTier.SHELL.value, "shell")
-
-
-# ===========================================================================
 # integration: the Governor over the shell tier (exit #1, #2)
 # ===========================================================================
 class _Plain(Connector):
@@ -639,56 +600,6 @@ class GovernorShellTest(unittest.TestCase):
         # The `command` arg of a non-shell op must NOT be parsed as a shell command.
         self.assertIsNone(d.classification.command_verb)
         self.assertEqual(d.classification.tier, Tier.SAFE)   # stays at declared SAFE
-
-
-# ===========================================================================
-# integration: the agent wires the shell tier as a built-in (exit #5)
-# ===========================================================================
-class AgentWiringTest(unittest.TestCase):
-    def _agent(self, enabled: bool):
-        from unittest import mock
-        from dacli.config.settings import Settings
-        from dacli.core.agent import DACLI
-
-        root = _tmp()
-        # Minimal valid config: only the sub-settings with required fields need a
-        # block; everything else (incl. terminal/sandbox/governance) defaults.
-        settings = Settings(
-            llm={"provider": "openai", "model": "gpt-4o-mini",
-                 "api_key": "test-key", "base_url": "https://api.test.local"},
-            github={"token": "x"},
-            snowflake={"account": "a", "user": "u", "password": "p",
-                       "warehouse": "w", "role": "r", "database": "d"},
-            pinecone={"api_key": "k", "index_name": "i", "environment": "e"},
-            embeddings={"provider": "openai", "api_key": "k", "model": "m"},
-        )
-        settings.agent.state_path = os.path.join(root, "state.json")
-        settings.agent.history_path = os.path.join(root, "history.json")
-        settings.terminal.enabled = enabled
-        settings.terminal.workspace_root = os.path.join(root, "sessions")
-        with mock.patch("dacli.core.agent.fetch_pricing", return_value=None):
-            agent = DACLI(settings, connectors_config_path=os.path.join(root, "connectors.yaml"))
-        return agent, root
-
-    def test_shell_connector_registered_when_enabled(self):
-        agent, root = self._agent(True)
-        try:
-            self.assertIsNotNone(agent.registry.resolve("run_shell_command"))
-            names = {d["function"]["name"] for d in agent.registry.get_tool_definitions()}
-            self.assertIn("run_shell_command", names)
-            self.assertIn("fetch_scrollback", names)
-            # the shell tier is scoped by least-privilege (not exempted to admin).
-            self.assertEqual(agent.governor.permissions.scope_for("shell"), Scope.WRITE)
-        finally:
-            shutil.rmtree(root, ignore_errors=True)
-
-    def test_no_shell_tier_when_disabled(self):
-        agent, root = self._agent(False)
-        try:
-            self.assertIsNone(agent.registry.resolve("run_shell_command"))
-            self.assertIsNone(agent._shell_connector)
-        finally:
-            shutil.rmtree(root, ignore_errors=True)
 
 
 if __name__ == "__main__":

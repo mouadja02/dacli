@@ -17,7 +17,7 @@ SCENARIOS = Path(__file__).parent.parent / "scenarios"
 
 class CiScenarioSmokeTest(unittest.TestCase):
     def setUp(self):
-        patcher = mock.patch("dacli.core.agent.fetch_pricing", return_value=None)
+        patcher = mock.patch("dacli.core.host.fetch_pricing", return_value=None)
         patcher.start()
         self.addCleanup(patcher.stop)
 

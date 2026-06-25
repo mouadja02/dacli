@@ -78,13 +78,13 @@ class InitializeHonestyTest(unittest.TestCase):
     """Acceptance: initialize() reports LLM failure; connector failures stay non-fatal."""
 
     def setUp(self):
-        self._pricing = mock.patch("dacli.core.agent.fetch_pricing", return_value=None)
+        self._pricing = mock.patch("dacli.core.host.fetch_pricing", return_value=None)
         self._pricing.start()
         self.addCleanup(self._pricing.stop)
 
     def _agent(self, llm):
-        from dacli.core.agent import DACLI
-        return DACLI(settings=_settings(), llm=llm)
+        from dacli.core.host import DacliHost
+        return DacliHost(settings=_settings(), llm=llm)
 
     def test_llm_failure_returns_false(self):
         agent = self._agent(_FailingLLM())

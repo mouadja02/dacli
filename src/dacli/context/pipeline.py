@@ -3,8 +3,8 @@
 Builds the per-turn collaborators the kernel uses instead of a fixed window: a
 token counter + budget, a selection-policy assembler (with progressive
 disclosure + dynamic prompt), off-context result spill, and budget-pressure
-compaction. Extracted from :class:`core.agent.DACLI` so the agent stays a thin
-wiring object.
+compaction. Extracted from the host (:class:`core.host.DacliHost`) so it stays a
+thin wiring object.
 """
 
 

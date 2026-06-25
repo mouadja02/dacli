@@ -173,7 +173,7 @@ class RenderTest(unittest.TestCase):
 
 class EndToEndTest(unittest.TestCase):
     def setUp(self):
-        self._pricing = mock.patch("dacli.core.agent.fetch_pricing", return_value=None)
+        self._pricing = mock.patch("dacli.core.host.fetch_pricing", return_value=None)
         self._pricing.start()
         self.addCleanup(self._pricing.stop)
 

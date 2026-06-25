@@ -1,6 +1,6 @@
 """Headless, auditable driver for the dacli agent.
 
-Drives :class:`core.agent.DACLI` with no interactive I/O and aggregates a
+Drives :class:`core.host.DacliHost` with no interactive I/O and aggregates a
 machine-readable :class:`HeadlessResult` covering the four assertable
 dimensions: final answer text, tool calls made, governance decisions, and
 token/cost usage. Backs ``dacli run`` and ``dacli replay``.
@@ -151,7 +151,7 @@ async def run_headless(
     fail-safe), ``"approve"``, a list of booleans consumed in order, or a
     callable ``(ApprovalRequest) -> bool`` (a runbook policy envelope).
     """
-    from dacli.core.agent import DACLI
+    from dacli.core.host import DacliHost
     from dacli.core.memory import AgentMemory
     from dacli.connectors.registry import CONNECTORS_CONFIG_PATH
 
@@ -227,7 +227,7 @@ async def run_headless(
             raise _CannedInputExhausted(msg)
         return canned.pop(0)
 
-    agent = DACLI(
+    agent = DacliHost(
         settings=settings,
         memory=memory,
         llm=llm,

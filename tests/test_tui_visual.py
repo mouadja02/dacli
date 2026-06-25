@@ -399,18 +399,28 @@ def test_progress_never_raises_without_total_or_console_quirks():
 
 
 def _sample_dag():
-    from dacli.core.planner import NodeStatus, Subtask, TaskDAG
+    # plan_tree is fully duck-typed (getattr over goal/nodes and per-node
+    # status/description/depends_on/irreversible/breadth_first/items/id), so a
+    # SimpleNamespace stands in for the retired TaskDAG/Subtask types.
+    def node(**kw):
+        kw.setdefault("depends_on", [])
+        kw.setdefault("irreversible", False)
+        kw.setdefault("breadth_first", False)
+        kw.setdefault("items", [])
+        kw.setdefault("status", "pending")
+        return types.SimpleNamespace(**kw)
 
-    dag = TaskDAG("stand up bronze->silver->gold")
-    dag.add(Subtask(id="a", description="create bronze schema",
-                    status=NodeStatus.COMPLETED))
-    dag.add(Subtask(id="b", description="load raw files", depends_on=["a"],
-                    status=NodeStatus.RUNNING))
-    dag.add(Subtask(id="c", description="profile all tables", depends_on=["b"],
-                    breadth_first=True, items=["t1", "t2", "t3"]))
-    dag.add(Subtask(id="d", description="drop legacy schema", depends_on=["b"],
-                    irreversible=True, status=NodeStatus.PAUSED))
-    return dag
+    return types.SimpleNamespace(
+        goal="stand up bronze->silver->gold",
+        nodes=[
+            node(id="a", description="create bronze schema", status="completed"),
+            node(id="b", description="load raw files", depends_on=["a"], status="running"),
+            node(id="c", description="profile all tables", depends_on=["b"],
+                 breadth_first=True, items=["t1", "t2", "t3"]),
+            node(id="d", description="drop legacy schema", depends_on=["b"],
+                 irreversible=True, status="paused"),
+        ],
+    )
 
 
 def test_plan_tree_renders_statuses_dependencies_and_tiers():

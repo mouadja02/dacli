@@ -64,14 +64,6 @@ class CwdPollutionTest(unittest.TestCase):
             self.assertEqual(result.exit_code, 0, result.output)
             self._assert_no_state()
 
-    def test_plan_outside_project_uses_global_not_cwd(self):
-        runner = CliRunner()
-        with runner.isolated_filesystem():
-            result = runner.invoke(cli, ["plan", "show me the orders table"])
-            # The static plan preview is offline; it persists nothing.
-            self.assertNotIn(".dacli", os.listdir("."))
-            self.assertEqual(result.output.count("running outside a project"), 1)
-
     def test_project_dir_resolves_local_state(self):
         with tempfile.TemporaryDirectory(prefix="dacli_proj_") as d:
             (Path(d) / ".git").mkdir()

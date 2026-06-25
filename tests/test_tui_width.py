@@ -1,11 +1,11 @@
 """Width-responsive render regression tests (P06).
 
-The governance preview surfaces — `plan`, `audit`, `catalog`, `schema` — are
-where a skeptical user judges the product, and they are exactly the tables Rich
-mangles into vertical character stacks ("ro/ll/ba/ck") once the sum of minimum
-column widths exceeds the terminal. These tests render every such surface to a
-70- and a 40-column console and assert the headers never char-stack, then check
-that wide output is unchanged.
+The governance preview surfaces — `audit`, `catalog`, `schema` — are where a
+skeptical user judges the product, and they are exactly the tables Rich mangles
+into vertical character stacks ("ro/ll/ba/ck") once the sum of minimum column
+widths exceeds the terminal. These tests render every such surface to a 70- and
+a 40-column console and assert the headers never char-stack, then check that
+wide output is unchanged.
 """
 
 import types
@@ -13,7 +13,6 @@ import types
 import pytest
 from rich.console import Console
 
-from dacli.core.plan_preview import build_plan_preview
 from dacli.scripts.cli import _print_audit
 from dacli.tui import DacliUI
 
@@ -86,11 +85,7 @@ def _audit_ledger():
 
 # Every governance surface, rendered through a UI at a given width.
 def _render(surface: str, ui: DacliUI) -> str:
-    if surface == "plan":
-        ui.plan_panel(build_plan_preview(
-            "create the bronze schema, then load the raw CRM extract, "
-            "then drop the staging table on snowflake"))
-    elif surface == "audit":
+    if surface == "audit":
         _print_audit(None, "sess", target=ui)
     elif surface == "catalog":
         ui.catalog_table([_catalog_entry(), _catalog_entry("db.s.orders")])
@@ -108,7 +103,7 @@ def _render_at(surface: str, width: int) -> str:
     return _render(surface, ui)
 
 
-SURFACES = ["plan", "audit", "catalog", "schema"]
+SURFACES = ["audit", "catalog", "schema"]
 
 
 @pytest.mark.parametrize("surface", SURFACES)
@@ -126,9 +121,7 @@ def test_governance_surface_does_not_char_stack(surface, width):
 def test_wide_output_keeps_full_content(surface):
     out = _render_at(surface, 120)
     assert not _char_stacked(out)
-    if surface == "plan":
-        assert "plan preview" in out and "rollback" in out
-    elif surface == "catalog":
+    if surface == "catalog":
         assert "Connector" in out and "orders" in out
     elif surface == "schema":
         assert "customer_identifier" in out
@@ -141,9 +134,3 @@ def test_narrow_catalog_stacks_keys_and_keeps_object_name():
     # Stacked mode keeps the full identifier (the point of the surface).
     assert "orders" in out
     assert "snowflake" in out
-
-
-def test_plan_legend_names_every_tier():
-    out = _render_at("plan", 120)
-    for tier in ("safe", "write", "risky", "irreversible"):
-        assert tier in out

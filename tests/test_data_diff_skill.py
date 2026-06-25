@@ -220,7 +220,7 @@ class DiffCommandTest(unittest.TestCase):
         runner = CliRunner()
         with (
             runner.isolated_filesystem(),
-            patch("dacli.scripts.cli.DACLI", self._StubAgent),
+            patch("dacli.scripts.cli.DacliHost", self._StubAgent),
             patch.dict("os.environ", {"COLUMNS": "300"}),
         ):
             result = runner.invoke(cli, ["diff", "bigquery", "ds.a", "ds.b"], obj={})

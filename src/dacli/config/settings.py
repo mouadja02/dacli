@@ -97,12 +97,6 @@ class LLMSettings(BaseModel):
     provider: str = "openai"
     model: str = ""
     fallback_model: str | None = None
-    # Model tiering (ℛ). ``cheap_model`` runs classification, planning
-    # drafts, summaries and post-condition judgments; ``strong_model`` runs
-    # ambiguous reasoning, error diagnosis and irreversible-action plans. Both
-    # default to ``model`` so a single-model config behaves exactly as before.
-    cheap_model: str | None = None
-    strong_model: str | None = None
     api_key: str = ""
     base_url: str = ""
     max_tokens: int = Field(
@@ -352,42 +346,6 @@ class TerminalSettings(BaseModel):
     )
 
 
-class OrchestrationSettings(BaseModel):
-    # Orchestration & multi-agent (𝒪 / ℛ) configuration.
-    enabled: bool = Field(
-        default=False,
-        description="Build and use the planner→act→observe→verify orchestrator for multi-step goals. Off by default so a plain startup is lean (no planner/blackboard/lead/orchestrator/model-router/tier-router built); when off, every message runs the single-step kernel loop.",
-    )
-    complexity_gate: int = Field(
-        default=2,
-        ge=1,
-        description="A goal that decomposes into this many or more subtasks goes through the DAG planner; simpler goals run single-step (avoids planner ceremony on trivial work).",
-    )
-    correction_budget: int = Field(
-        default=2,
-        ge=0,
-        description="Bounded, feedback-driven self-correction attempts on a failed post-condition before escalating to a human with the full trail.",
-    )
-    subagents_enabled: bool = Field(
-        default=True,
-        description="Allow the lead to fan breadth-first work out to isolated-context sub-agents. Opt-in per task via the planner's breadth-first detection.",
-    )
-    max_subagents: int = Field(
-        default=6,
-        ge=1,
-        description="Maximum parallel sub-agents the lead spawns for one breadth-first node (caps token blow-up).",
-    )
-    subagent_summary_tokens: int = Field(
-        default=2000,
-        ge=128,
-        description="Token ceiling for the condensed summary a sub-agent returns to the lead (keeps total context bounded).",
-    )
-    require_plan_approval: bool = Field(
-        default=True,
-        description="Present the DAG for human approval before executing (the plan-approve-execute posture from).",
-    )
-
-
 class UISettings(BaseModel):
     # UI/Display configuration
     theme: str = "dark"
@@ -426,7 +384,6 @@ class Settings(BaseModel):
     governance: GovernanceSettings = Field(default_factory=GovernanceSettings)
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     terminal: TerminalSettings = Field(default_factory=TerminalSettings)
-    orchestration: OrchestrationSettings = Field(default_factory=OrchestrationSettings)
     ui: UISettings = Field(default_factory=UISettings)
 
     # Generic config store for manifest-declared connectors (09/A-4). Built-in
