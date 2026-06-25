@@ -27,8 +27,11 @@ from rich.prompt import Confirm
 from dacli.config import CLI_COMMANDS
 from dacli.config.settings import invalidate_config_cache, load_config
 from dacli.core import paths
+from dacli.core.logging_setup import get_logger
 from dacli.prompts.system_prompt import get_default_system_prompt
 from dacli.tui.theme import THEMES
+
+log = get_logger(__name__)
 
 # Exit aliases handled directly by the loop (no panel to render).
 EXIT_COMMANDS = frozenset({"/exit", "/quit"})
@@ -46,6 +49,11 @@ class ChatContext:
     settings: Any
     config_path: str | None
     should_exit: bool = False
+    # Rebuilds the host for the active workspace (M15). ``make_host(settings)``
+    # returns a fresh, workspace-scoped host; the chat session supplies it so a
+    # ``/workspace`` switch can re-resolve extensions/secrets/audit live. None
+    # outside the interactive loop (e.g. a one-shot dispatch in a test).
+    make_host: Callable[[Any], Any] | None = None
 
 
 Handler = Callable[[ChatContext, list[str]], Awaitable[None]]
@@ -349,6 +357,74 @@ async def _new_extension(ctx, args):
 async def _reload(ctx, args):
     result = ctx.agent.ext_host.reload()
     ctx.ui.notice(f"Extensions: {result.report()}", style="success")
+
+
+@command("/workspace")
+async def _workspace(ctx, args):
+    from dacli.core import workspaces
+
+    if not args:
+        cur = workspaces.current() or "default"
+        names = ["default", *workspaces.list_names()]
+        listing = ", ".join(f"{n} (active)" if n == cur else n for n in names)
+        ctx.ui.notice(
+            f"Workspaces: {listing}  ·  switch with /workspace <name>, "
+            "create with /workspace new <name>",
+            style="muted",
+        )
+        return
+    if args[0].lower() == "new":
+        if len(args) < 2:
+            ctx.ui.notice("Usage: /workspace new <name>", style="muted")
+            return
+        try:
+            workspaces.create(args[1])
+        except ValueError as e:
+            ctx.ui.notice(str(e), style="warning")
+            return
+        await _switch_workspace(ctx, args[1])
+        return
+    await _switch_workspace(ctx, args[0])
+
+
+async def _switch_workspace(ctx, name: str) -> None:
+    """Re-resolve extensions/secrets/state for ``name`` and adopt a fresh host —
+    no process restart. The new host is built and initialized before the old one
+    is torn down, so a failed switch leaves the live session untouched."""
+    from dacli.core import paths, workspaces
+
+    if ctx.make_host is None:
+        ctx.ui.notice(
+            "Workspace switching is only available in the chat session.",
+            style="warning",
+        )
+        return
+
+    prev = workspaces.current()
+    old_agent = ctx.agent
+    try:
+        workspaces.select(None if name.lower() == "default" else name)
+        invalidate_config_cache()
+        ctx.settings = load_config(ctx.config_path)
+        new_agent = ctx.make_host(ctx.settings)
+        if not await new_agent.initialize():
+            raise RuntimeError("agent failed to initialize")
+    except Exception as e:
+        paths.set_active_workspace(prev)  # keep the live session consistent
+        ctx.ui.error(f"Could not switch to workspace '{name}': {e}")
+        return
+
+    try:
+        await old_agent.shutdown()
+    except Exception:
+        # The old connections are discarded anyway, but record it so a
+        # shutdown that hangs/raises after a switch is debuggable.
+        log.debug("old agent shutdown failed during workspace switch", exc_info=True)
+
+    ctx.agent = new_agent
+    ctx.memory = new_agent.memory
+    ctx.store = new_agent.store
+    ctx.ui.notice(f"Switched to workspace '{name}'.", style="success")
 
 
 @command("/testmode")

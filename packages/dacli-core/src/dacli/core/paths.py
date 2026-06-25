@@ -18,6 +18,7 @@ resolution (``core.crypto.resolve_base_dir``, ``config.settings.load_config``,
 from __future__ import annotations
 
 import os
+import re
 from importlib import resources
 from pathlib import Path
 
@@ -71,6 +72,74 @@ def user_config_dir() -> Path:
     return base / "dacli"
 
 
+# ---------------------------------------------------------------------------
+# Workspaces (M15)
+#
+# A workspace is the active overlay in place of the global config dir: the
+# default workspace *is* ``user_config_dir()``; a named one lives under
+# ``<user_config_dir>/workspaces/<name>/``. The selection is process-wide so a
+# switch re-resolves extensions/secrets/state through the precedence chains
+# below without a restart. Project ``.dacli/`` still overlays whichever
+# workspace is active (it's the top tier in ``resource_dir`` / ``state_dir``).
+# ---------------------------------------------------------------------------
+
+#: A workspace name is a single path segment — no separators, no traversal.
+_WORKSPACE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+#: Selected workspace, or None for the default (the global config dir).
+_active_workspace: str | None = None
+
+
+def workspaces_dir() -> Path:
+    """Where named workspaces live, under the global config dir."""
+    return user_config_dir() / "workspaces"
+
+
+def active_workspace() -> str | None:
+    """The selected workspace name, or None for the default (global) one."""
+    return _active_workspace
+
+
+def set_active_workspace(name: str | None) -> None:
+    """Select the active workspace process-wide. ``None``, ``""`` or ``default``
+    clears it back to the global default; any other name must be a single safe
+    path segment."""
+    global _active_workspace
+    if name and name.strip().lower() != "default":
+        n = name.strip()
+        if not _WORKSPACE_NAME.match(n):
+            raise ValueError(f"invalid workspace name: {name!r}")
+        _active_workspace = n
+    else:
+        _active_workspace = None
+
+
+def workspace_root() -> Path:
+    """Root of the active workspace's overlay: the global config dir for the
+    default workspace, else ``<user_config_dir>/workspaces/<name>``."""
+    return workspaces_dir() / _active_workspace if _active_workspace else user_config_dir()
+
+
+def list_workspaces() -> list[str]:
+    """Names of the named workspaces on disk (the default isn't listed)."""
+    base = workspaces_dir()
+    if not base.exists():
+        return []
+    return sorted(p.name for p in base.iterdir() if p.is_dir())
+
+
+def session_state_base(configured_state_path: str) -> Path:
+    """Base dir for this session's state/history/secrets/audit.
+
+    The active workspace's root when one is selected (so each workspace is
+    isolated), else the configured ``state_path``'s parent — the legacy/project
+    default, byte-for-byte unchanged when no workspace is active.
+    """
+    if _active_workspace is not None:
+        return workspace_root()
+    return Path(configured_state_path).parent
+
+
 def project_root(start: Path | None = None) -> Path | None:
     """Walk up from ``start`` (default cwd) for a project marker; the dir, or None."""
     cur = (start or Path.cwd()).resolve()
@@ -86,13 +155,14 @@ def project_overlay_dir(root: Path) -> Path:
 
 
 def state_dir() -> Path:
-    """Project-local ``<project_root>/.dacli`` when in a project, else
-    :func:`user_config_dir`. ``DACLI_STATE_PATH`` (its parent) overrides both."""
+    """Project-local ``<project_root>/.dacli`` when in a project, else the active
+    :func:`workspace_root` (the global dir for the default workspace).
+    ``DACLI_STATE_PATH`` (its parent) overrides both."""
     override = os.environ.get(STATE_PATH_ENV)
     if override:
         return Path(override).parent
     root = project_root()
-    return project_overlay_dir(root) if root is not None else user_config_dir()
+    return project_overlay_dir(root) if root is not None else workspace_root()
 
 
 def bundled_seeds_dir(kind: str) -> Path:
@@ -142,7 +212,7 @@ def resource_dir(
 
     root = project_root()
     project = project_overlay_dir(root) / kind if root is not None else None
-    glob = user_config_dir() / kind
+    glob = workspace_root() / kind
     for cand in (project, glob, bundled_seeds_dir(kind)):
         if cand is not None and cand.exists():
             return cand
