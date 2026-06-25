@@ -97,7 +97,7 @@ class HeadlessResult:
 def _write_minimal_connectors_config(settings: Any) -> str:
     """Write a temp connectors.yaml that disables every external connector.
 
-    Built-ins (system/skills/sandbox/shell) are injected by the agent and stay
+    Built-ins (system/sandbox/shell) are injected by the agent and stay
     available; this only forces the manifest-discovered platform connectors off
     so a headless run makes no external network calls.
     """

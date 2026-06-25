@@ -46,11 +46,11 @@ def build_governor(
     except Exception:
         default_scope = Scope.READ_ONLY
     permissions = PermissionRegistry.from_policy_config(config, default_scope=default_scope)
-    # Built-in harness connectors (system/skills/sandbox) are not external
-    # platforms — least-privilege scoping targets platform blast radius, and
-    # their sub-actions (e.g. each governed sdk.run inside the sandbox) are
-    # gated independently. Exempt them so the harness itself isn't crippled.
-    for _builtin in ("system", "skills", "sandbox"):
+    # Built-in harness connectors (system/sandbox) are not external platforms —
+    # least-privilege scoping targets platform blast radius, and their
+    # sub-actions (e.g. each governed sdk.run inside the sandbox) are gated
+    # independently. Exempt them so the harness itself isn't crippled.
+    for _builtin in ("system", "sandbox"):
         permissions.grant(_builtin, Scope.ADMIN)
     # The shell tier, by contrast, IS scoped by least privilege — that is the
     # whole point of a governed terminal. Its ceiling is the configured

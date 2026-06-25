@@ -42,9 +42,6 @@ from dacli.ai.llm import LLMClient
 from dacli.sandbox.connector import SandboxConnector
 from dacli.sandbox.factory import build_sandbox_runtime
 from dacli.sandbox.terminal import TerminalSession
-from dacli.skills.connector import SkillConnector
-from dacli.skills.registry import SkillRegistry
-from dacli.skills.spec import SkillContext
 
 log = get_logger(__name__)
 
@@ -158,8 +155,6 @@ class DacliHost:
             on_user_input_needed=on_user_input_needed,
         )
         self._system_connector.bind_llm(self.llm)
-        self.skills = SkillRegistry()
-        self._skill_connector = SkillConnector(self.skills)
         _sandbox_on = getattr(getattr(settings, "sandbox", None), "enabled", True)
         self._sandbox_connector = SandboxConnector(settings) if _sandbox_on else None
 
@@ -189,7 +184,7 @@ class DacliHost:
                 self._terminal_session, self._scrollback_store, _term
             )
 
-        _builtins = [self._system_connector, self._skill_connector]
+        _builtins: list = [self._system_connector]
         if self._sandbox_connector is not None:
             _builtins.append(self._sandbox_connector)
         self.registry = ConnectorRegistry(
@@ -232,11 +227,6 @@ class DacliHost:
             verifier=self.verifier,
             governor=self.governor,
             test_mode=_test_mode,
-        )
-        self._skill_connector.bind_context_provider(
-            lambda: SkillContext(
-                memory=self.memory, registry=self._combined, dispatcher=self.dispatcher
-            )
         )
 
         self._sandbox_backend = None

@@ -8,8 +8,8 @@ caller opts in (``apply=True``), and even then it runs through the same
 classify → approve → verify → rollback gate as any action.
 
 Assertions persist under P01's state dir (``<state_dir>/assertions.json``). The
-metric SQL reuses the bounded, identifier-validated style of the ``data_diff``
-skill; the proposed fix reuses :class:`~dacli.core.why_failed.ProposedFix` and
+metric SQL reuses the bounded, identifier-validated style of ``core.datadiff``;
+the proposed fix reuses :class:`~dacli.core.why_failed.ProposedFix` and
 its governed apply path, so quality remediation is not a second governance lane.
 
 Fail-soft on read: an unreachable connector or an unparseable count degrades to
@@ -28,7 +28,7 @@ from dacli.core.headless import EXIT_AGENT_ERROR, EXIT_GOVERNANCE_BLOCK, EXIT_OK
 from dacli.core.logging_setup import get_logger
 from dacli.core.paths import state_dir
 from dacli.core.why_failed import ProposedFix, _apply_fix
-from dacli.skills.data_diff.skill import _IDENT_RE
+from dacli.core.datadiff import _IDENT_RE
 
 log = get_logger(__name__)
 

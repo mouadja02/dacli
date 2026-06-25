@@ -422,9 +422,10 @@ def diff_cmd(connector, table_a, table_b, config, sample):
 
     Row-count delta, per-column null-rate delta over a bounded sample, and a
     sampled value comparison — all via the connector's governed query op.
-    Never mutates anything (promotion is the agent-side `data_diff` skill with
-    mode=promote, which is approval-gated).
+    Never mutates anything.
     """
+    from dacli.core.datadiff import run_data_diff
+
     settings = load_config(config)
     memory = AgentMemory(
         state_path=settings.agent.state_path,
@@ -434,13 +435,9 @@ def diff_cmd(connector, table_a, table_b, config, sample):
     # Build the agent (no initialize() -> no network) just for its governed
     # dispatcher — the same pattern as the `context` command.
     agent = DacliHost(settings=settings, memory=memory)
-    result = asyncio.run(agent.dispatcher.execute("data_diff", {
-        "connector": connector,
-        "table_a": table_a,
-        "table_b": table_b,
-        "sample_size": sample,
-        "mode": "diff",
-    }))
+    result = asyncio.run(run_data_diff(
+        agent.dispatcher, agent._combined, connector, table_a, table_b, sample,
+    ))
     if not result.success:
         ui.error(f"diff failed: {result.error}")
         raise SystemExit(1)
