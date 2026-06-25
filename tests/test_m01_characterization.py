@@ -19,7 +19,6 @@ import base64
 import json
 import os
 import shutil
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -263,115 +262,6 @@ class InventorySnapshots(unittest.TestCase):
             return "<value>"
 
         _assert_or_record("doctor_shape", shape(diag))
-
-
-# ---------------------------------------------------------------------------
-# generated-connector lifecycle
-# ---------------------------------------------------------------------------
-# A minimal-but-valid connector the ScriptedLLM "generates" — one SAFE op with a
-# post-condition, instantiable from Settings (passes subprocess validation).
-_GEN_CONNECTOR = '''\
-from dacli.connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
-from dacli.core.verify import result_succeeded
-
-
-class PingConnector(Connector):
-    name = "m01_demo"
-
-    def operations(self):
-        return [OperationSpec(
-            name="m01_ping", description="Return pong.",
-            parameters={"type": "object", "properties": {}, "required": []},
-            capability="m01_demo.ping", risk=Risk.SAFE,
-            postconditions=[result_succeeded()],
-        )]
-
-    async def invoke(self, op, args):
-        if op == "m01_ping":
-            return ToolResult(tool_name=self.name, status=ToolStatus.SUCCESS, data={"pong": True})
-        return ToolResult(tool_name=op, status=ToolStatus.ERROR, error="unknown op")
-
-    async def health(self):
-        return ToolResult(tool_name=self.name, status=ToolStatus.SUCCESS, data={"ok": True})
-
-    async def connect(self):
-        self.is_connected = True
-        return True
-'''
-
-_GEN_MANIFEST = """\
-id: m01_demo
-name: M01 Demo
-description: Throwaway connector for the M01 generated-connector snapshot.
-icon: "P"
-class: dacli.connectors.m01_demo.connector.PingConnector
-required_config: []
-enabled: false
-"""
-
-_GEN_RESPONSE = (
-    "### FILE: manifest.yaml\n" + _GEN_MANIFEST +
-    "\n### FILE: connector.py\n" + _GEN_CONNECTOR +
-    "\n### FILE: __init__.py\n"
-)
-
-
-class GeneratedConnectorLifecycle(unittest.TestCase):
-
-    def test_generate_import_rediscover_use(self):
-        from dacli.config.settings import Settings
-        from dacli.core import connector_generator as gen_mod
-        from dacli.core.connector_generator import generate_connector_files
-        from dacli.core.connector_workflow import import_connector
-
-        name = "m01_demo"
-        connectors_root = gen_mod._CONNECTORS_DIR
-        target = connectors_root / name
-        cfg_dir = tempfile.mkdtemp(prefix="dacli_m01_gen_")
-        cfg_path = os.path.join(cfg_dir, "connectors.yaml")
-
-        async def run():
-            # generate (LLM-scripted) → write into the package → validate
-            gen = await generate_connector_files(
-                name, "ping/pong demo", Settings(), ScriptedLLM([{"text": _GEN_RESPONSE}]),
-                config_path=cfg_path,
-            )
-            # import: re-validate and enable in the (temp) connectors config
-            imported_ok, _msg = await import_connector(
-                name=name, config_path=cfg_path, settings=Settings(),
-            )
-
-            # restart + use: a fresh registry discovers it from its manifest, then
-            # we invoke its op through the dispatcher (the governed live path).
-            manifest_only = tempfile.mkdtemp(prefix="dacli_m01_disc_")
-            (Path(manifest_only) / name).mkdir()
-            (Path(manifest_only) / name / "manifest.yaml").write_text(
-                _GEN_MANIFEST.replace("enabled: false", "enabled: true"), encoding="utf-8")
-            registry = ConnectorRegistry(
-                settings=Settings(), connectors_dir=manifest_only, config_path=cfg_path)
-            discovered = name in registry.get_catalog()
-            dispatcher = Dispatcher(registry, memory=FakeMemory())
-            result = await dispatcher.execute("m01_ping", {})
-            shutil.rmtree(manifest_only, ignore_errors=True)
-
-            return {
-                "generated_files": sorted(["manifest.yaml", "connector.py", "__init__.py"]),
-                "validated": gen.validated,
-                "validation_message": gen.message,
-                "imported": imported_ok,
-                "discovered_after_restart": discovered,
-                "use_result": _result_view(result),
-            }
-
-        try:
-            actual = asyncio.run(run())
-        finally:
-            shutil.rmtree(target, ignore_errors=True)
-            shutil.rmtree(cfg_dir, ignore_errors=True)
-            sys.modules.pop(f"dacli.connectors.{name}.connector", None)
-            sys.modules.pop(f"dacli.connectors.{name}", None)
-
-        _assert_or_record("generated_connector_flow", actual)
 
 
 if __name__ == "__main__":

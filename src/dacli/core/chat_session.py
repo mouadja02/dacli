@@ -22,16 +22,12 @@ from dacli.config.settings import (
     is_llm_configured,
     load_config,
 )
-from dacli.connectors.registry import (
-    CONNECTORS_CONFIG_PATH,
-    ConnectorRegistry,
-    save_connectors_config,
-)
+from dacli.connectors.registry import CONNECTORS_CONFIG_PATH
 from dacli.core import __author__, __version__, paths
 from dacli.core.host import DacliHost
 from dacli.core.logging_setup import get_logger
 from dacli.core.memory import AgentMemory
-from dacli.core.setup_wizard import QuickSetup, SetupWizard, collect_llm_credentials
+from dacli.core.onboarding import collect_llm_credentials, run_first_connection
 from dacli.core.store import DacliStore
 import dacli.tui.reports as reports
 import dacli.tui.slash as slash
@@ -91,38 +87,12 @@ async def run_chat(
             con, settings, store_base_dir=str(Path(settings.agent.state_path).parent)
         )
 
-    # Check if setup wizard should run
-    registry = ConnectorRegistry(settings, config_path=CONNECTORS_CONFIG_PATH)
-
-    if force_setup or not registry.setup_completed:
-        con.print()
-        if not registry.setup_completed:
-            chat_ui.notice("First-time setup detected.", style="warning")
-            run_wizard = Confirm.ask(
-                "Would you like to configure which connectors to use?",
-                default=True,
-                console=con,
-            )
-        else:
-            run_wizard = True
-
-        if run_wizard:
-            wizard = SetupWizard(settings, registry, CONNECTORS_CONFIG_PATH)
-            connectors_config = await wizard.run()
-            save_connectors_config(connectors_config, CONNECTORS_CONFIG_PATH)
-        else:
-            chat_ui.status("Using default configuration (all connectors enabled)")
-            connectors_config = QuickSetup.get_profile("full", registry)
-            if connectors_config:
-                save_connectors_config(connectors_config, CONNECTORS_CONFIG_PATH)
-
-        # Reload settings so any secrets the wizard saved to dacli.json apply.
-        # The cache can hold the same mtime after a sub-second write, so drop it.
-        invalidate_config_cache()
-        settings = load_config(config_path)
-
     # Persistent project store (.dacli/dacli.json): startups, config snapshot, usage/cost
     store = DacliStore(base_dir=str(Path(settings.agent.state_path).parent))
+    # Onboarding is conversational now (M12): no connector wizard. Offer a first
+    # connection once, after the host is built — it needs the live extension
+    # registry and secret store. ``--setup`` forces the offer on any run.
+    want_onboarding = force_setup or store.is_first_run()
 
     # Initialize memory
     memory = AgentMemory(
@@ -200,6 +170,14 @@ async def run_chat(
     store.record_startup()
     store.snapshot_config(settings)
     store.save()
+
+    # Conversational first-connection onboarding (M12). Skippable; declining
+    # leaves an empty ~/.dacli untouched.
+    if want_onboarding:
+        con.print()
+        run_first_connection(chat_ui, con, agent._ext_registry, agent.secrets)
+        invalidate_config_cache()
+        settings = load_config(config_path)
 
     con.print()
     resolved_config = paths.resolve_config_path(config_path)

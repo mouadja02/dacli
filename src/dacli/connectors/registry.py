@@ -411,45 +411,11 @@ class ConnectorRegistry:
         """Describe a connector's config fields (name, type, required, default,
         is_secret, description) for the ``/connect`` flow.
 
-        Two sources, in order:
-
-        1. The Pydantic settings section whose name matches the connector id
-           (the convention every built-in connector follows).
-        2. A ``config_fields`` list in the connector's ``manifest.yaml`` — the
-           path for **generated** connectors, which have no ``Settings`` section.
+        A connector declares its fields in ``manifest.yaml`` (``config_fields``),
+        read via :meth:`_config_fields_from_manifest`. The old per-connector
+        ``Settings`` section is gone (M12) — there's no typed branch anymore.
         """
-        section = getattr(self._settings, connector_id, None)
-        if section is None:
-            return self._config_fields_from_manifest(connector_id)
-        fields: list[ConfigField] = []
-        model_fields = getattr(type(section), "model_fields", None) or {}
-        for fname, finfo in model_fields.items():
-            is_required = (
-                finfo.is_required() if hasattr(finfo, "is_required") else False
-            )
-            default_val = finfo.default if hasattr(finfo, "default") else None
-            if (
-                hasattr(default_val, "default_factory")
-                and default_val.default_factory is not None
-            ) or callable(default_val):
-                default_val = ""
-            annotation = finfo.annotation if hasattr(finfo, "annotation") else str
-            type_name = getattr(annotation, "__name__", str(annotation))
-            if type_name.startswith("Optional["):
-                type_name = "str"
-            is_secret = fname.lower() in _SECRET_FIELD_NAMES
-            desc = finfo.description if hasattr(finfo, "description") else ""
-            fields.append(
-                ConfigField(
-                    name=fname,
-                    field_type=type_name,
-                    required=is_required,
-                    default=default_val if not is_secret else "",
-                    is_secret=is_secret,
-                    description=desc or "",
-                )
-            )
-        return fields
+        return self._config_fields_from_manifest(connector_id)
 
     def _config_fields_from_manifest(self, connector_id: str) -> list[ConfigField]:
         """Build config fields from a manifest's ``config_fields`` list.

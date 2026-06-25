@@ -52,17 +52,14 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-# Heavy connector SDKs. Each connector lazy-imports its SDK inside connect(), so a
-# missing extra yields a clean "install dacli[<name>]" message at connect time —
-# never an import crash at registry build (P11 / 06.5).
+# Heavy SDKs the seeds lazy-import inside connect(), so a missing extra yields a
+# clean "install dacli[<name>]" message at connect time — never an import crash.
 #
-# NOTE on which connectors are NOT here: s3, gcs, dynamodb, dbt, bigquery,
-# databricks, mysql, postgres, mongodb are CLI-first (they shell out to `aws`,
-# `gcloud`, `bq`, `dbt`, `mysql`, ... ) and github speaks the REST API over httpx
-# (base). None of them need a Python SDK, so there is intentionally no aws/github
-# extra — boto3 and PyGithub were declared-but-never-imported and were dropped.
+# Only the snowflake seed needs a Python SDK. The github seed speaks the REST API
+# over httpx (base) and the shell seed shells out — neither needs an extra. The
+# old connector fleet (s3/gcs/bigquery/pinecone/mcp_bridge/…) and its extras went
+# with M11; regenerate any of them on demand as an extension.
 snowflake = ["snowflake-connector-python>=3.5,<5"]   # .venv has 4.x; <4 would exclude it
-pinecone  = ["pinecone>=4,<10"]                       # .venv has 9.x; package renamed from pinecone-client
 # NOTE: there is intentionally no `google` extra. The Gemini LLM provider was
 # removed (P02, Option B): it never supported tool calling — which every real
 # agent turn requires — and the declared legacy SDK (`google-generativeai`)
@@ -78,16 +75,13 @@ pty       = [
 # only optional layer and is lazy-imported, so a default install never loads it
 # — /transcript prints "install dacli[tui]" when it's missing.
 tui       = ["textual>=0.50,<2"]
-# Opt-in MCP *client* bridge (P11/F-7). Lazy-imported inside the mcp_bridge
-# connector's connect(); a default install never imports (or speaks) MCP.
-mcp       = ["mcp>=1,<2"]
 # Store the Fernet key in the OS keyring instead of the .key file (P09). Selected
 # with DACLI_KEY_BACKEND=keyring; lazy-imported in core.crypto, so a default
 # install never imports it.
 keyring   = ["keyring>=24,<26"]
 dev       = ["pytest>=8,<10", "ruff>=0.15,<0.16", "vulture>=2,<3"]
-# Convenience aggregate: every Python-SDK connector at once.
-all       = ["dacli[snowflake,pinecone]"]
+# Convenience aggregate: every Python-SDK seed at once.
+all       = ["dacli[snowflake]"]
 
 [project.urls]
 Homepage = "https://github.com/mouadja02/dacli"

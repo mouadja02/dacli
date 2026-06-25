@@ -1,9 +1,9 @@
-"""``/connect <extension>`` on the new path (M07).
+"""``/connect <extension>`` — collect an extension's credentials (M07).
 
 Reads an extension's ``config_field`` declarations off the live registry, prompts
 for each (secrets entered hidden), and writes them to a :class:`SecretStore` —
-encrypted where the field is a secret. The connector flow (``core/connect_flow.py``)
-stays as is until the seeds move over (M08); this is its register(api) counterpart.
+encrypted where the field is a secret. This is the one connect path now; the old
+connector flow went with the fleet (M11/M12).
 
 :func:`connect_extension` is the testable core (prompting injected); the console
 driver builds a rich prompter and the extension picker around it.

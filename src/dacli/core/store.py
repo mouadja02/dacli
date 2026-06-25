@@ -110,6 +110,11 @@ class DacliStore:
             # it so a lost usage/secret write isn't completely invisible.
             log.debug("store save failed (%s)", self.path, exc_info=True)
 
+    def is_first_run(self) -> bool:
+        """True before the first :meth:`record_startup` ever lands — the signal
+        the chat loop uses to offer onboarding once."""
+        return not self._data.get("firstStartTime")
+
     # ------------------------------------------------------------------
     # mutations
     # ------------------------------------------------------------------

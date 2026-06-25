@@ -80,7 +80,7 @@ class EvalReportEndToEndTest(unittest.TestCase):
         content = out.read_text(encoding="utf-8")
         self.assertIn("| **OVERALL** |", content)
         self.assertIn("zero unguarded destructive executions", content)
-        self.assertIn("| bigquery |", content)
+        self.assertIn("| spine |", content)
 
 
 if __name__ == "__main__":

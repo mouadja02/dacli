@@ -559,6 +559,61 @@ class ReloadResult:
         return "; ".join(parts) or "no extensions"
 
 
+# ---------------------------------------------------------------------------
+# Legacy manifest.yaml bridge (M11 — temporary, one release)
+#
+# The old fleet was deleted; generated connectors are register(api) extensions
+# now. But a user may still have a pre-pivot connector dir (manifest.yaml +
+# connector.py) under ~/.dacli. Load it for one more release so nobody is
+# stranded, instantiating the Connector by file path and exposing its operations
+# as extension tools — with a deprecation warning telling them to regenerate it.
+# ---------------------------------------------------------------------------
+_LEGACY_NOTICE = (
+    "manifest.yaml connector '{name}' is deprecated and will stop loading next "
+    "release — regenerate it as a register(api) extension (/new-extension)."
+)
+
+
+def _legacy_api_for_manifest(
+    conn_dir: Path,
+    manifest: dict[str, Any],
+    *,
+    settings: Any,
+    config_provider: Callable[[str], dict] | None,
+    session_log: SessionLog | None,
+) -> ExtensionAPI:
+    """Adapt one legacy ``manifest.yaml`` connector into an :class:`ExtensionAPI`.
+
+    Imports ``connector.py`` from the dir by path (the old dotted
+    ``dacli.connectors.<name>`` package is gone), instantiates the class named in
+    the manifest, and registers each operation as an extension tool delegating to
+    ``connector.invoke``. Raises on a bad manifest/import so the host records it.
+    """
+    name = manifest.get("id") or conn_dir.name
+    class_path = manifest.get("class") or ""
+    class_name = class_path.rpartition(".")[2]
+    if not class_name:
+        raise ValueError("manifest missing 'class'")
+    init_path = conn_dir / "connector.py"
+    module = _import_extension(name, init_path)
+    cls = getattr(module, class_name, None)
+    if cls is None:
+        raise ImportError(f"{class_name} not found in {init_path}")
+    connector = cls(settings)
+
+    api = ExtensionAPI(name, config_provider=config_provider, session_log=session_log)
+
+    def _make_handler(op_name: str) -> Callable:
+        async def handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+            return await connector.invoke(op_name, dict(args or {}))
+
+        return handler
+
+    for spec in connector.operations():
+        api.tools[spec.name] = RegisteredTool(name, spec, _make_handler(spec.name))
+    return api
+
+
 class ExtensionHost:
     """Owns the live :class:`ExtensionRegistry` and reloads it in place.
 
@@ -574,9 +629,12 @@ class ExtensionHost:
         extensions_dir: str | Path | None = None,
         *,
         config_provider: Callable[[str], dict] | None = None,
+        settings: Any = None,
     ):
         self._dir = Path(extensions_dir) if extensions_dir else None
         self._config_provider = config_provider
+        # Needed only to instantiate a legacy manifest.yaml connector (temp, M11).
+        self._settings = settings
         self.log = SessionLog()
         self.registry = ExtensionRegistry()
         self._good: dict[str, ExtensionAPI] = {}
@@ -659,7 +717,35 @@ class ExtensionHost:
             registry._merge(api)
         for name, why in self._failed.items():
             registry.record_failure(name, why)
+        self._merge_legacy_manifests(registry)
         self.registry = registry
+
+    def _merge_legacy_manifests(self, registry: ExtensionRegistry) -> None:
+        """Fold any pre-pivot ``manifest.yaml`` connector in the base dir into the
+        registry (temporary, M11). A register(api) extension owns its name over a
+        legacy connector of the same name; a broken legacy dir is recorded, not
+        fatal."""
+        import yaml
+
+        base = self._base()
+        if not base.exists():
+            return
+        for manifest_path in sorted(base.glob("*/manifest.yaml")):
+            conn_dir = manifest_path.parent
+            name = conn_dir.name
+            if name in self._good:
+                continue  # a real extension already owns this name
+            try:
+                manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+                api = _legacy_api_for_manifest(
+                    conn_dir, manifest, settings=self._settings,
+                    config_provider=self._config_provider, session_log=self.log,
+                )
+            except Exception as exc:
+                registry.record_failure(name, f"legacy manifest load error: {exc}")
+                continue
+            registry._merge(api)
+            log.warning(_LEGACY_NOTICE.format(name=api.name))
 
     def _emit(self, event: str, reason: str) -> None:
         for name, handler in self.registry.handlers_for(event):

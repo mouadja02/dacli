@@ -26,13 +26,7 @@ from rich.prompt import Confirm
 
 from dacli.config import CLI_COMMANDS
 from dacli.config.settings import invalidate_config_cache, load_config
-from dacli.connectors.registry import (
-    CONNECTORS_CONFIG_PATH,
-    ConnectorRegistry,
-    save_connectors_config,
-)
 from dacli.core import paths
-from dacli.core.setup_wizard import SetupWizard
 from dacli.prompts.system_prompt import get_default_system_prompt
 from dacli.tui.theme import THEMES
 
@@ -314,31 +308,22 @@ async def _tools(ctx, args):
 
 @command("/setup")
 async def _setup(ctx, args):
-    ctx.ui.status("Running setup wizard…")
-    setup_registry = ConnectorRegistry(ctx.settings, config_path=CONNECTORS_CONFIG_PATH)
-    wizard = SetupWizard(ctx.settings, setup_registry, CONNECTORS_CONFIG_PATH)
-    connectors_config = await wizard.run()
-    save_connectors_config(connectors_config, CONNECTORS_CONFIG_PATH)
-    # Re-snapshot the (possibly updated) config into dacli.json.
+    # Onboarding is conversational now (M12): no connector wizard. Offer a first
+    # connection through the same /connect path.
+    from dacli.core.onboarding import run_first_connection
+
+    run_first_connection(ctx.ui, ctx.console, ctx.agent._ext_registry, ctx.agent.secrets)
     invalidate_config_cache()
-    ctx.store.snapshot_config(load_config(ctx.config_path))
-    ctx.store.save()
-    ctx.ui.notice("Connectors reconfigured. Restart to apply.", style="success")
+    ctx.settings = load_config(ctx.config_path)
 
 
 @command("/connect")
 async def _connect(ctx, args):
-    from dacli.core.connect_flow import run_connect_flow
+    from dacli.core.connect_extension import run_connect_extension_flow
 
-    target_id = args[0] if args else None
-    connect_registry = ConnectorRegistry(ctx.settings, config_path=CONNECTORS_CONFIG_PATH)
-    ok, msg = await run_connect_flow(
-        ctx.console,
-        connect_registry,
-        ctx.settings,
-        ctx.store,
-        connector_id=target_id,
-        config_path=CONNECTORS_CONFIG_PATH,
+    target = args[0] if args else None
+    ok, msg = run_connect_extension_flow(
+        ctx.console, ctx.agent._ext_registry, ctx.agent.secrets, extension=target
     )
     ctx.ui.notice(msg, style="success" if ok else "warning")
     if ok:
@@ -347,25 +332,23 @@ async def _connect(ctx, args):
         ctx.store.snapshot_config(ctx.settings)
         ctx.store.save()
         ctx.ui.notice(
-            "Restart dacli for the new credentials to take effect in this session.",
+            "Run /reload (or restart) for the new credentials to take effect.",
             style="muted",
         )
 
 
-@command("/new-connector")
-async def _new_connector(ctx, args):
-    from dacli.core.connector_generator import run_new_connector_flow
+@command("/new-extension")
+async def _new_extension(ctx, args):
+    from dacli.core.generate import run_new_extension_flow
 
-    await run_new_connector_flow(
-        console=ctx.console,
-        settings=ctx.settings,
-        llm=ctx.agent.llm,
-        registry=ctx.agent.registry,
-        store=ctx.store,
-        config_path=CONNECTORS_CONFIG_PATH,
-    )
-    invalidate_config_cache()
-    ctx.settings = load_config(ctx.config_path)
+    await run_new_extension_flow(ctx.console, ctx.agent.llm, ctx.agent.ext_host)
+    ctx.ui.notice("Tools refreshed.", style="success")
+
+
+@command("/reload")
+async def _reload(ctx, args):
+    result = ctx.agent.ext_host.reload()
+    ctx.ui.notice(f"Extensions: {result.report()}", style="success")
 
 
 @command("/testmode")
@@ -382,42 +365,6 @@ async def _testmode(ctx, args):
         )
     else:
         ctx.ui.notice("Test mode OFF — connector calls run normally.", style="warning")
-
-
-@command("/import-connector")
-async def _import_connector(ctx, args):
-    from dacli.core.connector_workflow import import_connector
-
-    name = args[0] if args else None
-    ok, msg = await import_connector(
-        name=name,
-        console=ctx.console,
-        config_path=CONNECTORS_CONFIG_PATH,
-        settings=ctx.settings,
-    )
-    ctx.ui.notice(msg, style="success" if ok else "warning")
-    if ok:
-        invalidate_config_cache()
-        ctx.settings = load_config(ctx.config_path)
-
-
-@command("/push-connector")
-async def _push_connector(ctx, args):
-    from dacli.core.connector_workflow import push_connector
-
-    name = args[0] if args else None
-    ok, msg = await push_connector(name=name, console=ctx.console)
-    ctx.ui.notice(msg, style="success" if ok else "warning")
-
-
-@command("/debug-connector")
-async def _debug_connector(ctx, args):
-    from dacli.core.connector_workflow import debug_connector
-
-    name = args[0] if args else None
-    await debug_connector(
-        name=name, console=ctx.console, settings=ctx.settings, llm=ctx.agent.llm
-    )
 
 
 def _init_dacli_md(ctx) -> None:

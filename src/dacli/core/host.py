@@ -186,7 +186,9 @@ class DacliHost:
 
         # Auto-discover extensions (seeds + ~/.dacli/extensions). Each gets its
         # config decrypted on demand through the secret store.
-        self.ext_host = ExtensionHost(config_provider=self.secrets.config)
+        self.ext_host = ExtensionHost(
+            config_provider=self.secrets.config, settings=settings
+        )
         self.ext_host.load()
         self._ext_registry = self.ext_host.registry
         self._combined = _HostRegistry(
