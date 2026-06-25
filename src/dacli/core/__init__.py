@@ -13,22 +13,22 @@ from dacli import __version__
 __author__ = "mouadja02"
 
 __all__ = [
-    "DACLI",
     "AgentMemory",
+    "DacliHost",
     "Settings",
     "__version__",
 ]
 
 
-# Lazy attribute access (PEP 562). ``core.agent`` pulls in the connectors, which
-# now import ``core.verify``. Eagerly importing the agent here would
-# make ``import core.verify`` re-enter this module before the agent is defined —
-# a circular import. Exposing the public names lazily keeps ``from core import
-# DACLI`` working while letting submodules import ``core.*`` freely.
+# Lazy attribute access (PEP 562). ``core.host`` pulls in the connectors, which
+# import ``core.verify``. Eagerly importing the host here would make
+# ``import core.verify`` re-enter this module before the host is defined — a
+# circular import. Exposing the public names lazily keeps ``from core import
+# DacliHost`` working while letting submodules import ``core.*`` freely.
 def __getattr__(name):
-    if name == "DACLI":
-        from dacli.core.agent import DACLI
-        return DACLI
+    if name == "DacliHost":
+        from dacli.core.host import DacliHost
+        return DacliHost
     if name == "AgentMemory":
         from dacli.core.memory import AgentMemory
         return AgentMemory

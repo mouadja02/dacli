@@ -8,7 +8,7 @@
 
 [![CI](https://github.com/mouadja02/dacli/actions/workflows/ci.yml/badge.svg)](https://github.com/mouadja02/dacli/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-861-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-807-brightgreen.svg)](#testing)
 [![Reliability](https://img.shields.io/badge/reliability-pass%5Ek-orange.svg)](docs/EVALUATION.md)
 [![Architecture](https://img.shields.io/badge/architecture-six--component%20harness-8A2BE2.svg)](docs/ARCHITECTURE.md)
 
@@ -83,7 +83,7 @@ zero-copy clones, `dbt test`, row counts), not the model's own say-so.
 
 | | |
 |---|---|
-| 🧠 **Data ops from chat** | Describe the goal; dacli plans a DAG, routes each step, acts, observes, and verifies until the platform confirms the result. |
+| 🧠 **Data ops from chat** | Describe the goal; dacli acts through governed tools, observes the result, and verifies it against the platform before treating it as done. |
 | 🔌 **14 platform connectors** | Each platform is a self-describing plugin discovered from a `manifest.yaml`. Adding one means adding a connector folder, not editing the agent. |
 | 🛡️ **Governance on every action** | A blast-radius classifier tiers each action `safe → write → risky → irreversible`, then a policy engine gates it: auto, verify, confirm, or dry-run + verified-rollback + approval. |
 | ✅ **Verified results** | Every operation declares **environment-anchored post-conditions**; a result is "done" only when the platform confirms it (row counts, `bq show`, statement state, `dbt` artifacts). |
@@ -164,10 +164,10 @@ pip install dacli
 pipx install dacli
 dacli                                  # bootstraps your LLM key (encrypted, no .env needed)
 > ask it something about your data
-dacli plan "drop table prod.users"     # see the guardrails — zero risk, no creds
+dacli diff bigquery ds.a ds.b          # read-only data diff — zero risk, no creds
 ```
 
-`plan` (and `eval`, `diff`) run fully offline: no API key, no network, no credentials. They're the
+`eval` and `diff` run fully offline: no API key, no network, no credentials. They're the
 zero-risk way to see what dacli does before you wire up a single connector.
 
 ### From source
@@ -311,7 +311,6 @@ governed plan offline (`dacli replay examples/warehouse-snowflake/scenario.json`
 | Command | Description |
 |---|---|
 | `dacli` · `dacli chat` | Start the interactive chat (default). |
-| `dacli plan "<goal>"` | Preview the decomposed plan + per-step blast radius, policy decision and rollback primitive — **without executing** (no LLM, no network). |
 | `dacli diff <connector> <a> <b> [--sample N]` | Read-only data diff: row-count delta, per-column null rates over a bounded sample, sampled value comparison. The agent-side `data_diff` skill adds an approval-gated `mode=promote`. |
 | `dacli setup [--profile <name>]` | Connector setup wizard. Profiles: `full`, `none`, `<connector>_only`. |
 | `dacli validate` | Live-test every enabled connector's credentials. |
@@ -372,7 +371,7 @@ s3                     3    1.00    1.00   1.00   0.00   0.00   0.00        0   
 shell                  7    1.00    1.00   1.00   0.00   0.00   0.29        0       0     19.5
 spine                  5    1.00    1.00   1.00   0.00   0.20   0.20        0       0      1.0
 ...
-OVERALL               34    1.00    1.00   1.00   0.00   0.03   0.09        0       0     11.0
+OVERALL               32    1.00    1.00   1.00   0.00   0.03   0.09        0       0     11.0
 ----------------------------------------------------------------------------------------------
 ✓ zero unguarded destructive executions.
 ```

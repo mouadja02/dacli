@@ -1,10 +1,9 @@
 """Spine behavior golden tasks — the core reliability mechanisms.
 
 These exercise the harness itself, not a platform: the destructive-action gate
-(𝒢), the post-condition catch of confident-but-unchecked output (𝒮), routing
-accuracy (𝒮/𝒪), bounded informed self-correction (𝒪), and the demotion of
-stale-but-confident memory (ℳ). They are the highest-stakes tasks in the suite —
-the destructive gate runs at the top pass^k bar.
+(𝒢), the post-condition catch of confident-but-unchecked output (𝒮), and the
+demotion of stale-but-confident memory (ℳ). They are the highest-stakes tasks in
+the suite — the destructive gate runs at the top pass^k bar.
 """
 
 from __future__ import annotations
@@ -98,77 +97,6 @@ def _postcondition_catch():
 
 
 # ---------------------------------------------------------------------------
-# 𝒮/𝒪 — routing accuracy on a small labeled set
-# ---------------------------------------------------------------------------
-def _routing_accuracy():
-    from dacli.core.router import TierRouter
-
-    cases = [
-        ("show me the row counts in BRONZE", "tool"),
-        ("count rows in the BRONZE table", "tool"),
-        ("diff yesterday's S3 dump against the BRONZE table then load the delta", "sandbox"),
-        ("migrate the pipeline across all schemas", "sandbox"),
-        # Era 2 — the shell tier: explicit terminal cue and a leading local-glue
-        # command with no typed connector op both route to shell.
-        ("run `git status` in the terminal", "shell"),
-        ("ls the workspace directory", "shell"),
-    ]
-
-    async def run() -> TaskResult:
-        # Platform detection is grounded in installed connectors (02.4): declare
-        # the platforms these labeled cases name via a registry digest, rather
-        # than relying on a hardcoded fallback.
-        class _Reg:
-            def get_tool_digest(self):
-                return [{"id": p} for p in ("snowflake", "github", "pinecone")]
-
-        router = TierRouter(llm=None, registry=_Reg())
-        wrong: list[str] = []
-        for task, expected in cases:
-            decision = await router.route(task)
-            if decision.tier != expected:
-                wrong.append(f"{task!r}: got {decision.tier}, want {expected}")
-        ok = not wrong
-        return TaskResult(
-            "spine.routing_accuracy", success=ok, steps_total=len(cases),
-            failed_step=None if ok else 1,
-            detail="all routed correctly" if ok else "; ".join(wrong),
-        )
-    return run
-
-
-# ---------------------------------------------------------------------------
-# 𝒪 — bounded, informed self-correction recovers a first-attempt failure
-# ---------------------------------------------------------------------------
-def _self_correction():
-    from dacli.core.loop import PlanActObserveVerify, StepContext, StepResult
-    from dacli.core.planner import Subtask
-
-    async def run() -> TaskResult:
-        async def executor(node, ctx: StepContext) -> StepResult:
-            if ctx.attempt == 1:
-                return StepResult(success=False, error="relation does not exist",
-                                  feedback="CREATE the staging table first")
-            # informed retry: only succeeds because it received the feedback.
-            if not ctx.feedback:
-                return StepResult(success=False, error="blind retry", feedback="no feedback")
-            return StepResult(success=True, output="created + loaded")
-
-        loop = PlanActObserveVerify(executor=executor, correction_budget=2,
-                                    require_approval=False)
-        node = Subtask(id="s1", description="load the staging table")
-        outcome = await loop.run_node(node)
-        ok = outcome.status == "advanced" and outcome.attempts >= 2 and bool(outcome.corrections)
-        return TaskResult(
-            "spine.self_correction", success=ok, steps_total=1,
-            failed_step=None if ok else 1,
-            corrections=len(outcome.corrections),
-            detail=f"status={outcome.status}, attempts={outcome.attempts}",
-        )
-    return run
-
-
-# ---------------------------------------------------------------------------
 # ℳ — stale-but-confident is demoted by the retrieval ranking
 # ---------------------------------------------------------------------------
 def _memory_staleness():
@@ -206,12 +134,6 @@ def build_spine_suite() -> list[GoldenTask]:
         GoldenTask(id="spine.postcondition_catch", connector="spine",
                    description="an anchored post-condition catches a confident-but-unchecked put",
                    run=_postcondition_catch(), stakes=Stakes.WRITE, tags=["verification"]),
-        GoldenTask(id="spine.routing_accuracy", connector="spine",
-                   description="tasks route to the correct execution tier",
-                   run=_routing_accuracy(), stakes=Stakes.READ_ONLY, tags=["routing"]),
-        GoldenTask(id="spine.self_correction", connector="spine",
-                   description="a first-attempt failure recovers via bounded informed self-correction",
-                   run=_self_correction(), stakes=Stakes.WRITE, tags=["orchestration"]),
         GoldenTask(id="spine.memory_staleness", connector="spine",
                    description="stale-but-confident memory is demoted below a fresh fact",
                    run=_memory_staleness(), stakes=Stakes.READ_ONLY, tags=["memory"]),

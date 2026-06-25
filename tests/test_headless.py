@@ -58,22 +58,22 @@ class _Sentinel:
 class LLMInjectionTest(unittest.TestCase):
     def setUp(self):
         # Keep construction offline + fast.
-        self._pricing_patch = mock.patch("dacli.core.agent.fetch_pricing", return_value=None)
+        self._pricing_patch = mock.patch("dacli.core.host.fetch_pricing", return_value=None)
         self._pricing_patch.start()
         self.addCleanup(self._pricing_patch.stop)
 
     def test_injected_llm_is_used(self):
-        from dacli.core.agent import DACLI
+        from dacli.core.host import DacliHost
         settings = _settings_for_test()
         sentinel = _Sentinel()
-        agent = DACLI(settings=settings, llm=sentinel)
+        agent = DacliHost(settings=settings, llm=sentinel)
         self.assertIs(agent.llm, sentinel)
 
     def test_default_llm_constructed_when_none(self):
-        from dacli.core.agent import DACLI
+        from dacli.core.host import DacliHost
         from dacli.reasoning.llm import LLMClient
         settings = _settings_for_test()
-        agent = DACLI(settings=settings)
+        agent = DacliHost(settings=settings)
         self.assertIsInstance(agent.llm, LLMClient)
 
 
@@ -186,7 +186,7 @@ class ExitCodeTest(unittest.TestCase):
 
 class RunHeadlessTest(unittest.TestCase):
     def setUp(self):
-        self._pricing_patch = mock.patch("dacli.core.agent.fetch_pricing", return_value=None)
+        self._pricing_patch = mock.patch("dacli.core.host.fetch_pricing", return_value=None)
         self._pricing_patch.start()
         self.addCleanup(self._pricing_patch.stop)
 
@@ -255,7 +255,7 @@ import os as _os
 
 class CliCommandTest(unittest.TestCase):
     def setUp(self):
-        self._pricing_patch = mock.patch("dacli.core.agent.fetch_pricing", return_value=None)
+        self._pricing_patch = mock.patch("dacli.core.host.fetch_pricing", return_value=None)
         self._pricing_patch.start()
         self.addCleanup(self._pricing_patch.stop)
 

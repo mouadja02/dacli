@@ -17,7 +17,6 @@ from dacli.core.verify import (
     require_postconditions, MissingPostConditionError, run_postconditions,
     result_succeeded,
 )
-from dacli.core.router import TierRouter, RoutingAuditLog, Tier
 from dacli.connectors.snowflake.connector import (
     parse_create_table, create_table_matches_intent,
 )
@@ -39,17 +38,6 @@ def _tmp(name):
 
 def _empty_dir():
     return tempfile.mkdtemp(prefix="dacli_p4_nc_")
-
-
-class _FakeRegistry:
-    """Minimal registry stub exposing only what the router reads: the digest of
-    installed platform ids. Grounds platform detection (02.4)."""
-
-    def __init__(self, ids):
-        self._ids = list(ids)
-
-    def get_tool_digest(self):
-        return [{"id": i} for i in self._ids]
 
 
 # ---------------------------------------------------------------------------
@@ -222,57 +210,6 @@ class CreateTablePostConditionTest(unittest.TestCase):
         self.assertEqual(res.status, ToolStatus.ERROR)
         self.assertIn("verification", res.metadata)
         self.assertFalse(res.metadata["verification"]["passed"])
-
-
-# ===========================================================================
-# Exit criterion 3 & 4: tier routing + bounded, logged escalation
-# ===========================================================================
-class RouterTest(unittest.TestCase):
-    def _router(self):
-        log = RoutingAuditLog(path=_tmp("routing.jsonl"))
-        # Platform detection is grounded in installed connectors (02.4): declare
-        # which platforms are "installed" via a registry digest so a single op on
-        # a named platform is recognized (no hardcoded platform fallback).
-        return TierRouter(
-            llm=None, registry=_FakeRegistry(["snowflake", "github", "pinecone"]),
-            audit_log=log, min_confidence=0.7, escalation_budget=2,
-        ), log
-
-    def test_single_op_routes_to_tool_tier(self):
-        router, log = self._router()
-        d = _run(router.route("show me the row counts in snowflake"))
-        self.assertEqual(d.tier, Tier.TOOL.value)
-        self.assertGreaterEqual(d.confidence, 0.7)
-        self.assertEqual(len(log.recent()), 1)
-        self.assertIn("confidence", str(log.recent()[0]).lower() or "confidence")
-
-    def test_cross_platform_routes_to_sandbox_tier(self):
-        router, log = self._router()
-        d = _run(router.route(
-            "diff yesterday's S3 dump against the BRONZE table and load the delta"))
-        self.assertEqual(d.tier, Tier.SANDBOX.value)
-        self.assertGreaterEqual(d.confidence, 0.7)
-        self.assertEqual(log.recent()[0]["tier"], "sandbox")
-
-    def test_both_decisions_logged_with_confidence(self):
-        router, log = self._router()
-        _run(router.route("list snowflake tables"))
-        _run(router.route("reconcile the warehouse against the git repo and migrate dbt models"))
-        rows = log.recent()
-        self.assertEqual(len(rows), 2)
-        for row in rows:
-            self.assertIn("confidence", row)
-            self.assertIn("tier", row)
-
-    def test_low_confidence_escalates_bounded_and_logged(self):
-        router, log = self._router()
-        d = _run(router.route("do the thing with the stuff"))
-        self.assertGreater(d.escalations, 0)
-        self.assertLessEqual(d.escalations, router.escalation_budget)
-        self.assertTrue(d.surfaced_to_user)
-        self.assertEqual(d.escalation_target, "human")
-        self.assertTrue(any("escalate" in step for step in d.trail))
-        self.assertEqual(log.recent()[0]["surfaced_to_user"], True)
 
 
 # ===========================================================================

@@ -62,8 +62,8 @@ class _OkLLM:
 
 
 def _agent(llm=None):
-    from dacli.core.agent import DACLI
-    return DACLI(settings=_settings(), llm=llm or _OkLLM())
+    from dacli.core.host import DacliHost
+    return DacliHost(settings=_settings(), llm=llm or _OkLLM())
 
 
 class LazyPricingTest(unittest.TestCase):
@@ -73,14 +73,14 @@ class LazyPricingTest(unittest.TestCase):
         def _boom(*args, **kwargs):
             raise AssertionError("fetch_pricing called during __init__")
 
-        with mock.patch("dacli.core.agent.fetch_pricing", side_effect=_boom):
+        with mock.patch("dacli.core.host.fetch_pricing", side_effect=_boom):
             _agent()  # must not raise
 
     def test_get_pricing_is_memoized(self):
         sentinel = object()
         agent = _agent()
         with mock.patch(
-            "dacli.core.agent.fetch_pricing", return_value=sentinel
+            "dacli.core.host.fetch_pricing", return_value=sentinel
         ) as fetch:
             self.assertIs(agent._get_pricing(), sentinel)
             self.assertIs(agent._get_pricing(), sentinel)
@@ -89,7 +89,7 @@ class LazyPricingTest(unittest.TestCase):
     def test_get_pricing_failure_yields_none_and_is_not_retried(self):
         agent = _agent()
         with mock.patch(
-            "dacli.core.agent.fetch_pricing", side_effect=RuntimeError("offline")
+            "dacli.core.host.fetch_pricing", side_effect=RuntimeError("offline")
         ) as fetch:
             self.assertIsNone(agent._get_pricing())
             self.assertIsNone(agent._get_pricing())
