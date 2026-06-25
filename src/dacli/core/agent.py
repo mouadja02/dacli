@@ -15,11 +15,7 @@ from dacli.core.loop import PlanActObserveVerify, StepResult, StepContext, Corre
 from dacli.core.blackboard import Blackboard
 from dacli.core.subagent import Lead, Assignment, WorkerOutput
 from dacli.reasoning.model_router import ModelRouter, ModelRoutingAuditLog, Stakes
-from dacli.governance import (
-    Governor, ActionClassifier, PolicyEngine, PermissionRegistry, Scope,
-    AuditLedger, RollbackStrategist, ShadowExecutor,
-)
-from dacli.governance.policy_engine import load_policy_config
+from dacli.governance import Governor
 from dacli.reasoning.llm import LLMClient
 from dacli.connectors.base import ToolResult
 from dacli.connectors.registry import ConnectorRegistry, CONNECTORS_CONFIG_PATH
@@ -296,75 +292,16 @@ class DACLI:
             log.debug("usage persist failed", exc_info=True)  # swallow but record
 
     def _build_governor(self, settings: Settings, on_approval) -> Governor | None:
-        gov = getattr(settings, "governance", None)
-        if gov is not None and not gov.enabled:
-            return None  # explicitly disabled (trusted offline run)
+        # Wiring extracted to core.governance_wiring so the M09 host builds it
+        # identically (the same definition, not a copy that can drift).
+        from dacli.core.governance_wiring import build_governor
 
-        policy_path = getattr(gov, "policy_path", "config/policy.yaml") if gov else "config/policy.yaml"
-        config = load_policy_config(policy_path)
-        policy = PolicyEngine(config)
-
-        # Least-privilege: connectors get the configured default scope unless the
-        # policy profile grants more. Write/admin is opt-in per connection.
-        try:
-            default_scope = Scope(getattr(gov, "default_scope", "read_only"))
-        except Exception:
-            default_scope = Scope.READ_ONLY
-        permissions = PermissionRegistry.from_policy_config(config, default_scope=default_scope)
-        # Built-in harness connectors (system/skills/sandbox) are not external
-        # platforms — least-privilege scoping targets platform blast radius, and
-        # their sub-actions (e.g. each governed sdk.run inside the sandbox) are
-        # gated independently. Exempt them so the harness itself isn't crippled.
-        for _builtin in ("system", "skills", "sandbox"):
-            permissions.grant(_builtin, Scope.ADMIN)
-        # The shell tier, by contrast, IS scoped by least privilege — that is the
-        # whole point of a governed terminal. Its ceiling is the configured
-        # ``terminal.scope`` (default 'write'), so an `rm file` (risky) or
-        # `rm -rf` (irreversible) is permission-denied unless the operator widened
-        # the shell scope. The *command's* tier (from the command classifier), not
-        # the op's declared risk, is what the check sees.
-        _term = getattr(settings, "terminal", None)
-        try:
-            _shell_scope = Scope(str(getattr(_term, "scope", "write")).strip().lower())
-        except Exception:
-            _shell_scope = Scope.WRITE
-        permissions.grant("shell", _shell_scope)
-
-        state_dir = str(Path(settings.agent.state_path).parent)
-        audit_path = (getattr(gov, "audit_path", None) or f"{state_dir}/audit.jsonl") if gov else f"{state_dir}/audit.jsonl"
-        ledger = AuditLedger(path=audit_path)
-
-        # P12 lineage: best-effort blast-radius evidence (dbt + catalog + persisted
-        # store). Build failures are non-fatal — governance runs without it.
-        lineage = None
-        try:
-            from dacli.memory.graph.lineage import build_project_lineage
-            lineage = build_project_lineage(settings)
-        except Exception:
-            log.debug("lineage store unavailable", exc_info=True)
-
-        # The classifier embeds the shell command classifier; give it the
-        # terminal's egress posture so a `curl`/`wget` in a shell command is
-        # judged against the same allowlist a connector fetch would be.
-        return Governor(
-            classifier=ActionClassifier(
-                prod_markers=policy.prod_markers or None,
-                network=getattr(_term, "network", "allowlist"),
-                egress_allowlist=list(getattr(_term, "egress_allowlist", []) or []),
-            ),
-            policy=policy,
-            permissions=permissions,
-            strategist=RollbackStrategist(),
-            shadow_executor=ShadowExecutor(),
-            ledger=ledger,
+        return build_governor(
+            settings,
             session_id=getattr(self.memory, "session_id", ""),
-            approval_fn=on_approval,
+            on_approval=on_approval,
             env_resolver=self._resolve_environment,
-            enforce=True,
-            use_shadow=bool(getattr(gov, "shadow_execution", True)) if gov else True,
-            cost_confirm_usd=getattr(gov, "cost_confirm_usd", None) if gov else None,
             on_cost=self._record_warehouse_cost,
-            lineage=lineage,
         )
 
     def _record_warehouse_cost(self, usd: float) -> None:

@@ -99,12 +99,17 @@ class ConnectorRegistry:
         config_path: str = CONNECTORS_CONFIG_PATH,
         extra_connectors: list[Connector] | None = None,
         enforce_postconditions: bool = False,
+        exclude: Iterable[str] | None = None,
     ):
         self._settings = settings
         self._connectors_dir = (
             Path(connectors_dir) if connectors_dir else Path(__file__).parent
         )
         self._config_path = config_path
+        # Manifest ids to skip during discovery. The host excludes the seed
+        # connectors (snowflake/github) so the register(api) seeds own those tool
+        # names instead of colliding with the old Connector subclasses.
+        self._exclude = set(exclude or ())
         #: when on, an operation that declares no post-condition cannot
         # register — "no post-condition, no acceptance" enforced at load time.
         # Default off so isolated test rigs / throwaway connectors are unaffected;
@@ -148,6 +153,8 @@ class ConnectorRegistry:
                 self._failed[manifest_path.parent.name] = f"manifest parse error: {exc}"
                 continue
             connector_id = manifest.get("id")
+            if connector_id in self._exclude:
+                continue
             class_path = manifest.get("class")
             if not connector_id or not class_path:
                 self._failed[manifest_path.parent.name] = (
