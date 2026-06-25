@@ -14,7 +14,7 @@ from pathlib import Path
 from dacli.config.settings import Settings
 from dacli.connectors.base import ToolStatus
 from dacli.core.host import DacliHost
-from dacli.reasoning.scripted import ScriptedLLM
+from dacli.ai.scripted import ScriptedLLM
 
 
 def _settings(tmp: Path) -> Settings:

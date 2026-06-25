@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dacli-ai"
+dynamic = ["version"]
+description = "Provider LLM client and token/pricing accounting for dacli"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Mouad Jaouhari", email = "github@mj-dev.net" }]
+keywords = ["llm", "anthropic", "openai", "token accounting"]
+# The leaf wheel: provider SDKs + the pricing fetch. The SDKs are base — the
+# client is inert without one. httpx backs the models.dev pricing lookup.
+dependencies = [
+    "anthropic>=0.40,<1",
+    "openai>=1.40,<3",
+    "httpx>=0.27,<1",
+]
+
+[project.urls]
+Homepage = "https://github.com/mouadja02/dacli"
+
+[tool.setuptools.dynamic]
+version = { attr = "dacli.ai.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["dacli*"]
+namespaces = true

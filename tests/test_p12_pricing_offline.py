@@ -13,7 +13,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
-from dacli.core import pricing
+from dacli.ai import pricing
 
 
 def _write_cache(cache_dir: str, payload: dict, fetched_at: float) -> None:

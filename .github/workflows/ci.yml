@@ -32,7 +32,7 @@ jobs:
       # (pydantic fields, registry-loaded connectors, op-/command-dispatch) is
       # all false positives. The whitelist records the genuine ones.
       - name: vulture (dead code)
-        run: vulture src .vulture_whitelist.py --min-confidence 80
+        run: vulture packages .vulture_whitelist.py --min-confidence 80
 
   test:
     runs-on: ubuntu-latest
@@ -55,7 +55,11 @@ jobs:
           # dev tooling) from the lockfile (P11), then the working tree itself
           # with --no-deps so the lock stays authoritative for versions.
           pip install -r requirements.lock
-          pip install -e . --no-deps  # editable install (see P01): test the working tree
+          # Editable-install the four wheels (M13) with --no-deps so the lock stays
+          # authoritative for third-party versions.
+          pip install --no-deps \
+            -e packages/dacli-ai -e packages/dacli-core \
+            -e packages/dacli-tui -e packages/dacli
 
       # Run the DoD gate first and on its own so a governance-debt regression is
       # an unmistakable, named failure rather than buried in the suite.

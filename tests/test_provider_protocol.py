@@ -17,9 +17,9 @@ import types
 import unittest
 from unittest import mock
 
-from dacli.reasoning import providers
-from dacli.reasoning.llm import LLMClient
-from dacli.reasoning.providers import (
+from dacli.ai import providers
+from dacli.ai.llm import LLMClient
+from dacli.ai.providers import (
     AnthropicProvider,
     GoogleProvider,
     OpenAIProvider,

@@ -215,7 +215,7 @@ class ToolbarCostTest(unittest.TestCase):
         return DacliStore(base_dir=d)
 
     def test_session_cost_skips_usage_summary(self):
-        from dacli.core.pricing import TokenUsage
+        from dacli.ai.pricing import TokenUsage
 
         store = self._store()
         store.record_usage(

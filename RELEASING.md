@@ -9,18 +9,18 @@ dacli follows [Semantic Versioning](https://semver.org): `MAJOR.MINOR.PATCH`.
 
 ---
 
-## The version is single-sourced
+## The version — one literal per wheel, bumped in lockstep
 
-The only place the version literal lives is **`src/dacli/__init__.py`**:
+Since M13 dacli is four wheels, each single-sourcing its own `__version__`:
 
-```python
-__version__ = "0.1.0"
-```
+- `packages/dacli-ai/src/dacli/ai/__init__.py`
+- `packages/dacli-core/src/dacli/core/__init__.py`
+- `packages/dacli-tui/src/dacli/tui/__init__.py`
+- `packages/dacli/src/dacli/scripts/__init__.py`
 
-- `pyproject.toml` reads it at build time (`[tool.setuptools.dynamic] version = {attr = "dacli.__version__"}`).
-- `dacli.core` re-exports it, and `dacli --version` prints it.
-
-So you bump it in one place — use the helper:
+Each `pyproject.toml` reads its literal at build time
+(`[tool.setuptools.dynamic] version = {attr = "..."}`). The four release together,
+so the helper bumps all four to the same version (and fails on drift):
 
 ```bash
 python tools/bump_version.py --show     # current version

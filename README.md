@@ -182,24 +182,29 @@ python -m venv .venv
 # macOS / Linux
 source .venv/bin/activate
 
-pip install -e .            # one command — dependencies come from pyproject.toml
+# dacli is four wheels (M13); install all four editable to run the working tree.
+pip install -e packages/dacli-ai -e packages/dacli-core \
+            -e packages/dacli-tui -e packages/dacli
 ```
 
 Optional extras:
 
 ```bash
-pip install -e ".[all]"     # + every Python-SDK connector (snowflake, pinecone)
-pip install -e ".[dev]"     # contributors: pytest, ruff, vulture
-pip install -e ".[mcp]"     # the opt-in MCP client bridge
-pip install -e ".[pty]"     # faithful TTY for the governed terminal
+pip install -e "packages/dacli[all]"   # + every Python-SDK seed (snowflake)
+pip install -e "packages/dacli[dev]"   # contributors: pytest, ruff, vulture
+pip install -e "packages/dacli[pty]"   # faithful TTY for the governed terminal
 ```
 
 > Use the **editable** install (`-e`). A plain `pip install .` copies the
 > sources into `site-packages`, so the `dacli` command then runs that frozen
 > copy and silently diverges from your working tree as you edit.
 
-> For a byte-for-byte reproducible environment (what CI uses), install the pinned closure instead:
-> `pip install -r requirements.lock && pip install -e . --no-deps`.
+> A headless embedder needs only the lower two wheels: `pip install dacli-core`
+> (it pulls `dacli-ai`) runs a turn with no TUI installed.
+
+> For a byte-for-byte reproducible environment (what CI uses), install the pinned
+> closure first: `pip install -r requirements.lock`, then the four wheels
+> `--no-deps`.
 
 For CLI-first connectors, install the relevant platform CLIs and authenticate them as you normally would:
 
