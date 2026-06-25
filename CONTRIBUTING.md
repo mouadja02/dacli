@@ -12,12 +12,14 @@ for contributions reflects that. The one non-negotiable rule:
 git clone https://github.com/mouadja02/dacli.git
 cd dacli
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"   # editable + pytest/ruff/vulture — one command; deps come from pyproject.toml
+# dacli is four wheels (M13); install all four editable, dev extras on the assembler.
+pip install -e packages/dacli-ai -e packages/dacli-core \
+            -e packages/dacli-tui -e "packages/dacli[dev]"
 ```
 
 The editable install (`-e`) is required so the `dacli` command runs your working tree, not a stale
-site-packages copy. For the exact pinned environment CI uses:
-`pip install -r requirements.lock && pip install -e . --no-deps`.
+site-packages copy. For the exact pinned environment CI uses: `pip install -r requirements.lock`,
+then the four wheels `--no-deps`.
 
 ## Before you open a PR
 

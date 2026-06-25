@@ -13,7 +13,7 @@ import types
 from rich.console import Console
 
 from dacli.connectors.base import ToolResult, ToolStatus
-from dacli.reasoning.llm import LLMClient
+from dacli.ai.llm import LLMClient
 from dacli.tui import DacliUI, get_theme, THEMES, DEFAULT_THEME
 
 

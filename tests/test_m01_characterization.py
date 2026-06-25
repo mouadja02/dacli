@@ -28,7 +28,7 @@ import dacli.eval.golden as _golden
 from dacli.connectors.dispatcher import Dispatcher
 from dacli.connectors.registry import ConnectorRegistry
 from dacli.core.kernel import Kernel
-from dacli.reasoning.scripted import ScriptedLLM
+from dacli.ai.scripted import ScriptedLLM
 from tests.test_golden_transcript import FakeMemory
 
 FIXTURES = Path(_golden.__file__).resolve().parent / "transcripts"

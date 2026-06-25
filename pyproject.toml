@@ -1,124 +1,16 @@
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
-
-[project]
-name = "dacli"
-# Single source of truth: the version literal lives in src/dacli/__init__.py and
-# is read from there at build time (see [tool.setuptools.dynamic]). Bump it with
-# `python tools/bump_version.py X.Y.Z`, tag `vX.Y.Z`, and push — the release
-# workflow guards that the tag and this version agree. See RELEASING.md.
-dynamic = ["version"]
-description = "Your autonomous data engineering CLI agent"
-readme = "README.md"
-requires-python = ">=3.10"
-authors = [{ name = "Mouad Jaouhari", email = "github@mj-dev.net" }]
-keywords = ["data engineering", "autonomous agent", "data engineering CLI"]
-# Base runtime deps: only what `import dacli` + a bare `dacli` launch genuinely
-# need. Heavy/optional connector SDKs live in [project.optional-dependencies]
-# below so a default install stays lean (P11). Volatile deps carry an UPPER bound
-# too — an unpinned major bump of openai/anthropic/pydantic is a latent outage
-# (reliability-first); the floors are realistic minimums verified against the
-# working .venv, not the latest pins (those live in requirements.lock).
-dependencies = [
-    # LLM providers — the two mainstream SDKs; the agent is inert without one, so
-    # they are base (google is optional, see [google] extra).
-    "anthropic>=0.40,<1",
-    "openai>=1.40,<3",
-    # CLI / TUI surface.
-    "click>=8,<9",
-    "rich>=13,<16",                 # .venv has 15.x; <14 (the naive guess) would exclude it
-    "prompt-toolkit>=3,<4",
-    # Config + validation.
-    "pydantic>=2.5,<3",
-    "pyyaml>=6,<7",
-    "python-dotenv>=1,<2",
-    # HTTP (github connector, http_base, pricing) + secret encryption.
-    "httpx>=0.27,<1",
-    "cryptography>=42,<49",
-    # Token accounting runs in the per-turn budget hot path (context/tokenizer.py).
-    # It degrades to a chars/4 heuristic if absent, but accurate counts are core
-    # enough to ship by default.
-    "tiktoken>=0.7,<1",
-]
-classifiers = [
-    "Intended Audience :: Developers",
-    "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
-]
-
-[project.optional-dependencies]
-# Heavy SDKs the seeds lazy-import inside connect(), so a missing extra yields a
-# clean "install dacli[<name>]" message at connect time — never an import crash.
-#
-# Only the snowflake seed needs a Python SDK. The github seed speaks the REST API
-# over httpx (base) and the shell seed shells out — neither needs an extra. The
-# old connector fleet (s3/gcs/bigquery/pinecone/mcp_bridge/…) and its extras went
-# with M11; regenerate any of them on demand as an extension.
-snowflake = ["snowflake-connector-python>=3.5,<5"]   # .venv has 4.x; <4 would exclude it
-# NOTE: there is intentionally no `google` extra. The Gemini LLM provider was
-# removed (P02, Option B): it never supported tool calling — which every real
-# agent turn requires — and the declared legacy SDK (`google-generativeai`)
-# didn't match the `google.genai` import the code carried. Re-add the extra
-# (`google-genai>=1,<2`) if/when Gemini function-calling lands.
-# Faithful TTY for the governed terminal (Era 2). Optional: the shell tier works
-# everywhere over stdlib pipes; install only for ANSI/interactive fidelity.
-pty       = [
-    "pywinpty>=2,<3 ; sys_platform == 'win32'",
-    "ptyprocess>=0.7,<1 ; sys_platform != 'win32'",
-]
-# Full-screen transcript viewer (P11). Rich is the default UI; Textual is the
-# only optional layer and is lazy-imported, so a default install never loads it
-# — /transcript prints "install dacli[tui]" when it's missing.
-tui       = ["textual>=0.50,<2"]
-# Store the Fernet key in the OS keyring instead of the .key file (P09). Selected
-# with DACLI_KEY_BACKEND=keyring; lazy-imported in core.crypto, so a default
-# install never imports it.
-keyring   = ["keyring>=24,<26"]
-dev       = ["pytest>=8,<10", "ruff>=0.15,<0.16", "vulture>=2,<3"]
-# Convenience aggregate: every Python-SDK seed at once.
-all       = ["dacli[snowflake]"]
-
-[project.urls]
-Homepage = "https://github.com/mouadja02/dacli"
-
-[project.scripts]
-dacli = "dacli.scripts.cli:main"
-
-[tool.setuptools.dynamic]
-# Read the version from the package's __version__ attribute — one literal, no
-# drift between pyproject, the wheel, and `dacli --version`.
-version = { attr = "dacli.__version__" }
-
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.setuptools.package-data]
-# Non-Python runtime assets that must ship in the wheel. The `dacli` package now
-# exists (src layout), so these patterns resolve — unlike the old setup.py which
-# pointed `package_data` at a `dacli` package that didn't exist under the flat layout.
-dacli = [
-    "config_template.yaml",
-    "prompts/*.md",
-    "prompts/fragments/*.md",
-    "connectors/**/manifest.yaml",
-    "connectors/**/SKILL.md",
-    "connectors/templates/*",
-    "skills/**/SKILL.md",
-    "config/*.yaml",
-    "seeds/**/*.py",
-    "seeds/**/*.md",
-]
+# dacli is split into four wheels (M13), each built from its own pyproject under
+# packages/: dacli-ai (leaf), dacli-core, dacli-tui, dacli (assembler). This root
+# file builds nothing — it carries the shared tooling config (ruff) for the whole
+# tree. Dev install of all four editable:
+#   pip install -e packages/dacli-ai -e packages/dacli-core \
+#               -e packages/dacli-tui -e packages/dacli
+# See RELEASING.md.
 
 [tool.ruff]
 target-version = "py310"
 # .vulture_whitelist.py is a list of bare symbol names for vulture, not real
 # code — every line is an intentional "undefined name" (F821).
-extend-exclude = ["build", ".venv", ".claude", ".vulture_whitelist.py"]
+extend-exclude = ["build", "packages/*/build", ".venv", ".claude", ".vulture_whitelist.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "B", "SIM", "RUF", "UP", "C4", "PERF", "RET"]

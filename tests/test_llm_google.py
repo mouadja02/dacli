@@ -11,7 +11,7 @@ import asyncio
 import types
 import unittest
 
-from dacli.reasoning.llm import LLMClient
+from dacli.ai.llm import LLMClient
 
 
 def _client(provider):

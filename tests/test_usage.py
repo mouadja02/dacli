@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 from dacli.config.settings import _overlay_secrets
-from dacli.core.pricing import TokenUsage, pricing_from_payload
+from dacli.ai.pricing import TokenUsage, pricing_from_payload
 from dacli.core.store import DacliStore, _redact
 
 

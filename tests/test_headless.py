@@ -71,7 +71,7 @@ class LLMInjectionTest(unittest.TestCase):
 
     def test_default_llm_constructed_when_none(self):
         from dacli.core.host import DacliHost
-        from dacli.reasoning.llm import LLMClient
+        from dacli.ai.llm import LLMClient
         settings = _settings_for_test()
         agent = DacliHost(settings=settings)
         self.assertIsInstance(agent.llm, LLMClient)
@@ -90,7 +90,7 @@ def _run(coro):
 
 class ScriptedLLMTest(unittest.TestCase):
     def test_returns_text_tool_calls_and_usage(self):
-        from dacli.reasoning.scripted import ScriptedLLM
+        from dacli.ai.scripted import ScriptedLLM
         llm = ScriptedLLM([
             {"text": "hi", "tool_calls": [{"name": "update_plan", "arguments": {"todos": []}}],
              "usage": {"input": 10, "output": 2}},
@@ -109,7 +109,7 @@ class ScriptedLLMTest(unittest.TestCase):
         self.assertEqual(tc2, [])
 
     def test_assigns_unique_ids(self):
-        from dacli.reasoning.scripted import ScriptedLLM
+        from dacli.ai.scripted import ScriptedLLM
         llm = ScriptedLLM([
             {"tool_calls": [{"name": "a", "arguments": {}}, {"name": "b", "arguments": {}}]},
         ])
@@ -118,14 +118,14 @@ class ScriptedLLMTest(unittest.TestCase):
         self.assertEqual(len(ids), len(set(ids)))
 
     def test_raises_when_exhausted(self):
-        from dacli.reasoning.scripted import ScriptedLLM, ScriptExhausted
+        from dacli.ai.scripted import ScriptedLLM, ScriptExhausted
         llm = ScriptedLLM([{"text": "only one"}])
         _run(llm.generate(messages=[]))
         with self.assertRaises(ScriptExhausted):
             _run(llm.generate(messages=[]))
 
     def test_accepts_model_kwarg(self):
-        from dacli.reasoning.scripted import ScriptedLLM
+        from dacli.ai.scripted import ScriptedLLM
         llm = ScriptedLLM([{"text": "x"}])
         content, _tc = _run(llm.generate(messages=[], model="some-model"))
         self.assertEqual(content, "x")
@@ -195,7 +195,7 @@ class RunHeadlessTest(unittest.TestCase):
 
     def test_happy_path_tool_call_and_usage(self):
         from dacli.core.headless import run_headless
-        from dacli.reasoning.scripted import ScriptedLLM
+        from dacli.ai.scripted import ScriptedLLM
         llm = ScriptedLLM([
             {"text": "planning",
              "tool_calls": [{"name": "update_plan",
@@ -218,7 +218,7 @@ class RunHeadlessTest(unittest.TestCase):
 
     def test_governance_block_is_exit_2(self):
         from dacli.core.headless import run_headless
-        from dacli.reasoning.scripted import ScriptedLLM
+        from dacli.ai.scripted import ScriptedLLM
         llm = ScriptedLLM([
             {"text": "wiping",
              "tool_calls": [{"name": "run_shell_command",
@@ -235,7 +235,7 @@ class RunHeadlessTest(unittest.TestCase):
 
     def test_script_exhausted_is_exit_3(self):
         from dacli.core.headless import run_headless
-        from dacli.reasoning.scripted import ScriptedLLM
+        from dacli.ai.scripted import ScriptedLLM
         # Calls a tool but never scripts a final answer -> loop pulls again -> dry.
         llm = ScriptedLLM([
             {"tool_calls": [{"name": "update_plan", "arguments": {"todos": []}}]},

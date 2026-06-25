@@ -178,7 +178,7 @@ class EndToEndTest(unittest.TestCase):
         self.addCleanup(self._pricing.stop)
 
     def test_out_of_envelope_action_blocks_and_envelope_is_audited(self):
-        from dacli.reasoning.scripted import ScriptedLLM
+        from dacli.ai.scripted import ScriptedLLM
 
         # run_shell_command is NOT in the envelope, so a destructive command is
         # refused before it runs (exit 2), proving the envelope doesn't widen

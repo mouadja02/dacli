@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dacli"
+dynamic = ["version"]
+description = "Your autonomous data engineering CLI agent"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Mouad Jaouhari", email = "github@mj-dev.net" }]
+keywords = ["data engineering", "autonomous agent", "data engineering CLI"]
+# The thin assembler: wires core + ai + tui, ships the 3 seed extensions and the
+# register(api) authoring docs the agent reads to extend itself. click + rich back
+# the CLI entry; pyyaml reads the config template.
+dependencies = [
+    "dacli-core==0.3.0",
+    "dacli-ai==0.3.0",
+    "dacli-tui==0.3.0",
+    "click>=8,<9",
+    "rich>=13,<16",
+    "pyyaml>=6,<7",
+]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.optional-dependencies]
+# The one seed with a Python SDK. The github seed speaks REST over httpx (a core
+# dep) and the shell seed shells out — neither needs an extra.
+snowflake = ["snowflake-connector-python>=3.5,<5"]
+# Pull the optional fidelity layers of the lower wheels through the assembler.
+pty = ["dacli-core[pty]==0.3.0"]
+keyring = ["dacli-core[keyring]==0.3.0"]
+tui = ["dacli-tui[textual]==0.3.0"]
+all = ["dacli[snowflake]"]
+dev = ["pytest>=8,<10", "ruff>=0.15,<0.16", "vulture>=2,<3"]
+
+[project.urls]
+Homepage = "https://github.com/mouadja02/dacli"
+
+[project.scripts]
+dacli = "dacli.scripts.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "dacli.scripts.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["dacli*"]
+namespaces = true
+
+[tool.setuptools.package-data]
+"dacli.scripts" = ["config_template.yaml"]
+"dacli.seeds" = ["**/*.py", "**/*.md"]

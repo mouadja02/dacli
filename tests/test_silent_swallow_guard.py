@@ -16,7 +16,9 @@ from pathlib import Path
 
 import dacli
 
-SRC = Path(dacli.__file__).parent
+# dacli is a PEP 420 namespace split across four wheels (M13), so it has no single
+# __file__; __path__ lists every installed portion (.../packages/<pkg>/src/dacli).
+SRC_ROOTS = [Path(p) for p in dacli.__path__]
 SENTINEL = "silent-swallow-ok"
 
 
@@ -35,17 +37,18 @@ def _is_bodyless(handler: ast.ExceptHandler) -> bool:
 
 def _silent_swallows() -> list[str]:
     offenders = []
-    for path in SRC.rglob("*.py"):
-        lines = path.read_text(encoding="utf-8").splitlines()
-        tree = ast.parse("\n".join(lines), filename=str(path))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ExceptHandler) or not _is_bodyless(node):
-                continue
-            body_line = lines[node.body[0].lineno - 1]
-            if SENTINEL in body_line:
-                continue
-            rel = path.relative_to(SRC.parent)
-            offenders.append(f"{rel}:{node.body[0].lineno}")
+    for root in SRC_ROOTS:
+        for path in root.rglob("*.py"):
+            lines = path.read_text(encoding="utf-8").splitlines()
+            tree = ast.parse("\n".join(lines), filename=str(path))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ExceptHandler) or not _is_bodyless(node):
+                    continue
+                body_line = lines[node.body[0].lineno - 1]
+                if SENTINEL in body_line:
+                    continue
+                rel = path.relative_to(root.parent)
+                offenders.append(f"{rel}:{node.body[0].lineno}")
     return offenders
 
 
