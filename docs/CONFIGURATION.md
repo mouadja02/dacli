@@ -263,24 +263,26 @@ satisfies `${VAR}` placeholders. Set `DACLI_USE_DOTENV=0` to disable `.env` load
 
 ## System prompt layering
 
-The agent's system prompt is built from three layers, top to bottom:
+The agent's system prompt is built from these layers, top to bottom:
 
-1. **`core.md`** — the packaged base (`prompts/fragments/core.md`), shipped in the wheel and
-   read-only. It's overwritten on `pip install -U`; don't edit it.
+1. **Base** — a user `SYSTEM.md` *override* when present, else the packaged `core.md`
+   (`prompts/fragments/core.md`). `SYSTEM.md` lives at `<state_dir>/SYSTEM.md` (project
+   `.dacli/SYSTEM.md` when in a project, else global), and **replaces** `core.md` entirely.
+   `core.md` is shipped in the wheel and read-only — it's overwritten on `pip install -U`.
 2. **`DACLI.md` priors** — connection profiles, naming conventions, medallion rules. Created by
    `dacli init`, loaded as layer L1 of the context assembler (`context.assembler`). This is the
    place for *project knowledge* the agent should always have.
-3. **`system_prompt.md` overlay** — an editable prompt-level override at `<state_dir>/system_prompt.md`.
-   `compose_system_prompt()` appends it after `core.md` and before any connector fragments, so it can
-   extend or correct the base while connector-specific rules still get the last word.
+3. **`AGENTS.md` notes** — operating notes appended after the base, merged hierarchically:
+   global `<user_config_dir>/AGENTS.md` first, then project `.dacli/AGENTS.md` (project last,
+   so its rules win). Connector fragments are disclosed after these and get the last word.
 
-The priors (layer 2) and the overlay (layer 3) are distinct knobs: priors are *context* the assembler
-pins per turn; the overlay is *prompt text* folded into the composed system prompt. Put facts about
-your warehouse in `DACLI.md`; put changes to how the agent behaves in the overlay.
+The priors (layer 2) are *context* the assembler pins per turn; `SYSTEM.md`/`AGENTS.md` are
+*prompt text* folded into the composed system prompt. Put facts about your warehouse in
+`DACLI.md`; replace the whole prompt with `SYSTEM.md`, or tweak behavior with `AGENTS.md`.
 
 ```bash
 dacli prompt           # view the composed prompt and where to customize it
-dacli prompt --edit    # create the overlay (if missing) and open it in $EDITOR
+dacli prompt --edit    # create the SYSTEM.md override (if missing) and open it in $EDITOR
 ```
 
 `dacli prompt -o FILE` exports the composed prompt for inspection; writing into the packaged prompt

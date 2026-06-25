@@ -142,9 +142,9 @@ def test_packaged_asset_resolves_shipped_policy():
     assert p.name == "policy.yaml"
 
 
-def test_user_prompt_overlay_under_state_dir(monkeypatch, tmp_path):
+def test_system_md_target_under_state_dir(monkeypatch, tmp_path):
     monkeypatch.setenv("DACLI_STATE_PATH", str(tmp_path / "s" / "state"))
-    assert paths.user_prompt_overlay() == tmp_path / "s" / "system_prompt.md"
+    assert paths.system_md_target() == tmp_path / "s" / "SYSTEM.md"
 
 
 # ---- project_overlay_dir --------------------------------------------------

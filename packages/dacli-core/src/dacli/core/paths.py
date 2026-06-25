@@ -179,6 +179,40 @@ def resolve_policy_path(settings) -> Path:
     return packaged_asset("config", "policy.yaml")
 
 
-def user_prompt_overlay() -> Path:
-    """Editable system-prompt overlay (used by P03): ``<state_dir>/system_prompt.md``."""
-    return state_dir() / "system_prompt.md"
+def system_md_target() -> Path:
+    """Writable ``SYSTEM.md`` — the project overlay when in a project, else global.
+
+    Where ``dacli prompt --edit`` writes a user override that *replaces* the
+    packaged core prompt (M14).
+    """
+    return state_dir() / "SYSTEM.md"
+
+
+def system_md_override() -> Path | None:
+    """A ``SYSTEM.md`` that replaces the packaged core prompt, if one exists.
+
+    Checks the contextual target first (``system_md_target`` — the project overlay
+    when in a project, so a repo's ``.dacli/SYSTEM.md`` wins), then falls back to
+    the global ``<user_config_dir>/SYSTEM.md`` so a user-wide override still applies
+    inside a project that has none of its own.
+    """
+    candidates = [system_md_target(), user_config_dir() / "SYSTEM.md"]
+    return next((p for p in candidates if p.exists()), None)
+
+
+def agents_md_chain() -> list[Path]:
+    """Existing ``AGENTS.md`` files in hierarchical merge order: global, then project.
+
+    Appended to whichever base prompt is active. Project comes last so its rules
+    get the last word (Pi-style hierarchical merge).
+    """
+    out: list[Path] = []
+    glob = user_config_dir() / "AGENTS.md"
+    if glob.exists():
+        out.append(glob)
+    root = project_root()
+    if root is not None:
+        proj = project_overlay_dir(root) / "AGENTS.md"
+        if proj.exists() and proj != glob:
+            out.append(proj)
+    return out
