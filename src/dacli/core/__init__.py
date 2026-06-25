@@ -13,8 +13,8 @@ from dacli import __version__
 __author__ = "mouadja02"
 
 __all__ = [
-    "DacliHost",
     "AgentMemory",
+    "DacliHost",
     "Settings",
     "__version__",
 ]
