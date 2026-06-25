@@ -16,7 +16,7 @@ context pipeline read: extensions resolve first, the connector registry second.
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
+import os
 from typing import Any
 from collections.abc import Callable, Iterable
 
@@ -27,7 +27,7 @@ from dacli.connectors.registry import ConnectorRegistry, CONNECTORS_CONFIG_PATH
 from dacli.connectors.system.connector import SystemConnector
 from dacli.context.pipeline import build_context_pipeline
 from dacli.context.sources.terminal import ScrollbackSource, ScrollbackStore
-from dacli.core import runtime
+from dacli.core import paths, runtime
 from dacli.core.extensions import ExtensionDispatchRegistry, ExtensionHost
 from dacli.core.governance_wiring import build_governor
 from dacli.core.kernel import AgentResponse, Kernel
@@ -115,16 +115,34 @@ class DacliHost:
         llm: object | None = None,
     ):
         self.settings = settings
+        # Workspace-scoped roots (M15). With a workspace active, state/history/
+        # secrets/audit hang off its overlay so two workspaces never share a
+        # ledger or a secret store; the default workspace keeps the configured
+        # paths byte-for-byte. ``state_dir``/``resource_dir`` already route the
+        # extension + secrets *resolution* through the same precedence (M02).
+        self.workspace = paths.active_workspace()
+        _base = paths.session_state_base(settings.agent.state_path)
+        _base_dir = str(_base)
+        if self.workspace is not None:
+            _base.mkdir(parents=True, exist_ok=True)
+            _state_path = f"{_base / 'state'}{os.sep}"
+            _history_path = f"{_base / 'history'}{os.sep}"
+            _memory_path = f"{_base / 'memory'}{os.sep}"
+        else:
+            _state_path = settings.agent.state_path
+            _history_path = settings.agent.history_path
+            _memory_path = None
+
         self.memory = memory or AgentMemory(
-            state_path=settings.agent.state_path,
-            history_path=settings.agent.history_path,
+            state_path=_state_path,
+            history_path=_history_path,
             memory_window=settings.agent.memory_window,
+            **({"memory_path": _memory_path} if _memory_path else {}),
         )
         self.system_prompt = system_prompt or load_system_prompt()
         self._on_status_update = on_status_update
         self.llm = llm or LLMClient(settings)
 
-        _base_dir = str(Path(settings.agent.state_path).parent)
         self.store = store or DacliStore(base_dir=_base_dir)
         self._pricing = None
         self._pricing_loaded = False
@@ -202,6 +220,7 @@ class DacliHost:
             on_approval=on_approval,
             env_resolver=self._resolve_environment,
             on_cost=self._record_warehouse_cost,
+            state_dir=_base_dir,
         )
         from dacli.core.test_mode import test_mode as _test_mode
         self.dispatcher = Dispatcher(

@@ -8,7 +8,7 @@
 
 [![CI](https://github.com/mouadja02/dacli/actions/workflows/ci.yml/badge.svg)](https://github.com/mouadja02/dacli/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-687-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-703-brightgreen.svg)](#testing)
 [![Reliability](https://img.shields.io/badge/reliability-pass%5Ek-orange.svg)](docs/EVALUATION.md)
 [![Architecture](https://img.shields.io/badge/architecture-six--component%20harness-8A2BE2.svg)](docs/ARCHITECTURE.md)
 
@@ -343,7 +343,7 @@ governed plan offline (`dacli replay examples/warehouse-snowflake/scenario.json`
 ### In-chat slash commands
 
 `/help` · `/keys` · `/init` · `/status` · `/doctor` · `/usage` · `/context` · `/audit` · `/why-failed [dag]` · `/tools` · `/connect [ext]` ·
-`/new-extension` · `/reload` · `/testmode [tool]` ·
+`/new-extension` · `/reload` · `/workspace [name]` · `/testmode [tool]` ·
 `/setup` · `/history` · `/find <text>` · `/last-error` · `/expand <id>` · `/transcript` · `/sessions` ·
 `/catalog [connector]` · `/schema <object>` · `/load <id>` · `/export` ·
 `/config` · `/theme <name>` · `/prompt` · `/clear` · `/cls` · `/reset` · `/exit`

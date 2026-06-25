@@ -19,6 +19,7 @@ CLI_COMMANDS = [
     ("/connect [ext]", "Configure an extension's credentials — interactive, or pass a name"),
     ("/new-extension", "Generate a new extension from a natural-language description"),
     ("/reload", "Reload extensions from disk without restarting"),
+    ("/workspace [name]", "List or switch workspaces (own extensions, secrets, history, audit)"),
     ("/testmode [tool]", "Toggle staging test mode (health-gated, side-effect-free) for new connectors"),
     ("/setup", "Walk through a first connection (conversational onboarding)"),
     ("/history", "Show conversation history"),

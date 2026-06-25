@@ -52,6 +52,10 @@
     "Reload extensions from disk without restarting"
   ],
   [
+    "/workspace [name]",
+    "List or switch workspaces (own extensions, secrets, history, audit)"
+  ],
+  [
     "/testmode [tool]",
     "Toggle staging test mode (health-gated, side-effect-free) for new connectors"
   ],

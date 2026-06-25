@@ -131,21 +131,27 @@ async def run_chat(
         )
 
     # Initialize the host (M09) — UI methods wired directly as kernel callbacks.
-    agent = DacliHost(
-        settings=settings,
-        memory=memory,
-        on_status_update=chat_ui.status,
-        on_tool_start=chat_ui.tool_start,
-        on_tool_end=chat_ui.tool_end,
-        on_tool_progress=chat_ui.tool_progress,
-        on_user_input_needed=on_user_input_needed,
-        on_approval=on_approval,
-        on_stream_start=chat_ui.on_stream_start,
-        on_text=chat_ui.on_text,
-        on_stream_end=chat_ui.on_stream_end,
-        connectors_config_path=CONNECTORS_CONFIG_PATH,
-        store=store,
-    )
+    # Wrapped in a factory so a `/workspace` switch can rebuild the host for the
+    # newly active workspace without restarting the process (M15). Passing
+    # memory/store=None lets the host derive workspace-scoped ones.
+    def make_host(settings, memory=None, store=None):
+        return DacliHost(
+            settings=settings,
+            memory=memory,
+            on_status_update=chat_ui.status,
+            on_tool_start=chat_ui.tool_start,
+            on_tool_end=chat_ui.tool_end,
+            on_tool_progress=chat_ui.tool_progress,
+            on_user_input_needed=on_user_input_needed,
+            on_approval=on_approval,
+            on_stream_start=chat_ui.on_stream_start,
+            on_text=chat_ui.on_text,
+            on_stream_end=chat_ui.on_stream_end,
+            connectors_config_path=CONNECTORS_CONFIG_PATH,
+            store=store,
+        )
+
+    agent = make_host(settings, memory, store)
 
     # Initialize connections (the agent emits its own progress via on_status).
     con.print()
@@ -211,17 +217,20 @@ async def run_chat(
         store=store,
         settings=settings,
         config_path=config_path,
+        make_host=make_host,
     )
 
     # Set up prompt toolkit for better input
     history_file = Path(settings.agent.history_path) / "input_history.txt"
     history_file.parent.mkdir(parents=True, exist_ok=True)
 
+    # The toolbar reads ctx.* (not the construction-time locals) so a `/workspace`
+    # switch, which swaps ctx.agent/memory/store, is reflected without a restart.
     def _session_cost() -> str:
         # Live per-session $cost for the bottom bar; blank on any hiccup.
         # O(1) lookup — the toolbar recomputes this on every keystroke.
         try:
-            return reports.fmt_cost(store.session_cost_usd(memory.session_id))
+            return reports.fmt_cost(ctx.store.session_cost_usd(ctx.memory.session_id))
         except Exception:
             return ""
 
@@ -229,7 +238,7 @@ async def run_chat(
         # Live per-session warehouse $spend (P14), shown next to the LLM cost.
         # Blank until a governed warehouse action records an estimate.
         try:
-            usd = store.session_warehouse_usd(memory.session_id)
+            usd = ctx.store.session_warehouse_usd(ctx.memory.session_id)
             return reports.fmt_cost(usd) if usd else ""
         except Exception:
             return ""
@@ -240,9 +249,9 @@ async def run_chat(
         return chat_ui.bottom_toolbar(
             provider=ctx.settings.llm.provider,
             model=ctx.settings.llm.model,
-            connectors=_enabled_connector_names(agent.registry),
-            ctx_pct=_ctx_pct(memory, agent),
-            session=memory.session_id,
+            connectors=_enabled_connector_names(ctx.agent.registry),
+            ctx_pct=_ctx_pct(ctx.memory, ctx.agent),
+            session=ctx.memory.session_id,
             test_mode=_tm.toolbar_text(),
             cost=_session_cost(),
             wh_cost=_warehouse_cost(),
@@ -284,11 +293,11 @@ async def run_chat(
                 con.print()
                 if getattr(ctx.settings.ui, "show_header", False):
                     chat_ui.turn_header(
-                        model=ctx.settings.llm.model, session=memory.session_id
+                        model=ctx.settings.llm.model, session=ctx.memory.session_id
                     )
 
                 try:
-                    response = await agent.process_message(user_input)
+                    response = await ctx.agent.process_message(user_input)
                 except KeyboardInterrupt:
                     chat_ui.stream.abort()
                     chat_ui.notice("Interrupted.", style="warning")
@@ -316,5 +325,5 @@ async def run_chat(
     finally:
         chat_ui.stream.abort()
         con.print("\n[muted]Cleaning up…[/muted]")
-        await agent.shutdown()
+        await ctx.agent.shutdown()
         chat_ui.notice("Goodbye 👋", style="success")

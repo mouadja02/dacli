@@ -29,6 +29,7 @@ def build_governor(
     on_approval: Callable[[Any], bool] | None,
     env_resolver: Callable[[str, dict, Any], str | None],
     on_cost: Callable[[float], None],
+    state_dir: str | None = None,
 ) -> Governor | None:
     gov = getattr(settings, "governance", None)
     if gov is not None and not gov.enabled:
@@ -64,8 +65,8 @@ def build_governor(
         _shell_scope = Scope.WRITE
     permissions.grant("shell", _shell_scope)
 
-    state_dir = str(Path(settings.agent.state_path).parent)
-    audit_path = (getattr(gov, "audit_path", None) or f"{state_dir}/audit.jsonl") if gov else f"{state_dir}/audit.jsonl"
+    base_dir = state_dir or str(Path(settings.agent.state_path).parent)
+    audit_path = (getattr(gov, "audit_path", None) or f"{base_dir}/audit.jsonl") if gov else f"{base_dir}/audit.jsonl"
     ledger = AuditLedger(path=audit_path)
 
     # P12 lineage: best-effort blast-radius evidence (dbt + catalog + persisted
