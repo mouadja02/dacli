@@ -9,11 +9,9 @@
   quote) before being embedded in the information_schema literal.
 """
 
-import asyncio
 import io
 import sys
 import tempfile
-import types
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
@@ -21,8 +19,6 @@ from unittest import mock
 
 from dacli.config import settings as settings_module
 from dacli.config.settings import Settings, _substitute_env_vars, load_config
-from dacli.connectors.cli_base import CliResult
-from dacli.connectors.mysql.connector import MySQLConnector
 from dacli.core import connector_generator
 from dacli.core.connector_generator import validate_connector
 
@@ -141,30 +137,6 @@ class UnsetEnvVarWarningTest(unittest.TestCase):
         settings_module._warned_env_vars.add("DACLI_P06_ALREADY_WARNED")
         msg = settings_module._warn_unresolved_env_vars({"DACLI_P06_ALREADY_WARNED"})
         self.assertIsNone(msg)
-
-
-class MySQLIdentifierEscapingTest(unittest.TestCase):
-    """Fix E: identifiers are data — backslashes can't defeat quote-doubling."""
-
-    def test_escape_literal_doubles_backslashes_then_quotes(self):
-        self.assertEqual(
-            MySQLConnector._escape_literal("x\\' OR 1=1 -- "),
-            "x\\\\'' OR 1=1 -- ",
-        )
-
-    def test_introspect_embeds_the_escaped_identifier(self):
-        captured: list = []
-
-        async def runner(argv, *, cwd=None, env=None, timeout=None, stdin=None):
-            captured.append(list(argv))
-            return CliResult(rc=0, stdout="", argv=list(argv))
-
-        cfg = types.SimpleNamespace(host="h", port=3306, database="db", user="u",
-                                    password="p", mysql_binary="mysql", timeout=300)
-        conn = MySQLConnector(types.SimpleNamespace(mysql=cfg), runner=runner)
-        asyncio.run(conn.invoke("introspect_mysql_table", {"object": "t\\' --"}))
-        sql = captured[0][-1]
-        self.assertIn("table_name = 't\\\\'' --'", sql)
 
 
 if __name__ == "__main__":

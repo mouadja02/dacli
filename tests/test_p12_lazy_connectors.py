@@ -1,9 +1,9 @@
 """P12 Part 1.3 — connector SDK imports are lazy (inside connect()).
 
-A connector for an optional extra (snowflake, pinecone) must import, construct,
-and appear in the registry even when its heavy SDK is not installed. Only an
-actual ``connect()`` attempt asks for the SDK, and a missing one degrades to an
-actionable "install dacli[<name>]" hint — never an import crash at cold start.
+The snowflake seed (an optional extra) must import and construct even when its
+heavy SDK is not installed. Only an actual ``connect()`` attempt asks for the
+SDK, and a missing one degrades to an actionable "install dacli[snowflake]" hint
+— never an import crash at cold start.
 """
 
 import asyncio
@@ -24,9 +24,7 @@ def _import_with_sdk_blocked(*blocked: str) -> subprocess.CompletedProcess:
     code = (
         "import sys; " + blockers + "; "
         "import dacli.connectors.snowflake.connector as s; "
-        "import dacli.connectors.pinecone.connector as p; "
         "assert hasattr(s, 'SnowflakeConnector'); "
-        "assert hasattr(p, 'PineconeConnector'); "
         "print('ok')"
     )
     return subprocess.run(
@@ -36,9 +34,7 @@ def _import_with_sdk_blocked(*blocked: str) -> subprocess.CompletedProcess:
 
 class ColdStartUnaffectedTest(unittest.TestCase):
     def test_connector_modules_import_without_their_sdks(self):
-        proc = _import_with_sdk_blocked(
-            "snowflake", "snowflake.connector", "pinecone"
-        )
+        proc = _import_with_sdk_blocked("snowflake", "snowflake.connector")
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertIn("ok", proc.stdout)
 
@@ -52,15 +48,6 @@ class ConnectDegradesCleanlyTest(unittest.TestCase):
                 self.assertRaises(ConnectionError) as ctx:
             asyncio.run(conn.connect())
         self.assertIn("dacli[snowflake]", str(ctx.exception))
-
-    def test_pinecone_connect_without_sdk_gives_install_hint(self):
-        import dacli.connectors.pinecone.connector as mod
-
-        conn = mod.PineconeConnector(settings=mock.MagicMock())
-        with mock.patch.dict(sys.modules, {"pinecone": None}), \
-                self.assertRaises(ConnectionError) as ctx:
-            asyncio.run(conn.connect())
-        self.assertIn("dacli[pinecone]", str(ctx.exception))
 
 
 if __name__ == "__main__":

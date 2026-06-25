@@ -52,24 +52,19 @@ def _result(task_id, connector, stakes, *, k, succ, failed_step=None,
 # ===========================================================================
 class GoldenSuiteCoverageTest(unittest.TestCase):
     def test_every_discovered_connector_has_a_golden_task(self):
+        # After M11 only the seeds' old Connector classes remain on disk; each
+        # still gets a structural DoD golden task.
         suite = build_connector_suite()
         covered = {t.connector for t in suite}
-        for expected in ("snowflake", "github", "dbt", "bigquery", "databricks",
-                         "s3", "gcs", "postgres", "mysql", "mongodb", "dynamodb",
-                         "airflow", "dagster"):
+        for expected in ("snowflake", "github"):
             self.assertIn(expected, covered, f"{expected} has no golden task")
-
-    def test_concrete_executable_tasks_exist(self):
-        ids = {t.id for t in build_connector_suite()}
-        for tid in ("s3.put", "s3.delete", "bigquery.create", "databricks.select"):
-            self.assertIn(tid, ids)
 
     def test_sim_suite_runs_and_passes(self):
         # The full sim suite (the CI entrypoint) runs cleanly and every task
         # holds its pass^k bar against the deterministic simulator.
         harness = EvalHarness(history_path=_tmp("history.jsonl"), k_scale=0.34)
         report = _run(harness.run_suite("sim", build_golden_suite(), persist=False))
-        self.assertGreater(len(report.results), 20)
+        self.assertGreater(len(report.results), 5)
         self.assertGreaterEqual(report.pass_k, 0.95,
                                 "\n".join(f"{r.task_id}: {r.success_rate:.2f} "
                                           f"({r.runs[0].detail})"
