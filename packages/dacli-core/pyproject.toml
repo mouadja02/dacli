@@ -51,4 +51,3 @@ namespaces = true
 "dacli.prompts" = ["*.md", "fragments/*.md"]
 "dacli.config" = ["*.yaml"]
 "dacli.connectors" = ["templates/*", "**/manifest.yaml", "**/SKILL.md"]
-"dacli.skills" = ["**/SKILL.md"]

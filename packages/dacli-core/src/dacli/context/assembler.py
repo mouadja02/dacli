@@ -231,9 +231,25 @@ def build_context(
         note = "Only names + descriptions are shown. Call load_connector_tools(connector_id) to disclose a connector's full operations before using it."
         digest_section = _section("Available connectors", [note, *digest_lines])
 
+    # -- skills digest (SKILL.md progressive disclosure) ---------------------
+    from dacli.core.skills import discover_skills
+
+    skill_lines: list[str] = []
+    for s in discover_skills():
+        line = f"- {s['name']}: {s['description']} (read: {s['path']})"
+        stok = counter.count(line)
+        if not tracker.add(SKILLS, stok):
+            break
+        skill_lines.append(line)
+    skills_section = ""
+    if skill_lines:
+        note = "Methods you can apply. Read the file for the full procedure before using one."
+        skills_section = _section("Skills", [note, *skill_lines])
+
     # -- compose the system prompt (the head) --------------------------------
     system_prompt = "\n\n".join(
-        s for s in (base_system_prompt, priors_section, live_section, mem_section, digest_section) if s
+        s for s in (base_system_prompt, priors_section, live_section, mem_section,
+                    digest_section, skills_section) if s
     )
 
     # -- history (recent turns; task + latest tool result pinned, task at tail)
