@@ -1,8 +1,7 @@
 # Contributing to dacli
 
-dacli is a reliability-first data-engineering agent built as a thin extension host over a
-governed core. The bar reflects that. One rule is non-negotiable:
-
+dacli is a data-engineering agent — a thin extension host over a governed core.
+One rule:
 > **Governance and verification are core, even for generated code.** Every tool — bundled,
 > generated, or installed — declares a blast-radius tier and at least one environment-anchored
 > post-condition, or it doesn't register. CI enforces it.

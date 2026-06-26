@@ -1,6 +1,6 @@
 # dacli documentation
 
-Reference documentation for **dacli**, the reliability-first data-engineering agent.
+Reference documentation for **dacli**, a data-engineering agent for the terminal.
 Start with the [project README](../README.md) for an overview and quick start.
 
 ## Contents

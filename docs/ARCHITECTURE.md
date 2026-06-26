@@ -1,9 +1,8 @@
 # Architecture
 
-dacli is engineered as a **six-component harness**, following
-*["From Model Scaling to System Scaling: Scaling the Harness in Agentic AI"](https://arxiv.org/abs/2605.26112)*.
-The central premise is that agent reliability is a property of the *system around the model*, not the model
-itself — so each component is designed, scaled, and tested as a first-class concern.
+dacli is a six-component harness. The framing comes from
+*["From Model Scaling to System Scaling"](https://arxiv.org/abs/2605.26112)* —
+agent reliability is a property of the system around the model, not the model itself.
 
 ```
 𝒫_H = Φ(ℛ, ℳ, 𝒞, 𝒮, 𝒪, 𝒢)
