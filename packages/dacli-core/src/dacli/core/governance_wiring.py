@@ -12,10 +12,18 @@ from typing import Any
 from collections.abc import Callable
 
 from dacli.config.settings import Settings
+from dacli.core import paths
 from dacli.core.logging_setup import get_logger
 from dacli.governance import (
-    ActionClassifier, AuditLedger, Governor, PermissionRegistry,
-    PolicyEngine, RollbackStrategist, Scope, ShadowExecutor,
+    ActionClassifier,
+    AuditLedger,
+    EscalationFn,
+    Governor,
+    PermissionRegistry,
+    PolicyEngine,
+    RollbackStrategist,
+    Scope,
+    ShadowExecutor,
 )
 from dacli.governance.policy_engine import load_policy_config
 
@@ -27,6 +35,7 @@ def build_governor(
     *,
     session_id: str,
     on_approval: Callable[[Any], bool] | None,
+    on_escalation: EscalationFn | None = None,
     env_resolver: Callable[[str, dict, Any], str | None],
     on_cost: Callable[[float], None],
     state_dir: str | None = None,
@@ -35,7 +44,7 @@ def build_governor(
     if gov is not None and not gov.enabled:
         return None  # explicitly disabled (trusted offline run)
 
-    policy_path = getattr(gov, "policy_path", "config/policy.yaml") if gov else "config/policy.yaml"
+    policy_path = str(paths.resolve_policy_path(settings))
     config = load_policy_config(policy_path)
     policy = PolicyEngine(config)
 
@@ -45,7 +54,9 @@ def build_governor(
         default_scope = Scope(getattr(gov, "default_scope", "read_only"))
     except Exception:
         default_scope = Scope.READ_ONLY
-    permissions = PermissionRegistry.from_policy_config(config, default_scope=default_scope)
+    permissions = PermissionRegistry.from_policy_config(
+        config, default_scope=default_scope
+    )
     # Built-in harness connectors (system/sandbox) are not external platforms —
     # least-privilege scoping targets platform blast radius, and their
     # sub-actions (e.g. each governed sdk.run inside the sandbox) are gated
@@ -66,7 +77,11 @@ def build_governor(
     permissions.grant("shell", _shell_scope)
 
     base_dir = state_dir or str(Path(settings.agent.state_path).parent)
-    audit_path = (getattr(gov, "audit_path", None) or f"{base_dir}/audit.jsonl") if gov else f"{base_dir}/audit.jsonl"
+    audit_path = (
+        (getattr(gov, "audit_path", None) or f"{base_dir}/audit.jsonl")
+        if gov
+        else f"{base_dir}/audit.jsonl"
+    )
     ledger = AuditLedger(path=audit_path)
 
     # P12 lineage: best-effort blast-radius evidence (dbt + catalog + persisted
@@ -74,6 +89,7 @@ def build_governor(
     lineage = None
     try:
         from dacli.memory.graph.lineage import build_project_lineage
+
         lineage = build_project_lineage(settings)
     except Exception:
         log.debug("lineage store unavailable", exc_info=True)
@@ -94,6 +110,7 @@ def build_governor(
         ledger=ledger,
         session_id=session_id,
         approval_fn=on_approval,
+        escalation_fn=on_escalation,
         env_resolver=env_resolver,
         enforce=True,
         use_shadow=bool(getattr(gov, "shadow_execution", True)) if gov else True,

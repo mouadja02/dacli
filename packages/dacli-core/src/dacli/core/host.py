@@ -32,6 +32,7 @@ from dacli.core.extensions import ExtensionDispatchRegistry, ExtensionHost
 from dacli.core.governance_wiring import build_governor
 from dacli.core.kernel import AgentResponse, Kernel
 from dacli.core.logging_setup import get_logger, is_debug
+from dacli.governance.governor import EscalationFn
 from dacli.core.memory import AgentMemory
 from dacli.ai.pricing import TokenUsage, fetch_pricing
 from dacli.core.secrets import SecretStore
@@ -45,9 +46,9 @@ from dacli.sandbox.terminal import TerminalSession
 
 log = get_logger(__name__)
 
-# Connector ids the seeds took over (M08). Excluded from the connector path so
-# the register(api) seeds own their tool names. ``shell`` ships no manifest, but
-# it's named here so the intent reads in one place.
+# Connector ids owned by seeds (M08). No packaged Connector classes exist for
+# these anymore — they live as register(api) extensions. Listed here so the
+# connector registry doesn't try to discover a manifest for them.
 _SEED_CONNECTORS = frozenset({"snowflake", "github", "shell"})
 
 
@@ -61,23 +62,32 @@ class _HostRegistry:
     excluded from the connector path.
     """
 
-    def __init__(self, connectors: ConnectorRegistry, ext_dispatch, ext_registry):
+    def __init__(self, connectors: ConnectorRegistry, ext_host):
         self._connectors = connectors
-        self._ext = ext_dispatch
-        self._ext_registry = ext_registry
+        self._ext_host = ext_host
+
+    @property
+    def _ext_registry(self):
+        return self._ext_host.registry
 
     def resolve(self, tool_name: str):
-        return self._ext.resolve(tool_name) or self._connectors.resolve(tool_name)
+        dispatch = ExtensionDispatchRegistry(self._ext_registry)
+        return dispatch.resolve(tool_name) or self._connectors.resolve(tool_name)
 
     def get_operation_spec(self, tool_name: str):
-        return self._ext.get_operation_spec(tool_name) or self._connectors.get_operation_spec(tool_name)
+        dispatch = ExtensionDispatchRegistry(self._ext_registry)
+        return dispatch.get_operation_spec(
+            tool_name
+        ) or self._connectors.get_operation_spec(tool_name)
 
     def is_builtin(self, name: str) -> bool:
         if name in self._ext_registry.extension_ids():
             return True
         return self._connectors.is_builtin(name)
 
-    def get_tool_definitions(self, connector_ids: Iterable[str] | None = None) -> list[dict[str, Any]]:
+    def get_tool_definitions(
+        self, connector_ids: Iterable[str] | None = None
+    ) -> list[dict[str, Any]]:
         # Connectors honor progressive disclosure; extensions are always-on (like
         # built-ins) so their tools are offered every turn.
         defs = list(self._connectors.get_tool_definitions(connector_ids=connector_ids))
@@ -104,6 +114,7 @@ class DacliHost:
         on_tool_progress: Callable[[str, str], None] | None = None,
         on_user_input_needed: Callable[[str], str] | None = None,
         on_approval: Callable[[object], bool] | None = None,
+        on_escalation: EscalationFn | None = None,
         on_stream_start: Callable[[], None] | None = None,
         on_text: Callable[[str], None] | None = None,
         on_stream_end: Callable[[str], None] | None = None,
@@ -151,10 +162,12 @@ class DacliHost:
 
         # Always-on built-in connectors. Shell is no longer here — it's a seed.
         self._system_connector = SystemConnector(
-            settings=settings, memory=self.memory,
+            settings=settings,
+            memory=self.memory,
             on_user_input_needed=on_user_input_needed,
         )
         self._system_connector.bind_llm(self.llm)
+        self._system_connector.bind_secrets(self.secrets)
         _sandbox_on = getattr(getattr(settings, "sandbox", None), "enabled", True)
         self._sandbox_connector = SandboxConnector(settings) if _sandbox_on else None
 
@@ -178,11 +191,10 @@ class DacliHost:
             )
             self._scrollback_store = ScrollbackStore(root=_ws_root, session_id=_sid)
             self._scrollback_source = ScrollbackSource(
-                session=self._terminal_session, store=self._scrollback_store,
+                session=self._terminal_session,
+                store=self._scrollback_store,
             )
-            runtime.set_terminal(
-                self._terminal_session, self._scrollback_store, _term
-            )
+            runtime.set_terminal(self._terminal_session, self._scrollback_store, _term)
 
         _builtins: list = [self._system_connector]
         if self._sandbox_connector is not None:
@@ -203,21 +215,21 @@ class DacliHost:
             config_provider=self.secrets.config, settings=settings
         )
         self.ext_host.load()
-        self._ext_registry = self.ext_host.registry
-        self._combined = _HostRegistry(
-            self.registry, ExtensionDispatchRegistry(self._ext_registry), self._ext_registry,
-        )
+        self._system_connector.bind_extension_host(self.ext_host)
+        self._combined = _HostRegistry(self.registry, self.ext_host)
 
         self.verifier = Verifier(enforce=True)
         self.governor = build_governor(
             settings,
             session_id=getattr(self.memory, "session_id", ""),
             on_approval=on_approval,
+            on_escalation=on_escalation,
             env_resolver=self._resolve_environment,
             on_cost=self._record_warehouse_cost,
             state_dir=_base_dir,
         )
         from dacli.core.test_mode import test_mode as _test_mode
+
         self.dispatcher = Dispatcher(
             self._combined,
             memory=self.memory,
@@ -233,8 +245,10 @@ class DacliHost:
         if self._sandbox_connector is not None:
             _sid = getattr(self.memory, "session_id", "default") or "default"
             _rt, self._sandbox_backend = build_sandbox_runtime(
-                settings, self.dispatcher.execute,
-                registry=self._combined, session_id=_sid,
+                settings,
+                self.dispatcher.execute,
+                registry=self._combined,
+                session_id=_sid,
             )
             self._sandbox_connector.bind_runtime(_rt)
 
@@ -263,6 +277,14 @@ class DacliHost:
         )
 
     # ------------------------------------------------------------------
+    # Live extension registry — always reads from ext_host so reloads
+    # are visible to slash commands and the dispatcher immediately.
+    # ------------------------------------------------------------------
+    @property
+    def _ext_registry(self):
+        return self.ext_host.registry
+
+    # ------------------------------------------------------------------
     # Pricing / usage (verbatim from the old agent)
     # ------------------------------------------------------------------
     def _get_pricing(self):
@@ -270,7 +292,8 @@ class DacliHost:
             self._pricing_loaded = True
             try:
                 self._pricing = fetch_pricing(
-                    self.settings.llm.provider, self.settings.llm.model,
+                    self.settings.llm.provider,
+                    self.settings.llm.model,
                     cache_dir=self._pricing_base_dir,
                 )
             except Exception:
@@ -286,7 +309,10 @@ class DacliHost:
         cost = pricing.cost_for(usage) if pricing else 0.0
         try:
             self.store.record_usage(
-                self.memory.session_id, self.settings.llm.model, usage, cost,
+                self.memory.session_id,
+                self.settings.llm.model,
+                usage,
+                cost,
                 first_prompt=user_message,
             )
             self.store.save()
@@ -295,19 +321,18 @@ class DacliHost:
 
     def _record_warehouse_cost(self, usd: float) -> None:
         try:
-            self.store.record_warehouse_cost(getattr(self.memory, "session_id", ""), usd)
+            self.store.record_warehouse_cost(
+                getattr(self.memory, "session_id", ""), usd
+            )
         except Exception:
             log.debug("could not record warehouse cost", exc_info=True)
 
-    def _resolve_environment(self, connector_id: str, args: dict, connector) -> str | None:
-        try:
-            if connector_id == "snowflake":
-                db = getattr(getattr(self.settings, "snowflake", None), "database", "") or ""
-                return db or None
-            if connector_id == "github":
-                return getattr(getattr(self.settings, "github", None), "branch", None)
-        except Exception:
-            return None
+    def _resolve_environment(
+        self, connector_id: str, args: dict, connector
+    ) -> str | None:
+        # Extensions resolve their own environment context. This hook exists
+        # for the policy engine's per-environment overrides; extensions that
+        # need it will supply env via their own config/metadata.
         return None
 
     def _emit_status(self, message: str) -> None:
@@ -317,7 +342,9 @@ class DacliHost:
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
-    async def _connect_one(self, connector, catalog: dict) -> tuple[str, bool, str | None]:
+    async def _connect_one(
+        self, connector, catalog: dict
+    ) -> tuple[str, bool, str | None]:
         display = catalog.get(connector.name, {}).get("name", connector.name)
         try:
             self._emit_status(f"Connecting to {display} ...")
@@ -365,11 +392,14 @@ class DacliHost:
 
         skipped = [
             meta.get("name", cid)
-            for cid, meta in catalog.items() if cid not in enabled_ids
+            for cid, meta in catalog.items()
+            if cid not in enabled_ids
         ]
 
-        lines = ["Agent initialized!\nActive tools: " + ", ".join(successfully_initialized)]
-        ext_ids = self._ext_registry.extension_ids()
+        lines = [
+            "Agent initialized!\nActive tools: " + ", ".join(successfully_initialized)
+        ]
+        ext_ids = self.ext_host.registry.extension_ids()
         if ext_ids:
             lines.append("Extensions: " + ", ".join(sorted(ext_ids)))
         if skipped:

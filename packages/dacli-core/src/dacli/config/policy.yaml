@@ -33,26 +33,6 @@ prod_markers:
 #   admin -> +drop/truncate. Tighten any connector to read_only to make it
 #   strictly observe-only.
 connectors:
-  snowflake:
-    scope: admin          # full SQL; set to read_only to make Snowflake observe-only
-    # Connector-wide rules (any environment).
-    tiers: {}
-    environments:
-      # Example: a dev warehouse is low-stakes — let writes through without a
-      # post-condition gate, but still confirm genuinely risky DML.
-      dev:
-        write: auto
-      # Production stays strict (this is the default, shown for clarity).
-      prod:
-        write: verify
-        risky: confirm
-        irreversible: dry_run+approve
-
-  github:
-    scope: admin          # allows push + delete; set to write to forbid deletes
-    tiers: {}
-    environments: {}
-
   # --- Era 2: the governed shell tier --------------------------------------
   # The shell tier (run_shell_command) flows through this SAME policy table: the
   # *command* is blast-radius-classified (an `ls` is safe; `rm -rf` / `git push

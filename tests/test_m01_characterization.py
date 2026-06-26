@@ -15,7 +15,6 @@ an intended change with ``DACLI_M01_RECORD=1 pytest tests/test_m01_characterizat
 """
 
 import asyncio
-import base64
 import json
 import os
 import shutil
@@ -36,9 +35,19 @@ RECORD = os.environ.get("DACLI_M01_RECORD") == "1"
 
 # Keys whose values are timing/identity noise — never part of the behavior we pin.
 _VOLATILE = {
-    "execution_time_ms", "timestamp", "scrollback_handle", "command_id",
-    "backups", "duration_ms", "pid", "started_at", "finished_at",
-    "session_id", "cwd", "session", "backend",
+    "execution_time_ms",
+    "timestamp",
+    "scrollback_handle",
+    "command_id",
+    "backups",
+    "duration_ms",
+    "pid",
+    "started_at",
+    "finished_at",
+    "session_id",
+    "cwd",
+    "session",
+    "backend",
 }
 
 
@@ -54,13 +63,16 @@ def _scrub(obj, tmp=None):
 
 
 def _result_view(result, tmp=None):
-    return _scrub({
-        "tool_name": result.tool_name,
-        "status": result.status.value,
-        "data": result.data,
-        "error": result.error,
-        "metadata": dict(result.metadata or {}),
-    }, tmp)
+    return _scrub(
+        {
+            "tool_name": result.tool_name,
+            "status": result.status.value,
+            "data": result.data,
+            "error": result.error,
+            "metadata": dict(result.metadata or {}),
+        },
+        tmp,
+    )
 
 
 def _assert_or_record(case, actual):
@@ -128,15 +140,22 @@ class FakeHttpx:
 def _governed_spine(connector, scope, script):
     """Wire the real Kernel + Dispatcher + Governor around one injected connector."""
     from dacli.governance import (
-        Governor, ActionClassifier, PolicyEngine, PermissionRegistry, Scope,
-        RollbackStrategist, AuditLedger,
+        Governor,
+        ActionClassifier,
+        PolicyEngine,
+        PermissionRegistry,
+        Scope,
+        RollbackStrategist,
+        AuditLedger,
     )
 
     memory = FakeMemory()
     empty = tempfile.mkdtemp(prefix="dacli_m01_")
     registry = ConnectorRegistry(
-        settings=None, connectors_dir=empty,
-        config_path="__nonexistent__.yaml", extra_connectors=[connector],
+        settings=None,
+        connectors_dir=empty,
+        config_path="__nonexistent__.yaml",
+        extra_connectors=[connector],
     )
     os.rmdir(empty)
 
@@ -144,21 +163,33 @@ def _governed_spine(connector, scope, script):
     perms.grant(connector.name, Scope(scope))
     gov = Governor(
         classifier=ActionClassifier(network="allowlist", egress_allowlist=[]),
-        policy=PolicyEngine(), permissions=perms, strategist=RollbackStrategist(),
+        policy=PolicyEngine(),
+        permissions=perms,
+        strategist=RollbackStrategist(),
         ledger=AuditLedger(path=".dacli/eval/m01_governor.jsonl"),
-        enforce=True, use_shadow=False, approval_fn=lambda req: True,
+        enforce=True,
+        use_shadow=False,
+        approval_fn=lambda req: True,
     )
 
     dispatched = []
     results = []
     dispatcher = Dispatcher(
-        registry, memory=memory, governor=gov,
-        on_tool_start=lambda name, args: dispatched.append({"tool": name, "args": dict(args)}),
+        registry,
+        memory=memory,
+        governor=gov,
+        on_tool_start=lambda name, args: dispatched.append(
+            {"tool": name, "args": dict(args)}
+        ),
         on_tool_end=lambda name, result: results.append(result),
     )
     kernel = Kernel(
-        llm=ScriptedLLM(script), dispatcher=dispatcher, memory=memory,
-        tools=registry.get_tool_definitions(), system_prompt="SYS", max_iterations=10,
+        llm=ScriptedLLM(script),
+        dispatcher=dispatcher,
+        memory=memory,
+        tools=registry.get_tool_definitions(),
+        system_prompt="SYS",
+        max_iterations=10,
     )
     return kernel, dispatched, results
 
@@ -183,38 +214,6 @@ def _turn(connector, scope, tool, args, *, tmp=None):
 
 
 class TurnSnapshots(unittest.TestCase):
-
-    def test_snowflake_read(self):
-        from dacli.connectors.snowflake.connector import SnowflakeConnector
-
-        conn = SnowflakeConnector(SimpleNamespace(connector_config={"snowflake": {}}))
-        conn._connection = object()
-        conn._cursor = FakeCursor(["ID", "NAME"], [(1, "ada"), (2, "linus")])
-        conn.is_connected = True
-
-        actual = _turn(conn, "admin", "execute_snowflake_query",
-                       {"query": "SELECT ID, NAME FROM analytics.users"})
-        _assert_or_record("snowflake_read", actual)
-
-    def test_github_read(self):
-        from dacli.connectors.github.connector import GithubConnector
-
-        settings = SimpleNamespace(connector_config={"github": {
-            "owner": "octo", "repo": "warehouse", "branch": "main",
-        }})
-        conn = GithubConnector(settings)
-        payload = {
-            "path": "dbt_project.yml",
-            "content": base64.b64encode(b"name: warehouse\nversion: 1.0\n").decode(),
-            "sha": "feedface",
-            "size": 31,
-        }
-        conn._client = FakeHttpx(_Resp(200, payload))
-        conn.is_connected = True
-
-        actual = _turn(conn, "read_only", "read_github_file", {"path": "dbt_project.yml"})
-        _assert_or_record("github_read", actual)
-
     def test_shell_command(self):
         from dacli.connectors.shell.connector import ShellConnector
         from dacli.context.sources.terminal import ScrollbackStore
@@ -223,16 +222,27 @@ class TurnSnapshots(unittest.TestCase):
         tmp = tempfile.mkdtemp(prefix="dacli_m01_shell_")
         try:
             session, _sim = make_sim_session("m01sh", tmp)
-            (session.workspace.root / "hello.txt").write_text("hi there\n", encoding="utf-8")
+            (session.workspace.root / "hello.txt").write_text(
+                "hi there\n", encoding="utf-8"
+            )
             store = ScrollbackStore(root=tmp, session_id="m01sh")
-            settings = SimpleNamespace(terminal=SimpleNamespace(
-                network="allowlist", egress_allowlist=[],
-                max_output_chars=2000, wall_clock_seconds=120,
-            ))
+            settings = SimpleNamespace(
+                terminal=SimpleNamespace(
+                    network="allowlist",
+                    egress_allowlist=[],
+                    max_output_chars=2000,
+                    wall_clock_seconds=120,
+                )
+            )
             conn = ShellConnector(settings, session=session, scrollback_store=store)
 
-            actual = _turn(conn, "write", "run_shell_command",
-                           {"command": "cat hello.txt"}, tmp=tmp)
+            actual = _turn(
+                conn,
+                "write",
+                "run_shell_command",
+                {"command": "cat hello.txt"},
+                tmp=tmp,
+            )
             _assert_or_record("shell_command", actual)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -242,7 +252,6 @@ class TurnSnapshots(unittest.TestCase):
 # inventory + doctor shape
 # ---------------------------------------------------------------------------
 class InventorySnapshots(unittest.TestCase):
-
     def test_slash_inventory(self):
         from dacli.config import CLI_COMMANDS
 

@@ -6,6 +6,9 @@
   },
   "connectors": {
     "enabled": "<value>",
+    "ext_failed": "<value>",
+    "ext_failed_detail": {},
+    "extensions": "<value>",
     "skipped": "<value>",
     "skipped_detail": {}
   },

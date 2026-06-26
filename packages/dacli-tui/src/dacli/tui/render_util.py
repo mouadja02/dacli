@@ -1,4 +1,5 @@
 """Pure rendering helpers shared across the tui surfaces (extracted from ui.py, P10)."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -12,19 +13,35 @@ from rich.text import Text
 # Deliberately a small lookup (the startup path attaches hints the same way for
 # failed connectors); first match wins.
 _REMEDIATION_HINTS: tuple[tuple[str, str], ...] = (
-    ("not healthy", "Try /debug-connector <name> to diagnose, or /connect to reconfigure."),
-    ("health check", "Try /debug-connector <name> to diagnose, or /connect to reconfigure."),
+    (
+        "not healthy",
+        "Try /debug-connector <name> to diagnose, or /connect to reconfigure.",
+    ),
+    (
+        "health check",
+        "Try /debug-connector <name> to diagnose, or /connect to reconfigure.",
+    ),
     ("decrypt", "Stored secrets could not be read - re-enter them via /connect."),
     ("unknown tool", "See /tools for what's enabled; /setup to enable more."),
-    ("blocked by governance", "See /audit for the decision; adjust config/policy.yaml if intended."),
-    ("permission denied", "Scope too narrow - see /audit; widen it in config/policy.yaml if intended."),
+    (
+        "blocked by governance",
+        "See /audit for the decision; adjust config/policy.yaml if intended.",
+    ),
+    (
+        "exceeds granted scope",
+        "Run /connect <name> and change the permission scope when prompted.",
+    ),
+    ("permission denied", "Scope too narrow - run /connect <name> to widen it."),
     ("unauthorized", "Credentials look invalid - update them via /connect."),
     ("forbidden", "Credentials look invalid - update them via /connect."),
     ("401", "Credentials look invalid - update them via /connect."),
     ("403", "Credentials look invalid - update them via /connect."),
     ("rate limit", "Provider rate limit - wait a moment and retry."),
     ("429", "Provider rate limit - wait a moment and retry."),
-    ("timed out", "The platform didn't answer in time - check connectivity, then retry."),
+    (
+        "timed out",
+        "The platform didn't answer in time - check connectivity, then retry.",
+    ),
 )
 
 
@@ -34,9 +51,8 @@ def _remediation_hint(message: Any) -> str | None:
         msg = str(message or "").lower()
     except Exception:
         return None
-    return next(
-        (hint for needle, hint in _REMEDIATION_HINTS if needle in msg), None
-    )
+    return next((hint for needle, hint in _REMEDIATION_HINTS if needle in msg), None)
+
 
 def _valid_pt_color(value: str) -> bool:
     """True if ``value`` is a color prompt-toolkit can parse (hex or ansi*)."""
@@ -159,7 +175,7 @@ def _capped_indexed(
 def _rows_table(
     rows: list[dict[str, Any]], max_rows: int = 120, ellipsis: str = "…"
 ) -> RenderableType:
-    """Render row-dicts as a table — every column, head+tail rows when huge.
+    """Render row-dicts as a table — caps columns and cell widths for legibility.
 
     The cap bounds only what is *printed*; ``result.data`` and the off-context
     spill keep every row.
@@ -170,17 +186,46 @@ def _rows_table(
             if key not in columns:
                 columns.append(key)
 
+    # Cap columns to avoid the 4-char-ribbon fold problem. Show at most 8
+    # columns; deeply nested results should use the stacked key/value view
+    # or be fetched as structured data.
+    MAX_COLS = 8
+    MAX_CELL_WIDTH = 60
+    shown_cols = columns[:MAX_COLS]
+    elided_cols = len(columns) - len(shown_cols)
+
     table = Table(
         show_header=True, header_style="muted", box=None, padding=(0, 2, 0, 0)
     )
     table.add_column("#", style="muted", justify="right")
-    for col in columns:
-        table.add_column(str(col), style="info", overflow="fold")
+    for col in shown_cols:
+        table.add_column(
+            str(col), style="info", overflow="ellipsis",
+            no_wrap=True, max_width=MAX_CELL_WIDTH,
+        )
 
     indexed, footer = _capped_indexed(rows, max_rows, "rows", ellipsis=ellipsis)
     for i, row in indexed:
         if row is _GAP:
-            table.add_row(ellipsis, *[ellipsis for _ in columns])
+            table.add_row(ellipsis, *[ellipsis for _ in shown_cols])
             continue
-        table.add_row(str(i), *[_cell(row.get(col)) for col in columns])
+        cells = []
+        for col in shown_cols:
+            val = _cell(row.get(col))
+            # Truncate long cell values to keep the table compact.
+            if len(val) > MAX_CELL_WIDTH:
+                val = val[:MAX_CELL_WIDTH - 1] + ellipsis
+            cells.append(val)
+        table.add_row(str(i), *cells)
+
+    if elided_cols:
+        note = Text(
+            f"    {ellipsis} +{elided_cols} more columns (use /expand for full data)",
+            style="muted",
+        )
+        parts = [table]
+        if footer:
+            parts.append(footer)
+        parts.append(note)
+        return Group(*parts)
     return Group(table, footer) if footer else table

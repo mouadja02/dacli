@@ -12,13 +12,15 @@ enabled.
 
 from typing import Any
 from collections.abc import Callable
+import logging
 
 from dacli.connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from dacli.core.verify import result_succeeded, data_has_keys
 
+log = logging.getLogger(__name__)
+
 
 class SystemConnector(Connector):
-
     name = "system"
 
     def __init__(
@@ -45,6 +47,10 @@ class SystemConnector(Connector):
         # Reasoning LLM, late-bound by the agent so ``generate_connector`` can
         # write a new connector from a natural-language description in-chat.
         self._llm: Any = None
+        # Extension host, late-bound after construction for generation + reload.
+        self._extension_host: Any = None
+        # Secret store, late-bound for config introspection by list_extensions.
+        self._secrets: Any = None
         # Always ready; no external connection.
         self._is_connected = True
 
@@ -64,6 +70,14 @@ class SystemConnector(Connector):
         """Late-bind the reasoning LLM (used by ``generate_connector``)."""
         self._llm = llm
 
+    def bind_extension_host(self, host: Any) -> None:
+        """Late-bind the extension host (generation + hot-reload)."""
+        self._extension_host = host
+
+    def bind_secrets(self, store: Any) -> None:
+        """Late-bind the secret store for config introspection."""
+        self._secrets = store
+
     # ------------------------------------------------------------------
     # Connector contract
     # ------------------------------------------------------------------
@@ -77,14 +91,14 @@ class SystemConnector(Connector):
                     "properties": {
                         "question": {
                             "type": "string",
-                            "description": "The question or information request for the user"
+                            "description": "The question or information request for the user",
                         },
                         "context": {
                             "type": "string",
-                            "description": "Context about what led to this request"
-                        }
+                            "description": "Context about what led to this request",
+                        },
                     },
-                    "required": ["question"]
+                    "required": ["question"],
                 },
                 capability="system.user_input",
                 risk=Risk.SAFE,
@@ -149,38 +163,40 @@ class SystemConnector(Connector):
                 risk=Risk.SAFE,
                 display_name="Load Connector Tools",
                 category="system",
-                postconditions=[data_has_keys("connector_id", "operations", name="disclosed")],
+                postconditions=[
+                    data_has_keys("connector_id", "operations", name="disclosed")
+                ],
             ),
             OperationSpec(
                 name="generate_connector",
                 description=(
-                    "Create a brand-new connector for a platform dacli doesn't support yet, "
-                    "from a natural-language description. Generates the connector code, writes "
-                    "it to connectors/<id>/, validates it, and registers it DISABLED. Tell the "
-                    "user to run /connect <id> to add credentials and /import-connector <id> to "
-                    "enable it (a restart loads it). Use only when no existing connector fits."
+                    "Generate a new extension for a service dacli doesn't support yet. "
+                    "The LLM writes a register(api) module, validates it, and hot-reloads "
+                    "it into the session — no restart needed. Call this autonomously when "
+                    "the user's task needs a service with no existing extension. After "
+                    "generation, tell the user to run /connect <id> to add credentials."
                 ),
                 parameters={
                     "type": "object",
                     "properties": {
                         "name": {
                             "type": "string",
-                            "description": "Short connector id, lowercase, no spaces (e.g. 'stripe', 'jira').",
+                            "description": "Short extension id, lowercase, no spaces (e.g. 'stripe', 'jira').",
                         },
                         "description": {
                             "type": "string",
-                            "description": "What the connector integrates with and which operations it should expose.",
+                            "description": "What the extension integrates with and which operations it should expose.",
                         },
                     },
                     "required": ["name", "description"],
                 },
                 capability="system.generate_connector",
-                # Writes generated code to disk; validation imports it. WRITE so
-                # governance gates it before it runs.
                 risk=Risk.WRITE,
-                display_name="Generate Connector",
+                display_name="Generate Extension",
                 category="system",
-                postconditions=[data_has_keys("connector", "validated", name="connector_generated")],
+                postconditions=[
+                    data_has_keys("connector", "validated", name="connector_generated")
+                ],
             ),
             OperationSpec(
                 name="fetch_result",
@@ -236,6 +252,44 @@ class SystemConnector(Connector):
                 category="system",
                 postconditions=[result_succeeded()],
             ),
+            OperationSpec(
+                name="list_extensions",
+                description="List loaded extensions and whether their credentials are configured.",
+                parameters={"type": "object", "properties": {}},
+                capability="system.list_extensions",
+                risk=Risk.SAFE,
+                display_name="List Extensions",
+                category="system",
+                postconditions=[result_succeeded()],
+            ),
+            OperationSpec(
+                name="edit_extension",
+                description=(
+                    "Fix a broken extension by sending its source and error to the LLM. "
+                    "Call this IMMEDIATELY when a tool call fails with a Python error "
+                    "traceable to extension code. Do not report the error to the user — "
+                    "fix it first, then retry the original operation."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "Extension id to fix (e.g. 'aws_s3').",
+                        },
+                        "error": {
+                            "type": "string",
+                            "description": "The error message or traceback from the failed tool call.",
+                        },
+                    },
+                    "required": ["name", "error"],
+                },
+                capability="system.edit_extension",
+                risk=Risk.WRITE,
+                display_name="Edit Extension",
+                category="system",
+                postconditions=[result_succeeded()],
+            ),
         ]
 
     async def invoke(self, op: str, args: dict[str, Any]) -> ToolResult:
@@ -251,6 +305,10 @@ class SystemConnector(Connector):
             return self._fetch_result(args)
         if op == "fetch_scrollback":
             return self._fetch_scrollback(args)
+        if op == "list_extensions":
+            return self._list_extensions(args)
+        if op == "edit_extension":
+            return await self._edit_extension(args)
         return ToolResult(
             tool_name=op,
             status=ToolStatus.ERROR,
@@ -258,7 +316,9 @@ class SystemConnector(Connector):
         )
 
     async def health(self) -> ToolResult:
-        return ToolResult(tool_name=self.name, status=ToolStatus.SUCCESS, data={"ready": True})
+        return ToolResult(
+            tool_name=self.name, status=ToolStatus.SUCCESS, data={"ready": True}
+        )
 
     # ------------------------------------------------------------------
     # Operations
@@ -274,12 +334,12 @@ class SystemConnector(Connector):
             return ToolResult(
                 tool_name="request_user_input",
                 status=ToolStatus.SUCCESS,
-                data={"user_response": user_response}
+                data={"user_response": user_response},
             )
         return ToolResult(
             tool_name="request_user_input",
             status=ToolStatus.PENDING_APPROVAL,
-            data={"question": question, "context": context}
+            data={"question": question, "context": context},
         )
 
     def _load_connector_tools(self, args: dict[str, Any]) -> ToolResult:
@@ -323,9 +383,74 @@ class SystemConnector(Connector):
             metadata={"disclose": connector_id},
         )
 
+    def _list_extensions(self, args: dict[str, Any]) -> ToolResult:
+        if self._extension_host is None:
+            return ToolResult(
+                tool_name="list_extensions",
+                status=ToolStatus.ERROR,
+                error="Extension host not bound.",
+            )
+        reg = self._extension_host.registry
+        extensions = []
+        for ext_id in reg.extension_ids():
+            configured = (
+                ext_id in self._secrets.extensions() if self._secrets else False
+            )
+            extensions.append(
+                {
+                    "id": ext_id,
+                    "status": "loaded",
+                    "configured": configured,
+                }
+            )
+        for ext_id, reason in reg.failed_extensions().items():
+            extensions.append(
+                {
+                    "id": ext_id,
+                    "status": "failed",
+                    "reason": reason,
+                }
+            )
+        return ToolResult(
+            tool_name="list_extensions",
+            status=ToolStatus.SUCCESS,
+            data={"extensions": extensions, "count": len(extensions)},
+        )
+        reg = self._extension_host.registry
+        extensions = []
+        for ext_id in reg.extension_ids():
+            tools = [
+                t.spec.name
+                for t in reg._tools.values()
+                if hasattr(t, "extension") and t.extension == ext_id
+            ]
+            configured = (
+                ext_id in self._secrets.extensions() if self._secrets else False
+            )
+            extensions.append(
+                {
+                    "id": ext_id,
+                    "status": "loaded",
+                    "configured": configured,
+                    "tools": tools or None,
+                }
+            )
+        for ext_id, reason in reg.failed_extensions().items():
+            extensions.append(
+                {
+                    "id": ext_id,
+                    "status": "failed",
+                    "reason": reason,
+                }
+            )
+        return ToolResult(
+            tool_name="list_extensions",
+            status=ToolStatus.SUCCESS,
+            data={"extensions": extensions, "count": len(extensions)},
+        )
+
     async def _generate_connector(self, args: dict[str, Any]) -> ToolResult:
-        # In-chat connector generation. Mirrors /new-connector minus the prompts,
-        # via the shared, non-interactive generate_connector_files().
+        """In-chat extension generation via core/generate.py + hot-reload."""
         name = (args.get("name") or "").strip()
         description = (args.get("description") or "").strip()
         if not name or not description:
@@ -338,61 +463,77 @@ class SystemConnector(Connector):
             return ToolResult(
                 tool_name="generate_connector",
                 status=ToolStatus.ERROR,
-                error="No LLM is available to generate a connector in this session.",
+                error="No LLM available in this session.",
             )
-
-        # Hard human gate: the agent must NEVER create a connector on its own.
-        # We always ask the user to confirm here — independent of the model —
-        # and we surface the existing connectors so they can decline in favor of
-        # extending one instead of spawning a redundant parallel connector.
-        existing = []
-        if self._registry is not None:
-            try:
-                existing = self._registry.get_connector_ids()
-            except Exception:
-                existing = []
-        existing_str = ", ".join(existing) if existing else "(none)"
-
-        if self._on_user_input_needed is None:
-            # No way to ask a human → fail closed (do not create).
+        if self._extension_host is None:
             return ToolResult(
                 tool_name="generate_connector",
                 status=ToolStatus.ERROR,
-                error=(
-                    "Creating a connector needs your confirmation, but no interactive "
-                    "prompt is available here. Run /new-connector yourself instead."
-                ),
+                error="Extension host not bound; cannot generate.",
             )
 
-        question = (
-            f"The agent wants to CREATE A NEW connector '{name}'.\n"
-            f"  Description: {description}\n"
-            f"  Existing connectors: {existing_str}\n"
-            f"If one of those already covers this platform, decline and ask the agent "
-            f"to extend it instead.\n"
-            f"Create new connector '{name}'? (yes / no)"
-        )
-        answer = (self._on_user_input_needed(question) or "").strip().lower()
-        if answer not in ("y", "yes", "ok", "okay", "confirm", "create", "go", "do it"):
+        # Auto-generate without user confirmation — the agent decides when
+        # a new extension is needed. The governance layer already gates risky ops.
+        existing = []
+        if self._extension_host is not None:
+            try:
+                base = self._extension_host.base_dir()
+                if base.exists():
+                    existing = [p.name for p in base.iterdir() if p.is_dir()]
+            except Exception:
+                log.debug("failed to list extensions", exc_info=True)
+
+        # Reject if extension already exists (use edit_extension to fix it).
+        norm_name = name.lower().replace(" ", "_").replace("-", "_")
+        if norm_name in existing:
             return ToolResult(
                 tool_name="generate_connector",
-                status=ToolStatus.SUCCESS,
-                data={
-                    "connector": None,
-                    "validated": False,
-                    "cancelled": True,
-                    "message": (
-                        f"User declined creating '{name}'. Do NOT create it. Ask whether they "
-                        f"want to extend an existing connector ({existing_str}) instead."
-                    ),
-                },
+                status=ToolStatus.ERROR,
+                error=f"extension '{norm_name}' already exists. Use edit_extension to fix it.",
             )
 
-        from dacli.core.connector_generator import generate_connector_files
+        from dacli.core.generate import (
+            ClarifyUI,
+            GenerationError,
+            SecretInlineError,
+            generate_extension,
+            _fetch_context7_docs_silent,
+        )
+
+        # Fetch Context7 docs silently (no user prompt in the LLM-driven path).
+        docs = None
+        try:
+            docs = await _fetch_context7_docs_silent(name, description)
+        except Exception:
+            log.debug("Context7 docs fetch failed", exc_info=True)
+
+        # Autonomous ClarifyUI: auto-picks first option / confirms yes.
+        # No user interaction needed — the agent makes sensible choices.
+        class _AutoUI(ClarifyUI):
+            def __init__(self, ask_fn=None):
+                self._ask = ask_fn
+
+            def select(self, question: str, options: list[str]) -> str:
+                # Pick first option (most common/standard choice).
+                return options[0] if options else ""
+
+            def confirm(self, question: str) -> bool:
+                return True
+
+            def input(self, prompt: str, *, secret: bool = False) -> str:
+                # If we have a user callback, use it for secrets only.
+                if secret and self._ask:
+                    return self._ask(prompt)
+                return ""
 
         try:
-            result = await generate_connector_files(
-                name, description, self.settings, self._llm
+            result = await generate_extension(
+                name,
+                description,
+                llm=self._llm,
+                ui=_AutoUI(self._on_user_input_needed),
+                host=self._extension_host,
+                docs=docs,
             )
         except FileExistsError as exc:
             return ToolResult(
@@ -400,7 +541,13 @@ class SystemConnector(Connector):
                 status=ToolStatus.ERROR,
                 error=str(exc),
             )
-        except Exception as exc:
+        except SecretInlineError as exc:
+            return ToolResult(
+                tool_name="generate_connector",
+                status=ToolStatus.ERROR,
+                error=f"Rejected: {exc}",
+            )
+        except (GenerationError, ValueError) as exc:
             return ToolResult(
                 tool_name="generate_connector",
                 status=ToolStatus.ERROR,
@@ -414,13 +561,70 @@ class SystemConnector(Connector):
                 "connector": result.name,
                 "path": str(result.path),
                 "validated": result.validated,
+                "reloaded": result.reloaded,
                 "validation_message": result.message,
-                "enabled": False,
-                "next_steps": [
-                    f"/connect {result.name}",
-                    f"/import-connector {result.name}",
-                    f"/testmode {result.name}",
-                ],
+                "next_steps": (
+                    [f"/connect {result.name}"]
+                    if result.reloaded
+                    else [f"Edit {result.path}", "/reload"]
+                ),
+            },
+        )
+
+    async def _edit_extension(self, args: dict[str, Any]) -> ToolResult:
+        """Fix a broken extension by sending its source + error to the LLM."""
+        name = (args.get("name") or "").strip()
+        error = (args.get("error") or "").strip()
+        if not name or not error:
+            return ToolResult(
+                tool_name="edit_extension",
+                status=ToolStatus.ERROR,
+                error="Both 'name' and 'error' are required.",
+            )
+        if self._llm is None:
+            return ToolResult(
+                tool_name="edit_extension",
+                status=ToolStatus.ERROR,
+                error="No LLM available.",
+            )
+        if self._extension_host is None:
+            return ToolResult(
+                tool_name="edit_extension",
+                status=ToolStatus.ERROR,
+                error="Extension host not bound.",
+            )
+
+        from dacli.core.generate import (
+            GenerationError,
+            SecretInlineError,
+            edit_extension,
+        )
+
+        try:
+            result = await edit_extension(
+                name, error, llm=self._llm, host=self._extension_host
+            )
+        except FileNotFoundError as exc:
+            return ToolResult(
+                tool_name="edit_extension",
+                status=ToolStatus.ERROR,
+                error=str(exc),
+            )
+        except (GenerationError, SecretInlineError, ValueError) as exc:
+            return ToolResult(
+                tool_name="edit_extension",
+                status=ToolStatus.ERROR,
+                error=f"Edit failed: {exc}",
+            )
+
+        return ToolResult(
+            tool_name="edit_extension",
+            status=ToolStatus.SUCCESS,
+            data={
+                "extension": result.name,
+                "path": str(result.path),
+                "fixed": result.reloaded,
+                "message": result.message,
             },
         )
 
@@ -445,7 +649,11 @@ class SystemConnector(Connector):
         count = int(count) if count is not None else None
         payload = self._result_store.read(handle, start=start, count=count)
         if "error" in payload:
-            return ToolResult(tool_name="fetch_result", status=ToolStatus.ERROR, error=payload["error"])
+            return ToolResult(
+                tool_name="fetch_result",
+                status=ToolStatus.ERROR,
+                error=payload["error"],
+            )
         # Return the rows as the result data so the CLI renders them as a table.
         return ToolResult(
             tool_name="fetch_result",
@@ -476,7 +684,11 @@ class SystemConnector(Connector):
         count = int(count) if count is not None else None
         payload = self._scrollback.get(command_id, start=start, count=count)
         if "error" in payload:
-            return ToolResult(tool_name="fetch_scrollback", status=ToolStatus.ERROR, error=payload["error"])
+            return ToolResult(
+                tool_name="fetch_scrollback",
+                status=ToolStatus.ERROR,
+                error=payload["error"],
+            )
         return ToolResult(
             tool_name="fetch_scrollback",
             status=ToolStatus.SUCCESS,
@@ -495,10 +707,12 @@ class SystemConnector(Connector):
             if not content:
                 continue
             status = item.get("status", "pending")
-            todos.append({
-                "content": content,
-                "status": status if status in valid else "pending",
-            })
+            todos.append(
+                {
+                    "content": content,
+                    "status": status if status in valid else "pending",
+                }
+            )
 
         self._memory.set_todos(todos)
 

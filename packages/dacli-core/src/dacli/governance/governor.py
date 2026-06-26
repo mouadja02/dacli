@@ -36,7 +36,13 @@ log = get_logger(__name__)
 from dacli.governance.classifier import ActionClassifier, Classification, Tier
 from dacli.governance.vocab import promote as _promote
 from dacli.governance.policy_engine import PolicyDecision, PolicyEngine, PolicyResult
-from dacli.governance.permissions import PermissionRegistry, Scope
+from dacli.governance.permissions import (
+    EscalationChoice,
+    EscalationRequest,
+    PermissionRegistry,
+    Scope,
+    scope_needed_for,
+)
 from dacli.governance.rollback import RollbackPlan, RollbackStrategist
 from dacli.governance.shadow import ShadowExecutor, ShadowResult, supports_shadow
 from dacli.governance.audit import AuditLedger
@@ -45,6 +51,8 @@ from dacli.governance.audit import AuditLedger
 # A human approval callback receives a structured request and returns True to
 # proceed. It is synchronous (like the existing on_user_input_needed hook).
 ApprovalFn = Callable[["ApprovalRequest"], bool]
+# Scope escalation callback: receives an EscalationRequest, returns the choice.
+EscalationFn = Callable[[EscalationRequest], EscalationChoice]
 # Resolves the policy/classification environment for a connector+action.
 EnvResolver = Callable[[str, dict[str, Any], Any], str | None]
 
@@ -67,12 +75,19 @@ class ApprovalRequest:
         lines = [
             f"Action      : {self.tool_name}",
             f"Blast radius: {self.tier.value}"
-            + (f"  (PROD: {self.classification.prod_marker})" if self.classification.is_prod else ""),
+            + (
+                f"  (PROD: {self.classification.prod_marker})"
+                if self.classification.is_prod
+                else ""
+            ),
             f"Why         : {'; '.join(self.classification.reasons)}",
             f"Decision    : {self.policy.decision.value}  [{self.policy.source}]",
             f"Rollback    : {self.rollback_plan.strategy}"
-            + (f"  (verified: {self.rollback_plan.verify_detail})"
-               if self.rollback_plan.primitive not in ("noop", "none") else ""),
+            + (
+                f"  (verified: {self.rollback_plan.verify_detail})"
+                if self.rollback_plan.primitive not in ("noop", "none")
+                else ""
+            ),
         ]
         if self.cost_estimate:
             lines.append(f"Est. cost   : {_format_cost_estimate(self.cost_estimate)}")
@@ -119,6 +134,7 @@ class Governor:
         ledger: AuditLedger | None = None,
         session_id: str = "",
         approval_fn: ApprovalFn | None = None,
+        escalation_fn: EscalationFn | None = None,
         dry_run_fn: Callable[[Any, str, dict[str, Any]], str | None] | None = None,
         env_resolver: EnvResolver | None = None,
         enforce: bool = True,
@@ -131,12 +147,15 @@ class Governor:
             prod_markers=(policy.prod_markers if policy else None) or None
         )
         self.policy = policy or PolicyEngine()
-        self.permissions = permissions or PermissionRegistry(default_scope=Scope.READ_ONLY)
+        self.permissions = permissions or PermissionRegistry(
+            default_scope=Scope.READ_ONLY
+        )
         self.strategist = strategist or RollbackStrategist()
         self.shadow_executor = shadow_executor or ShadowExecutor()
         self.ledger = ledger or AuditLedger()
         self.session_id = session_id
         self._approval_fn = approval_fn
+        self._escalation_fn = escalation_fn
         self._dry_run_fn = dry_run_fn
         self._env_resolver = env_resolver
         self.enforce = enforce
@@ -157,15 +176,31 @@ class Governor:
     # ------------------------------------------------------------------
     # helpers
     # ------------------------------------------------------------------
-    def _audit(self, kind: str, tool_name: str, decision_id: str, actor: str,
-               tier: str | None, summary: str, **detail: Any) -> None:
+    def _audit(
+        self,
+        kind: str,
+        tool_name: str,
+        decision_id: str,
+        actor: str,
+        tier: str | None,
+        summary: str,
+        **detail: Any,
+    ) -> None:
         self.ledger.log(
-            kind, tool_name, session_id=self.session_id, decision_id=decision_id,
-            actor=actor, tier=tier, summary=summary, **detail,
+            kind,
+            tool_name,
+            session_id=self.session_id,
+            decision_id=decision_id,
+            actor=actor,
+            tier=tier,
+            summary=summary,
+            **detail,
         )
 
     @staticmethod
-    def _shell_command(spec: Any, connector_id: str, args: dict[str, Any]) -> str | None:
+    def _shell_command(
+        spec: Any, connector_id: str, args: dict[str, Any]
+    ) -> str | None:
         """Return the shell command string when this is a shell-tier op, else None.
 
         Gated on the op being the shell connector (or declaring a ``shell.``
@@ -181,8 +216,14 @@ class Governor:
     #: How many consumers to name inline before "+N more".
     _LINEAGE_CITE_LIMIT = 5
 
-    def _apply_lineage(self, tool_name: str, args: dict[str, Any],
-                       classification: Classification, decision_id: str, actor: str) -> None:
+    def _apply_lineage(
+        self,
+        tool_name: str,
+        args: dict[str, Any],
+        classification: Classification,
+        decision_id: str,
+        actor: str,
+    ) -> None:
         if self.lineage is None:
             return
         try:
@@ -202,26 +243,39 @@ class Governor:
             if not unique:
                 return
 
-            named = ", ".join(c.display() for c in unique[:self._LINEAGE_CITE_LIMIT])
+            named = ", ".join(c.display() for c in unique[: self._LINEAGE_CITE_LIMIT])
             more = len(unique) - self._LINEAGE_CITE_LIMIT
             if more > 0:
                 named += f", +{more} more"
             tier = classification.tier
-            reason = (f"lineage: {len(unique)} downstream consumer(s) read this object "
-                      f"({named}) → wider blast radius")
+            reason = (
+                f"lineage: {len(unique)} downstream consumer(s) read this object "
+                f"({named}) → wider blast radius"
+            )
             if tier in (Tier.WRITE, Tier.RISKY):
                 promoted = _promote(tier, 1)
                 reason += f"; promote {tier.value}→{promoted.value}"
                 classification.tier = promoted
             classification.reasons.append(reason)
-            self._audit("lineage", tool_name, decision_id, actor,
-                        classification.tier.value, reason,
-                        consumers=[c.to_dict() for c in unique])
+            self._audit(
+                "lineage",
+                tool_name,
+                decision_id,
+                actor,
+                classification.tier.value,
+                reason,
+                consumers=[c.to_dict() for c in unique],
+            )
         except Exception:
             log.debug("lineage blast-radius check raised", exc_info=True)
 
-    def _environment(self, connector_id: str, args: dict[str, Any], connector: Any,
-                     classification: Classification) -> str | None:
+    def _environment(
+        self,
+        connector_id: str,
+        args: dict[str, Any],
+        connector: Any,
+        classification: Classification,
+    ) -> str | None:
         if self._env_resolver is not None:
             try:
                 env = self._env_resolver(connector_id, args, connector)
@@ -232,9 +286,15 @@ class Governor:
         # Fall back to the prod marker the classifier already found.
         return "prod" if classification.is_prod else None
 
-    def _blocked_result(self, tool_name: str, reason: str, status: ToolStatus,
-                        decision_id: str, classification: Classification,
-                        policy: PolicyResult | None) -> ToolResult:
+    def _blocked_result(
+        self,
+        tool_name: str,
+        reason: str,
+        status: ToolStatus,
+        decision_id: str,
+        classification: Classification,
+        policy: PolicyResult | None,
+    ) -> ToolResult:
         meta = {
             "governance": {
                 "decision_id": decision_id,
@@ -244,7 +304,9 @@ class Governor:
                 "policy": policy.to_dict() if policy else None,
             }
         }
-        return ToolResult(tool_name=tool_name, status=status, error=reason, metadata=meta)
+        return ToolResult(
+            tool_name=tool_name, status=status, error=reason, metadata=meta
+        )
 
     # ------------------------------------------------------------------
     # main entry: review a pending action
@@ -261,7 +323,9 @@ class Governor:
         args = dict(args or {})
         decision_id = uuid.uuid4().hex[:12]
         connector_id = getattr(connector, "name", "") or "unknown"
-        declared_risk = getattr(spec, "risk", Risk.SAFE) if spec is not None else Risk.SAFE
+        declared_risk = (
+            getattr(spec, "risk", Risk.SAFE) if spec is not None else Risk.SAFE
+        )
 
         # 1. Classify (blast radius). For the shell tier the *command* — not the
         # op's declared risk — is the truth, so it is parsed by the command
@@ -277,14 +341,24 @@ class Governor:
                 log.debug("env_resolver raised while seeding env hint", exc_info=True)
         command = self._shell_command(spec, connector_id, args)
         classification = self.classifier.classify(
-            tool_name, args, declared_risk=declared_risk, env_hint=env_hint_seed,
+            tool_name,
+            args,
+            declared_risk=declared_risk,
+            env_hint=env_hint_seed,
             command=command,
         )
         tier = classification.tier
         environment = self._environment(connector_id, args, connector, classification)
-        self._audit("classification", tool_name, decision_id, actor, tier.value,
-                    f"tier={tier.value}", classification=classification.to_dict(),
-                    environment=environment)
+        self._audit(
+            "classification",
+            tool_name,
+            decision_id,
+            actor,
+            tier.value,
+            f"tier={tier.value}",
+            classification=classification.to_dict(),
+            environment=environment,
+        )
 
         # 1b. Cost gate (F-4): when configured, an estimate above the
         # threshold raises the effective tier so the confirm path fires —
@@ -297,15 +371,28 @@ class Governor:
                 self._on_cost(float(usd))
             except Exception:
                 log.debug("on_cost sink raised", exc_info=True)
-        if usd is not None and self.cost_confirm_usd is not None and usd > self.cost_confirm_usd:
-            reason = (f"estimated cost ${usd:,.2f} exceeds the "
-                      f"cost_confirm_usd threshold (${self.cost_confirm_usd:,.2f}) → confirm")
+        if (
+            usd is not None
+            and self.cost_confirm_usd is not None
+            and usd > self.cost_confirm_usd
+        ):
+            reason = (
+                f"estimated cost ${usd:,.2f} exceeds the "
+                f"cost_confirm_usd threshold (${self.cost_confirm_usd:,.2f}) → confirm"
+            )
             if tier in (Tier.SAFE, Tier.WRITE):
                 tier = Tier.RISKY
                 classification.tier = tier
             classification.reasons.append(reason)
-            self._audit("cost", tool_name, decision_id, actor, tier.value,
-                        reason, estimate=cost_estimate)
+            self._audit(
+                "cost",
+                tool_name,
+                decision_id,
+                actor,
+                tier.value,
+                reason,
+                estimate=cost_estimate,
+            )
 
         # 1c. Lineage / blast-radius (P12): dropping or replacing an object with
         # known downstream consumers names them and raises the effective tier —
@@ -316,28 +403,87 @@ class Governor:
 
         # 2. Permission / least-privilege scope.
         scope_check = self.permissions.check(connector_id, tier)
-        self._audit("permission", tool_name, decision_id, actor, tier.value,
-                    scope_check.reason, permission=scope_check.to_dict(), connector=connector_id)
+        self._audit(
+            "permission",
+            tool_name,
+            decision_id,
+            actor,
+            tier.value,
+            scope_check.reason,
+            permission=scope_check.to_dict(),
+            connector=connector_id,
+        )
         if not scope_check.allowed and self.enforce:
-            reason = scope_check.reason
-            return GovernanceDecision(
-                allowed=False, decision_id=decision_id, classification=classification,
-                policy=PolicyResult(decision=PolicyDecision.DRY_RUN_APPROVE, tier=tier),
-                blocked_reason=reason,
-                short_circuit=self._blocked_result(
-                    tool_name, f"permission denied: {reason}", ToolStatus.DENIED,
-                    decision_id, classification, None),
+            # Ask the user to escalate instead of failing outright.
+            choice = self._ask_escalation(
+                connector_id, tool_name, scope_check.scope, tier, args
             )
+            if choice == EscalationChoice.ALLOW_ONCE:
+                self._audit(
+                    "escalation",
+                    tool_name,
+                    decision_id,
+                    actor,
+                    tier.value,
+                    f"user allowed once (scope stays {scope_check.scope.value})",
+                    connector=connector_id,
+                )
+                # Fall through — proceed as if scope was sufficient.
+            elif choice == EscalationChoice.ALLOW_PERMANENTLY:
+                new_scope = scope_needed_for(tier)
+                self.permissions.grant(connector_id, new_scope)
+                self._audit(
+                    "escalation",
+                    tool_name,
+                    decision_id,
+                    actor,
+                    tier.value,
+                    f"user granted {new_scope.value} permanently",
+                    connector=connector_id,
+                )
+                # Persist the scope change.
+                self._persist_scope(connector_id, new_scope)
+                # Fall through — proceed with upgraded scope.
+            else:
+                reason = scope_check.reason
+                return GovernanceDecision(
+                    allowed=False,
+                    decision_id=decision_id,
+                    classification=classification,
+                    policy=PolicyResult(
+                        decision=PolicyDecision.DRY_RUN_APPROVE, tier=tier
+                    ),
+                    blocked_reason=reason,
+                    short_circuit=self._blocked_result(
+                        tool_name,
+                        f"permission denied: {reason}",
+                        ToolStatus.DENIED,
+                        decision_id,
+                        classification,
+                        None,
+                    ),
+                )
 
         # 3. Policy decision.
-        policy = self.policy.decide(tier, connector_id=connector_id, environment=environment)
-        self._audit("policy", tool_name, decision_id, actor, tier.value,
-                    f"{policy.decision.value} [{policy.source}]", policy=policy.to_dict())
+        policy = self.policy.decide(
+            tier, connector_id=connector_id, environment=environment
+        )
+        self._audit(
+            "policy",
+            tool_name,
+            decision_id,
+            actor,
+            tier.value,
+            f"{policy.decision.value} [{policy.source}]",
+            policy=policy.to_dict(),
+        )
 
         # 4. Non-interrupting decisions run straight through (auto / verify).
         if not policy.requires_human:
             return GovernanceDecision(
-                allowed=True, decision_id=decision_id, classification=classification,
+                allowed=True,
+                decision_id=decision_id,
+                classification=classification,
                 policy=policy,
                 rollback_plan=self.strategist.plan_for(connector_id, classification),
             )
@@ -346,53 +492,110 @@ class Governor:
         plan = self.strategist.plan_for(connector_id, classification)
         if policy.requires_verified_rollback:
             plan = await self.strategist.verify(plan, connector, args)
-        self._audit("rollback", tool_name, decision_id, actor, tier.value,
-                    plan.strategy, rollback=plan.to_dict())
+        self._audit(
+            "rollback",
+            tool_name,
+            decision_id,
+            actor,
+            tier.value,
+            plan.strategy,
+            rollback=plan.to_dict(),
+        )
 
         # An irreversible action with no *verified* rollback path is refused
         # outright — no human is even asked (exit criterion #1).
         if policy.requires_verified_rollback and not plan.verified:
-            reason = (f"blocked: '{tool_name}' is {tier.value} and no rollback path "
-                      f"could be verified ({plan.verify_detail or 'no native undo'}).")
+            reason = (
+                f"blocked: '{tool_name}' is {tier.value} and no rollback path "
+                f"could be verified ({plan.verify_detail or 'no native undo'})."
+            )
             self._audit("block", tool_name, decision_id, actor, tier.value, reason)
             return GovernanceDecision(
-                allowed=False, decision_id=decision_id, classification=classification,
-                policy=policy, rollback_plan=plan, blocked_reason=reason,
+                allowed=False,
+                decision_id=decision_id,
+                classification=classification,
+                policy=policy,
+                rollback_plan=plan,
+                blocked_reason=reason,
                 short_circuit=self._blocked_result(
-                    tool_name, reason, ToolStatus.BLOCKED, decision_id, classification, policy),
+                    tool_name,
+                    reason,
+                    ToolStatus.BLOCKED,
+                    decision_id,
+                    classification,
+                    policy,
+                ),
             )
 
         # 6. Dry-run preview (best-effort).
-        preview = self._dry_run(connector, tool_name, args) if policy.requires_dry_run else None
+        preview = (
+            self._dry_run(connector, tool_name, args)
+            if policy.requires_dry_run
+            else None
+        )
 
         # 7. Shadow / clone-first execution for transforms (best-effort).
         shadow: ShadowResult | None = None
         if self.use_shadow and supports_shadow(connector):
             shadow = await self.shadow_executor.run(connector, args)
-            self._audit("shadow", tool_name, decision_id, actor, tier.value,
-                        shadow.summary(), shadow=shadow.to_dict())
+            self._audit(
+                "shadow",
+                tool_name,
+                decision_id,
+                actor,
+                tier.value,
+                shadow.summary(),
+                shadow=shadow.to_dict(),
+            )
 
         # 8. Human confirm / approve (fail-closed if no callback wired).
         request = ApprovalRequest(
-            tool_name=tool_name, tier=tier, classification=classification,
-            policy=policy, rollback_plan=plan, args=args,
-            dry_run_preview=preview, shadow=shadow, cost_estimate=cost_estimate,
+            tool_name=tool_name,
+            tier=tier,
+            classification=classification,
+            policy=policy,
+            rollback_plan=plan,
+            args=args,
+            dry_run_preview=preview,
+            shadow=shadow,
+            cost_estimate=cost_estimate,
         )
         approved = self._ask_human(request)
-        self._audit("approval", tool_name, decision_id, "human", tier.value,
-                    "approved" if approved else "denied",
-                    approved=approved, had_callback=self._approval_fn is not None)
+        self._audit(
+            "approval",
+            tool_name,
+            decision_id,
+            "human",
+            tier.value,
+            "approved" if approved else "denied",
+            approved=approved,
+            had_callback=self._approval_fn is not None,
+        )
 
         if not approved:
             if shadow is not None:
                 await self.shadow_executor.discard(connector, shadow)
-            reason = ("denied by user" if self._approval_fn is not None
-                      else "blocked: action requires approval but no approver is available (fail-closed)")
+            reason = (
+                "denied by user"
+                if self._approval_fn is not None
+                else "blocked: action requires approval but no approver is available (fail-closed)"
+            )
             return GovernanceDecision(
-                allowed=False, decision_id=decision_id, classification=classification,
-                policy=policy, rollback_plan=plan, shadow=shadow, blocked_reason=reason,
+                allowed=False,
+                decision_id=decision_id,
+                classification=classification,
+                policy=policy,
+                rollback_plan=plan,
+                shadow=shadow,
+                blocked_reason=reason,
                 short_circuit=self._blocked_result(
-                    tool_name, reason, ToolStatus.DENIED, decision_id, classification, policy),
+                    tool_name,
+                    reason,
+                    ToolStatus.DENIED,
+                    decision_id,
+                    classification,
+                    policy,
+                ),
             )
 
         # Approved. The shadow clone (a preview) is discarded; the real action
@@ -400,36 +603,61 @@ class Governor:
         if shadow is not None:
             await self.shadow_executor.discard(connector, shadow)
         return GovernanceDecision(
-            allowed=True, decision_id=decision_id, classification=classification,
-            policy=policy, rollback_plan=plan, shadow=shadow,
+            allowed=True,
+            decision_id=decision_id,
+            classification=classification,
+            policy=policy,
+            rollback_plan=plan,
+            shadow=shadow,
             metadata={"dry_run_preview": preview},
         )
 
     # ------------------------------------------------------------------
     # outcome recording (called by the dispatcher after execution)
     # ------------------------------------------------------------------
-    def record_outcome(self, decision: GovernanceDecision, result: ToolResult,
-                       *, actor: str = "agent") -> None:
+    def record_outcome(
+        self, decision: GovernanceDecision, result: ToolResult, *, actor: str = "agent"
+    ) -> None:
         status = getattr(result.status, "value", str(result.status))
-        self._audit("execution", result.tool_name, decision.decision_id, actor,
-                    decision.classification.tier.value,
-                    f"status={status}", status=status, error=result.error)
+        self._audit(
+            "execution",
+            result.tool_name,
+            decision.decision_id,
+            actor,
+            decision.classification.tier.value,
+            f"status={status}",
+            status=status,
+            error=result.error,
+        )
         verification = (result.metadata or {}).get("verification")
         if verification is not None:
-            self._audit("post_condition", result.tool_name, decision.decision_id, actor,
-                        decision.classification.tier.value,
-                        "passed" if verification.get("passed") else "FAILED",
-                        verification=verification)
+            self._audit(
+                "post_condition",
+                result.tool_name,
+                decision.decision_id,
+                actor,
+                decision.classification.tier.value,
+                "passed" if verification.get("passed") else "FAILED",
+                verification=verification,
+            )
 
     def record_memory_write(self, summary: str, **detail: Any) -> None:
-        self._audit("memory_write", detail.get("tool_name", "memory"), detail.get("decision_id", ""),
-                    "agent", None, summary, **detail)
+        self._audit(
+            "memory_write",
+            detail.get("tool_name", "memory"),
+            detail.get("decision_id", ""),
+            "agent",
+            None,
+            summary,
+            **detail,
+        )
 
     # ------------------------------------------------------------------
     # internals
     # ------------------------------------------------------------------
-    async def _estimate_cost(self, spec: Any, args: dict[str, Any],
-                             connector: Any) -> dict[str, Any] | None:
+    async def _estimate_cost(
+        self, spec: Any, args: dict[str, Any], connector: Any
+    ) -> dict[str, Any] | None:
         """Best-effort cost preview via the connector's optional hook.
 
         Only consulted when the cost gate is configured, so the default posture
@@ -451,7 +679,9 @@ class Governor:
             return None
         return estimate if isinstance(estimate, dict) else None
 
-    def _dry_run(self, connector: Any, tool_name: str, args: dict[str, Any]) -> str | None:
+    def _dry_run(
+        self, connector: Any, tool_name: str, args: dict[str, Any]
+    ) -> str | None:
         if self._dry_run_fn is not None:
             try:
                 return self._dry_run_fn(connector, tool_name, args)
@@ -472,3 +702,36 @@ class Governor:
             return bool(self._approval_fn(request))
         except Exception:
             return False  # any error in approval → treat as denial
+
+    def _ask_escalation(
+        self,
+        connector_id: str,
+        tool_name: str,
+        current_scope: Scope,
+        needed_tier: Tier,
+        args: dict[str, Any],
+    ) -> EscalationChoice:
+        """Prompt the user to escalate scope. Defaults to DECLINE (fail-closed)."""
+        if self._escalation_fn is None:
+            return EscalationChoice.DECLINE
+        req = EscalationRequest(
+            connector_id=connector_id,
+            tool_name=tool_name,
+            current_scope=current_scope,
+            needed_tier=needed_tier,
+            needed_scope=scope_needed_for(needed_tier),
+            args=args,
+        )
+        try:
+            return self._escalation_fn(req)
+        except Exception:
+            return EscalationChoice.DECLINE
+
+    def _persist_scope(self, connector_id: str, scope: Scope) -> None:
+        """Write a permanent scope change to the project policy file."""
+        try:
+            from dacli.core.connect_extension import _write_scope
+
+            _write_scope(connector_id, scope.value)
+        except Exception:
+            log.debug("failed to persist scope for %s", connector_id, exc_info=True)

@@ -40,6 +40,16 @@ _PROJECT_MARKERS = (OVERLAY_DIRNAME, "config.yaml", ".git")
 RESOURCE_KINDS = ("extensions", "skills", "themes", "secrets", "workspaces")
 
 
+def _abs(p: Path) -> Path:
+    """Make *p* absolute if it's truly relative (no root, no drive).
+
+    Avoids ``resolve()`` on paths that already carry a root (``/srv/…`` on
+    POSIX, ``C:\\…`` on Windows) — ``resolve`` on Windows would prepend the
+    current drive to a bare ``/srv/…`` path, changing its meaning.
+    """
+    return p.resolve() if not p.root else p
+
+
 def packaged_asset(*parts: str) -> Path:
     """Read-only asset shipped in one of the wheels (prompts, templates, policy).
 
@@ -117,7 +127,9 @@ def set_active_workspace(name: str | None) -> None:
 def workspace_root() -> Path:
     """Root of the active workspace's overlay: the global config dir for the
     default workspace, else ``<user_config_dir>/workspaces/<name>``."""
-    return workspaces_dir() / _active_workspace if _active_workspace else user_config_dir()
+    return (
+        workspaces_dir() / _active_workspace if _active_workspace else user_config_dir()
+    )
 
 
 def list_workspaces() -> list[str]:
@@ -157,10 +169,10 @@ def project_overlay_dir(root: Path) -> Path:
 def state_dir() -> Path:
     """Project-local ``<project_root>/.dacli`` when in a project, else the active
     :func:`workspace_root` (the global dir for the default workspace).
-    ``DACLI_STATE_PATH`` (its parent) overrides both."""
+    ``DACLI_STATE_PATH`` (its parent) overrides both.  Always absolute."""
     override = os.environ.get(STATE_PATH_ENV)
     if override:
-        return Path(override).parent
+        return _abs(Path(override)).parent
     root = project_root()
     return project_overlay_dir(root) if root is not None else workspace_root()
 
@@ -184,7 +196,7 @@ def _secrets_base_dir(state_path: str | None = None) -> Path:
     """
     sp = state_path or os.environ.get(STATE_PATH_ENV)
     if sp:
-        return Path(sp).parent
+        return _abs(Path(sp)).parent
     legacy = Path(DEFAULT_STATE_PATH).parent
     if (legacy / ".key").exists():
         return legacy

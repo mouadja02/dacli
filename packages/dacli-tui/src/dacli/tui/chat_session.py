@@ -29,6 +29,7 @@ from dacli.core.logging_setup import get_logger
 from dacli.core.memory import AgentMemory
 from dacli.core.onboarding import collect_llm_credentials, run_first_connection
 from dacli.core.store import DacliStore
+from dacli.governance.permissions import EscalationChoice, EscalationRequest
 import dacli.tui.reports as reports
 import dacli.tui.slash as slash
 from dacli.tui import DacliUI
@@ -36,14 +37,18 @@ from dacli.tui import DacliUI
 log = get_logger(__name__)
 
 
-def _enabled_connector_names(registry) -> list:
+def _enabled_connector_names(registry, ext_registry=None) -> list:
     # Short connector names for the welcome card / status bar.
+    # Old-path connectors (system/sandbox — internal, skip them in display).
+    names = []
     catalog = registry.get_catalog()
-    return [
-        connector_id
-        for connector_id in catalog
-        if registry.is_connector_enabled(connector_id)
-    ]
+    for cid in catalog:
+        if registry.is_connector_enabled(cid) and cid not in ("system", "sandbox"):
+            names.append(cid)
+    # New-path extensions (seeds + user-generated).
+    if ext_registry is not None:
+        names.extend(ext_registry.extension_ids())
+    return names
 
 
 def _ctx_pct(memory, agent=None) -> int:
@@ -61,7 +66,9 @@ def _ctx_pct(memory, agent=None) -> int:
                 return min(100, max(0, round(used / cap * 100)))
     except Exception:
         # a toolbar glitch must never break the input loop
-        log.debug("context-percent toolbar calc failed; falling back to window", exc_info=True)
+        log.debug(
+            "context-percent toolbar calc failed; falling back to window", exc_info=True
+        )
     window = max(getattr(memory, "memory_window", 0) or 1, 1)
     used = min(len(memory.get_full_history()), window)
     return round(used / window * 100)
@@ -130,6 +137,22 @@ async def run_chat(
             "[prompt]Proceed with this action?[/prompt]", console=con, default=False
         )
 
+    def on_escalation(request: EscalationRequest) -> EscalationChoice:
+        # Scope escalation: the action exceeds the connector's granted scope.
+        # Show a panel with current/needed scope and 3 choices.
+        chat_ui.escalation_panel(request)
+        answer = Prompt.ask(
+            "[prompt]Choice[/prompt]",
+            choices=["1", "2", "3"],
+            default="3",
+            console=con,
+        )
+        return {
+            "1": EscalationChoice.ALLOW_ONCE,
+            "2": EscalationChoice.ALLOW_PERMANENTLY,
+            "3": EscalationChoice.DECLINE,
+        }.get(answer, EscalationChoice.DECLINE)
+
     # Initialize the host (M09) — UI methods wired directly as kernel callbacks.
     # Wrapped in a factory so a `/workspace` switch can rebuild the host for the
     # newly active workspace without restarting the process (M15). Passing
@@ -144,6 +167,7 @@ async def run_chat(
             on_tool_progress=chat_ui.tool_progress,
             on_user_input_needed=on_user_input_needed,
             on_approval=on_approval,
+            on_escalation=on_escalation,
             on_stream_start=chat_ui.on_stream_start,
             on_text=chat_ui.on_text,
             on_stream_end=chat_ui.on_stream_end,
@@ -190,10 +214,10 @@ async def run_chat(
     chat_ui.welcome(
         model=settings.llm.model,
         provider=settings.llm.provider,
-        connectors=_enabled_connector_names(agent.registry),
+        connectors=_enabled_connector_names(agent.registry, agent._ext_registry),
         cwd=str(Path.cwd()),
         config=str(resolved_config) if resolved_config else None,
-        state=str(paths.state_dir()),
+        state=str(paths.state_dir().resolve()),
     )
 
     # Surface any connectors the registry had to skip (bad manifest / import
@@ -220,8 +244,10 @@ async def run_chat(
         make_host=make_host,
     )
 
-    # Set up prompt toolkit for better input
-    history_file = Path(settings.agent.history_path) / "input_history.txt"
+    # Set up prompt toolkit for better input.
+    # Resolve to absolute so prompt_toolkit can always find the file on exit,
+    # even if something shifts cwd mid-session.
+    history_file = (Path(settings.agent.history_path) / "input_history.txt").resolve()
     history_file.parent.mkdir(parents=True, exist_ok=True)
 
     # The toolbar reads ctx.* (not the construction-time locals) so a `/workspace`
@@ -249,7 +275,9 @@ async def run_chat(
         return chat_ui.bottom_toolbar(
             provider=ctx.settings.llm.provider,
             model=ctx.settings.llm.model,
-            connectors=_enabled_connector_names(ctx.agent.registry),
+            connectors=_enabled_connector_names(
+                ctx.agent.registry, ctx.agent._ext_registry
+            ),
             ctx_pct=_ctx_pct(ctx.memory, ctx.agent),
             session=ctx.memory.session_id,
             test_mode=_tm.toolbar_text(),

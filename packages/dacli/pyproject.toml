@@ -14,9 +14,9 @@ keywords = ["data engineering", "autonomous agent", "data engineering CLI"]
 # register(api) authoring docs the agent reads to extend itself. click + rich back
 # the CLI entry; pyyaml reads the config template.
 dependencies = [
-    "dacli-core==0.3.0",
-    "dacli-ai==0.3.0",
-    "dacli-tui==0.3.0",
+    "dacli-core==0.4.0",
+    "dacli-ai==0.4.0",
+    "dacli-tui==0.4.0",
     "click>=8,<9",
     "rich>=13,<16",
     "pyyaml>=6,<7",
@@ -36,9 +36,9 @@ classifiers = [
 # dep) and the shell seed shells out — neither needs an extra.
 snowflake = ["snowflake-connector-python>=3.5,<5"]
 # Pull the optional fidelity layers of the lower wheels through the assembler.
-pty = ["dacli-core[pty]==0.3.0"]
-keyring = ["dacli-core[keyring]==0.3.0"]
-tui = ["dacli-tui[textual]==0.3.0"]
+pty = ["dacli-core[pty]==0.4.0"]
+keyring = ["dacli-core[keyring]==0.4.0"]
+tui = ["dacli-tui[textual]==0.4.0"]
 all = ["dacli[snowflake]"]
 dev = ["pytest>=8,<10", "ruff>=0.15,<0.16", "vulture>=2,<3"]
 

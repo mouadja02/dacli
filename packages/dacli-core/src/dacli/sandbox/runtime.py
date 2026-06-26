@@ -108,7 +108,7 @@ class SandboxRuntime:
 
     async def run_script(self, code: str) -> SandboxRunResult:
         run_id = uuid.uuid4().hex[:10]
-        workdir = Path(self.policy.workdir)
+        workdir = Path(self.policy.workdir).resolve()
         run_dir = workdir / f"run_{run_id}"
         run_dir.mkdir(parents=True, exist_ok=True)
         # Bound on-disk artifact growth: keep the newest MAX_SANDBOX_RUNS runs

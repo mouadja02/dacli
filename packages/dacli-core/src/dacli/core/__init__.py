@@ -8,7 +8,7 @@ single-sources its own version. This is the dacli-core literal, read at build
 time by setuptools (``[tool.setuptools.dynamic]``).
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __author__ = "mouadja02"
 

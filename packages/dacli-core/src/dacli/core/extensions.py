@@ -171,11 +171,29 @@ class ExtensionAPI:
 
         return decorator
 
-    def command(self, name: str, handler: Callable, *, description: str = "") -> None:
-        self.commands[name] = {"handler": handler, "description": description}
+    def command(self, name: str, handler: Callable | None = None, *, description: str = ""):
+        """Register a slash command. Accepts positional or decorator form."""
+        if handler is not None:
+            self.commands[name] = {"handler": handler, "description": description}
+            return handler
 
-    def shortcut(self, key: str, handler: Callable, *, description: str = "") -> None:
-        self.shortcuts[key] = {"handler": handler, "description": description}
+        def decorator(fn: Callable) -> Callable:
+            self.commands[name] = {"handler": fn, "description": description}
+            return fn
+
+        return decorator
+
+    def shortcut(self, key: str, handler: Callable | None = None, *, description: str = ""):
+        """Register a keyboard shortcut. Accepts positional or decorator form."""
+        if handler is not None:
+            self.shortcuts[key] = {"handler": handler, "description": description}
+            return handler
+
+        def decorator(fn: Callable) -> Callable:
+            self.shortcuts[key] = {"handler": fn, "description": description}
+            return fn
+
+        return decorator
 
     def provider(self, name: str, config: Any) -> None:
         self.providers[name] = config

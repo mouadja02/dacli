@@ -213,7 +213,7 @@ agent. The seeds ship `data-diff`, `quality-assert`, and `diagram-mermaid`.
 ### In-chat slash commands
 
 `/help` · `/keys` · `/init` · `/status` · `/doctor` · `/usage` · `/context` · `/audit` · `/why-failed [dag]` · `/tools` · `/connect [ext]` ·
-`/new-extension` · `/reload` · `/workspace [name]` · `/testmode [tool]` ·
+`/new-extension` · `/reload` · `/extensions` · `/scope [ext] [level]` · `/creds [ext] [--delete]` · `/workspace [name]` · `/testmode [tool]` ·
 `/setup` · `/history` · `/find <text>` · `/last-error` · `/expand <id>` · `/transcript` · `/sessions` ·
 `/catalog [connector]` · `/schema <object>` · `/load <id>` · `/export` ·
 `/config` · `/theme <name>` · `/prompt` · `/clear` · `/cls` · `/reset` · `/exit`

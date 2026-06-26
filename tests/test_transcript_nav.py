@@ -124,7 +124,7 @@ class LastErrorTest(unittest.TestCase):
         out = buf.getvalue()
         self.assertIn("permission denied", out)
         # Remediation hint for a permission error.
-        self.assertIn("/audit", out)
+        self.assertIn("/connect", out)
 
     def test_no_errors_notice(self):
         ui, buf = _ui()
@@ -137,8 +137,14 @@ class FindTest(unittest.TestCase):
         ui, buf = _ui()
         ui.tool_end("snowflake_query", _ok("snowflake_query", [{"a": 1}]))
         history = [
-            SimpleNamespace(role="user", content="load the orders table", timestamp="2026-06-17T10:00:00"),
-            SimpleNamespace(role="assistant", content="done", timestamp="2026-06-17T10:00:01"),
+            SimpleNamespace(
+                role="user",
+                content="load the orders table",
+                timestamp="2026-06-17T10:00:00",
+            ),
+            SimpleNamespace(
+                role="assistant", content="done", timestamp="2026-06-17T10:00:01"
+            ),
         ]
         ui.find("orders", history)
         out = buf.getvalue()

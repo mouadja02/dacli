@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 from dacli.governance.classifier import Tier
 
@@ -37,6 +38,32 @@ class Scope(str, Enum):
     ADMIN = "admin"
 
 
+class EscalationChoice(str, Enum):
+    """User response to a scope-escalation prompt."""
+
+    ALLOW_ONCE = "allow_once"
+    ALLOW_PERMANENTLY = "allow_permanently"
+    DECLINE = "decline"
+
+
+@dataclass
+class EscalationRequest:
+    """Shown to the user when an action needs a higher scope."""
+
+    connector_id: str
+    tool_name: str
+    current_scope: Scope
+    needed_tier: Tier
+    needed_scope: Scope
+    args: dict[str, Any]
+
+    def describe(self) -> str:
+        return (
+            f"'{self.tool_name}' needs '{self.needed_scope.value}' scope "
+            f"but '{self.connector_id}' is set to '{self.current_scope.value}'."
+        )
+
+
 # The highest tier each scope permits.
 _SCOPE_CEILING: dict[Scope, Tier] = {
     Scope.READ_ONLY: Tier.SAFE,
@@ -46,6 +73,19 @@ _SCOPE_CEILING: dict[Scope, Tier] = {
 }
 
 _TIER_ORDER = [Tier.SAFE, Tier.WRITE, Tier.RISKY, Tier.IRREVERSIBLE]
+
+# Inverse of _SCOPE_CEILING: given a tier, what's the minimum scope that allows it?
+_TIER_TO_MIN_SCOPE: dict[Tier, Scope] = {
+    Tier.SAFE: Scope.READ_ONLY,
+    Tier.WRITE: Scope.WRITE,
+    Tier.RISKY: Scope.RISKY,
+    Tier.IRREVERSIBLE: Scope.ADMIN,
+}
+
+
+def scope_needed_for(tier: Tier) -> Scope:
+    """Minimum scope that would permit an action of the given tier."""
+    return _TIER_TO_MIN_SCOPE[tier]
 
 
 def _tier_rank(t: Tier) -> int:
@@ -101,7 +141,9 @@ class PermissionRegistry:
         return self._grants.get(connector_id, self._default)
 
     @classmethod
-    def from_policy_config(cls, config, default_scope: Scope = Scope.READ_ONLY) -> PermissionRegistry:
+    def from_policy_config(
+        cls, config, default_scope: Scope = Scope.READ_ONLY
+    ) -> PermissionRegistry:
         """Build grants from a :class:`~governance.policy_engine.PolicyConfig`.
 
         Reads ``connectors.<id>.scope`` (a connection-profile grant). Anything
@@ -123,11 +165,13 @@ class PermissionRegistry:
         ceiling = _SCOPE_CEILING[scope]
         allowed = _tier_rank(tier) <= _tier_rank(ceiling)
         if allowed:
-            reason = f"{tier.value} within granted scope '{scope.value}' (≤ {ceiling.value})"
+            reason = (
+                f"{tier.value} within granted scope '{scope.value}' (≤ {ceiling.value})"
+            )
         else:
             reason = (
                 f"action tier '{tier.value}' exceeds granted scope '{scope.value}' "
-                f"(permits up to '{ceiling.value}'). Grant a wider scope in the "
-                f"connection profile to allow this."
+                f"(permits up to '{ceiling.value}'). Run /connect {connector_id} to "
+                f"widen the scope."
             )
         return ScopeCheck(allowed=allowed, scope=scope, tier=tier, reason=reason)

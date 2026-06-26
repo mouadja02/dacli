@@ -17,6 +17,8 @@ from __future__ import annotations
 import ast
 import json
 import re
+import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -95,6 +97,17 @@ Rules:
 - Each handler is `async def handler(args, ctx)` returning `ctx.ok(...)` / `ctx.fail(...)`.
 - `api.command(name, handler)`, `api.shortcut(key, handler)`, `api.provider(name, cfg)`
   register the other extension kinds.
+- ONLY import modules from the Python stdlib or packages guaranteed to be installed
+  (boto3, httpx). For any other service, call its REST API directly using `httpx`
+  (already available) or `urllib.request`. NEVER import a vendor SDK that may not be
+  installed (e.g. `pinecone`, `slack_sdk`, `stripe`). Use HTTP + the service's REST
+  endpoints instead.
+- Produce a COMPLETE set of tools for the service — at minimum list, get, create,
+  update, delete operations (CRUD) where applicable. A single "list" tool is not
+  enough. Include a stats/describe tool when the service supports it.
+- Use `asyncio.to_thread(fn)` to run blocking SDK calls (e.g. boto3). NEVER use
+  `async for` on the result of `asyncio.to_thread` — it returns a plain value, not
+  an async iterator. Collect all pages inside the threaded function, then return.
 
 ## Ask when a decision is ambiguous
 
@@ -119,6 +132,16 @@ When you have what you need, output exactly the module and nothing else:
 
 Extension name: {name}
 What it should do: {description}
+"""
+
+_DOCS_SECTION = """
+
+## Reference documentation (from Context7)
+
+Use the following up-to-date API documentation to write correct HTTP calls.
+Do NOT guess endpoints or payloads — follow these docs exactly.
+
+{docs}
 """
 
 
@@ -169,8 +192,10 @@ def _const_true(node: ast.AST) -> bool:
 
 
 def _nonempty_str(node: ast.AST) -> bool:
-    return isinstance(node, ast.Constant) and isinstance(node.value, str) and bool(
-        node.value.strip()
+    return (
+        isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and bool(node.value.strip())
     )
 
 
@@ -198,7 +223,9 @@ def extract_secret_fields(source: str) -> set[str]:
     for node in ast.walk(ast.parse(source)):
         if not (isinstance(node, ast.Call) and _is_config_field(node.func)):
             continue
-        if not any(kw.arg == "secret" and _const_true(kw.value) for kw in node.keywords):
+        if not any(
+            kw.arg == "secret" and _const_true(kw.value) for kw in node.keywords
+        ):
             continue
         name = _field_name(node)
         if name:
@@ -276,10 +303,14 @@ class ExtensionGenerator:
     def __init__(self, llm: Any):
         self.llm = llm
 
-    async def generate(self, name: str, description: str, ui: ClarifyUI) -> str:
+    async def generate(
+        self, name: str, description: str, ui: ClarifyUI, *, docs: str | None = None
+    ) -> str:
         prompt = _GENERATION_PROMPT.replace("{name}", name).replace(
             "{description}", description
         )
+        if docs:
+            prompt += _DOCS_SECTION.replace("{docs}", docs)
         messages = [{"role": "user", "content": prompt}]
         for _ in range(_MAX_ROUNDS):
             text, _ = await self.llm.generate(
@@ -313,8 +344,33 @@ def _normalize_name(name: str) -> str:
     return norm
 
 
+_MISSING_MODULE_RE = re.compile(r"No module named ['\"]([^'\"]+)['\"]")
+
+
+def _extract_missing_module(error: str) -> str | None:
+    """Pull the package name from a ModuleNotFoundError traceback."""
+    m = _MISSING_MODULE_RE.search(error)
+    if not m:
+        return None
+    # "foo.bar" → top-level package "foo"
+    return m.group(1).split(".")[0]
+
+
+def _pip_install(package: str) -> bool:
+    """pip install a single package. Returns True on success."""
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "pip", "install", package],
+            capture_output=True,
+            timeout=120,
+        )
+        return proc.returncode == 0
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+
+
 async def generate_extension(
-    name: str, description: str, *, llm: Any, ui: ClarifyUI, host: Any
+    name: str, description: str, *, llm: Any, ui: ClarifyUI, host: Any, docs: str | None = None
 ) -> GenerationResult:
     """Generate an extension end to end and hot-reload it into ``host``.
 
@@ -331,7 +387,7 @@ async def generate_extension(
     if init_file.exists():
         raise FileExistsError(f"extension '{norm}' already exists at {ext_dir}")
 
-    source = await ExtensionGenerator(llm).generate(norm, description, ui)
+    source = await ExtensionGenerator(llm).generate(norm, description, ui, docs=docs)
 
     try:
         offending = find_inlined_secret(source, extract_secret_fields(source))
@@ -346,6 +402,84 @@ async def generate_extension(
 
     ext_dir.mkdir(parents=True, exist_ok=True)
     init_file.write_text(source, encoding="utf-8")
+
+    result = host.reload()
+    if norm in result.failed:
+        # Check for missing pip package — offer install + retry.
+        missing = _extract_missing_module(result.failed[norm])
+        if missing and ui.confirm(f"Install '{missing}' with pip?"):
+            installed = _pip_install(missing)
+            if installed:
+                result = host.reload()
+                if norm not in result.failed:
+                    return GenerationResult(
+                        norm, init_file, True, True, result.report()
+                    )
+        return GenerationResult(norm, init_file, False, False, result.failed[norm])
+    return GenerationResult(norm, init_file, True, True, result.report())
+
+
+# ---------------------------------------------------------------------------
+# Edit / fix an existing extension
+# ---------------------------------------------------------------------------
+_EDIT_SYSTEM_PROMPT = (
+    "You fix dacli extension modules. Output only the corrected module, "
+    "in the exact format requested."
+)
+
+_EDIT_PROMPT = """\
+The following dacli extension module has a bug. Fix it and output the corrected
+module. Keep the same structure, tools, config fields, and names — only fix
+the bug described below.
+
+## Current source
+
+```python
+{source}
+```
+
+## Error
+
+{error}
+
+## Output
+
+Output exactly the fixed module:
+
+### FILE: __init__.py
+<python source>
+"""
+
+
+async def edit_extension(
+    name: str, error: str, *, llm: Any, host: Any
+) -> GenerationResult:
+    """Fix a broken extension by sending its source + error to the LLM."""
+    norm = _normalize_name(name)
+    ext_dir = host.base_dir() / norm
+    init_file = ext_dir / "__init__.py"
+    if not init_file.exists():
+        raise FileNotFoundError(f"extension '{norm}' not found at {ext_dir}")
+
+    source = init_file.read_text(encoding="utf-8")
+    prompt = _EDIT_PROMPT.replace("{source}", source).replace("{error}", error)
+    messages = [{"role": "user", "content": prompt}]
+
+    text, _ = await llm.generate(messages=messages, system_prompt=_EDIT_SYSTEM_PROMPT)
+    _, new_source = parse_generation_response(text)
+    if new_source is None:
+        raise GenerationError("model did not produce a fixed module")
+
+    try:
+        offending = find_inlined_secret(new_source, extract_secret_fields(new_source))
+    except SyntaxError:
+        offending = None
+    if offending is not None:
+        raise SecretInlineError(
+            f"fixed module inlines a literal for secret field '{offending}'"
+        )
+
+    init_file.write_text(new_source, encoding="utf-8")
 
     result = host.reload()
     if norm in result.failed:
@@ -382,6 +516,67 @@ class ConsoleUI:
         return Prompt.ask(prompt, password=secret)
 
 
+# ---------------------------------------------------------------------------
+# Context7 docs fetch
+# ---------------------------------------------------------------------------
+_CTX7_KEY_STORE = "context7"
+
+
+def _load_ctx7_key() -> str | None:
+    """Load Context7 API key from the secrets store."""
+    from dacli.core.secrets import SecretStore
+
+    store = SecretStore()
+    cfg = store.config(_CTX7_KEY_STORE)
+    return cfg.get("api_key") if cfg else None
+
+
+def _save_ctx7_key(api_key: str) -> None:
+    """Persist Context7 API key to the secrets store."""
+    from dacli.core.secrets import SecretStore
+
+    store = SecretStore()
+    store.set(_CTX7_KEY_STORE, "api_key", api_key, secret=True)
+    store.save()
+
+
+async def _fetch_context7_docs(name: str, description: str, console: Any) -> str | None:
+    """Fetch docs silently if key exists. Prompt for key on first use only."""
+    api_key = _load_ctx7_key()
+    if not api_key:
+        from rich.prompt import Prompt
+
+        console.print(
+            "[dim]Context7 provides up-to-date API docs for better generation. "
+            "Get a free key at https://context7.com/dashboard[/dim]"
+        )
+        api_key = Prompt.ask("Context7 API key (Enter to skip)", password=True, default="")
+        if not api_key:
+            return None
+        _save_ctx7_key(api_key)
+
+    from dacli.core.context7 import get_library_docs
+
+    console.print(f"[dim]Fetching API docs for '{name}'…[/dim]")
+    docs = await get_library_docs(name, description, api_key=api_key)
+    if docs:
+        console.print("[green]✓ Got API docs from Context7[/green]")
+    else:
+        console.print("[dim]No Context7 docs found — using LLM only.[/dim]")
+    return docs
+
+
+async def _fetch_context7_docs_silent(name: str, description: str) -> str | None:
+    """Non-interactive Context7 fetch. Returns docs or None, never prompts."""
+    api_key = _load_ctx7_key()
+    if not api_key:
+        return None
+
+    from dacli.core.context7 import get_library_docs
+
+    return await get_library_docs(name, description, api_key=api_key)
+
+
 async def run_new_extension_flow(console: Any, llm: Any, host: Any) -> str | None:
     """Interactive ``/new-extension``: prompt, generate, hot-reload."""
     from rich.prompt import Prompt
@@ -395,10 +590,13 @@ async def run_new_extension_flow(console: Any, llm: Any, host: Any) -> str | Non
         console.print("[dim]Cancelled.[/dim]")
         return None
 
+    # Fetch Context7 docs (prompts for key on first use only).
+    docs = await _fetch_context7_docs(name, description, console)
+
     console.print("[dim]Generating extension with the LLM…[/dim]")
     try:
         result = await generate_extension(
-            name, description, llm=llm, ui=ConsoleUI(console), host=host
+            name, description, llm=llm, ui=ConsoleUI(console), host=host, docs=docs
         )
     except FileExistsError as exc:
         console.print(f"[red]{exc}[/red]")

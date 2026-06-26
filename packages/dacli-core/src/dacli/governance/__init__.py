@@ -31,14 +31,22 @@ from dacli.governance.policy_engine import (
     load_policy_config,
 )
 from dacli.governance.permissions import (
+    EscalationChoice,
+    EscalationRequest,
     PermissionError as ScopeViolation,
     PermissionRegistry,
     Scope,
+    scope_needed_for,
 )
 from dacli.governance.audit import AuditLedger, AuditEvent
 from dacli.governance.rollback import RollbackPlan, RollbackStrategist
 from dacli.governance.shadow import ShadowExecutor, ShadowResult
-from dacli.governance.governor import Governor, GovernanceDecision, ApprovalRequest
+from dacli.governance.governor import (
+    Governor,
+    GovernanceDecision,
+    ApprovalRequest,
+    EscalationFn,
+)
 
 __all__ = [
     "ActionClassifier",
@@ -48,6 +56,9 @@ __all__ = [
     "Classification",
     "CommandClassifier",
     "CommandVerdict",
+    "EscalationChoice",
+    "EscalationFn",
+    "EscalationRequest",
     "GovernanceDecision",
     "Governor",
     "PermissionRegistry",
@@ -65,4 +76,5 @@ __all__ = [
     "classify_sql",
     "detect_prod",
     "load_policy_config",
+    "scope_needed_for",
 ]

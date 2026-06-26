@@ -161,8 +161,10 @@ async def _why_failed(ctx, args):
     project_dir = ConnectorConfig(ctx.settings, "dbt").get("project_dir", "") or "."
     gov = getattr(ctx.agent, "governor", None)
     explanation = await explain_failure(
-        source=source, dispatcher=ctx.agent.dispatcher,
-        lineage=getattr(gov, "lineage", None), dag=dag,
+        source=source,
+        dispatcher=ctx.agent.dispatcher,
+        lineage=getattr(gov, "lineage", None),
+        dag=dag,
         dbt_project_dir=project_dir,
     )
     ctx.ui.why_failed_panel(explanation)
@@ -266,9 +268,7 @@ async def _theme(ctx, args):
         ctx.ui.notice(f"Theme set to '{args[0].lower()}'.", style="success")
     else:
         available = ", ".join(THEMES.keys())
-        ctx.ui.notice(
-            f"Usage: /theme <name>  ·  available: {available}", style="muted"
-        )
+        ctx.ui.notice(f"Usage: /theme <name>  ·  available: {available}", style="muted")
 
 
 @command("/prompt")
@@ -311,7 +311,7 @@ async def _reset(ctx, args):
 
 @command("/tools")
 async def _tools(ctx, args):
-    ctx.ui.connectors_table(ctx.agent.registry)
+    ctx.ui.connectors_table(ctx.agent.registry, ctx.agent._ext_registry)
 
 
 @command("/setup")
@@ -320,7 +320,9 @@ async def _setup(ctx, args):
     # connection through the same /connect path.
     from dacli.core.onboarding import run_first_connection
 
-    run_first_connection(ctx.ui, ctx.console, ctx.agent._ext_registry, ctx.agent.secrets)
+    run_first_connection(
+        ctx.ui, ctx.console, ctx.agent._ext_registry, ctx.agent.secrets
+    )
     invalidate_config_cache()
     ctx.settings = load_config(ctx.config_path)
 
@@ -357,6 +359,115 @@ async def _new_extension(ctx, args):
 async def _reload(ctx, args):
     result = ctx.agent.ext_host.reload()
     ctx.ui.notice(f"Extensions: {result.report()}", style="success")
+
+
+@command("/extensions")
+async def _extensions(ctx, args):
+    """List loaded extensions, their tools, and failures."""
+    from rich.table import Table
+
+    reg = ctx.agent._ext_registry
+    table = Table(title="Extensions", show_lines=False, pad_edge=False)
+    table.add_column("Extension", style="bold")
+    table.add_column("Status")
+    table.add_column("Config")
+
+    for ext_id in reg.extension_ids():
+        fields = reg.config_fields(ext_id)
+        has_config = ext_id in ctx.agent.secrets.extensions()
+        config_status = (
+            "configured"
+            if has_config
+            else ("needs /connect" if fields else "no config")
+        )
+        table.add_row(ext_id, "[green]loaded[/green]", config_status)
+
+    for ext_id, reason in reg.failed_extensions().items():
+        table.add_row(ext_id, f"[red]failed[/red]: {reason}", "")
+
+    if not reg.extension_ids() and not reg.failed_extensions():
+        ctx.ui.notice("No extensions loaded.", style="muted")
+        return
+    ctx.console.print(table)
+
+
+@command("/scope")
+async def _scope(ctx, args):
+    """View or set permission scope. /scope [ext] [level]"""
+    from dacli.core.connect_extension import _current_scope, _write_scope
+
+    if not args:
+        # Show all scopes
+        from rich.table import Table
+
+        table = Table(title="Scopes", show_lines=False, pad_edge=False)
+        table.add_column("Extension", style="bold")
+        table.add_column("Scope")
+        for ext_id in ctx.agent._ext_registry.extension_ids():
+            scope = _current_scope(ext_id)
+            table.add_row(ext_id, scope)
+        if not ctx.agent._ext_registry.extension_ids():
+            ctx.ui.notice("No extensions loaded.", style="muted")
+            return
+        ctx.console.print(table)
+        return
+
+    ext_id = args[0]
+    if len(args) < 2:
+        scope = _current_scope(ext_id)
+        ctx.ui.notice(f"{ext_id}: {scope}", style="muted")
+        return
+
+    new_scope = args[1].lower()
+    valid = ("read_only", "write", "risky", "admin")
+    if new_scope not in valid:
+        ctx.ui.notice(
+            f"Invalid scope '{new_scope}'. Use: {', '.join(valid)}", style="warning"
+        )
+        return
+    _write_scope(ext_id, new_scope)
+    ctx.ui.notice(f"{ext_id} scope set to {new_scope}.", style="success")
+
+
+@command("/creds")
+async def _creds(ctx, args):
+    """View stored credentials (masked) or delete them. /creds [ext] [--delete]"""
+    store = ctx.agent.secrets
+    if not args:
+        # List all configured extensions
+        exts = store.extensions()
+        if not exts:
+            ctx.ui.notice("No stored credentials.", style="muted")
+            return
+        from rich.table import Table
+
+        table = Table(title="Credentials", show_lines=False, pad_edge=False)
+        table.add_column("Extension", style="bold")
+        table.add_column("Fields")
+        for ext in exts:
+            fields = store.raw_fields(ext)
+            summary = ", ".join(
+                f"{k}={'***' if v == '********' else v}" for k, v in fields.items()
+            )
+            table.add_row(ext, summary or "(empty)")
+        ctx.console.print(table)
+        return
+
+    ext_id = args[0]
+    if len(args) > 1 and args[1] in ("--delete", "-d", "delete"):
+        if store.delete(ext_id):
+            store.save()
+            ctx.ui.notice(f"Credentials for '{ext_id}' deleted.", style="success")
+        else:
+            ctx.ui.notice(f"No credentials stored for '{ext_id}'.", style="warning")
+        return
+
+    fields = store.raw_fields(ext_id)
+    if not fields:
+        ctx.ui.notice(f"No credentials stored for '{ext_id}'.", style="muted")
+        return
+    lines = [f"  {k} = {v}" for k, v in fields.items()]
+    ctx.ui.notice(f"{ext_id}:\n" + "\n".join(lines), style="muted")
 
 
 @command("/workspace")

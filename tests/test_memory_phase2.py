@@ -1,4 +1,4 @@
-""" (ℳ Trustworthy Memory) test suite.
+"""(ℳ Trustworthy Memory) test suite.
 
 Each test maps to an exit criterion in the plan. Run with:
     python -m unittest tests.test_memory_phase2
@@ -10,13 +10,17 @@ import unittest
 from datetime import datetime, timedelta
 
 from dacli.memory.store import (
-    MemoryStore, MemoryEntry, MemoryKind, VerificationStatus,
-    confidence_for_source, MAX_CONFIDENCE,
+    MemoryStore,
+    MemoryEntry,
+    MemoryKind,
+    VerificationStatus,
+    confidence_for_source,
+    MAX_CONFIDENCE,
 )
 from dacli.memory.catalog import CatalogCache
 from dacli.memory.retrieval import rank, retrieve, staleness_penalty
 from dacli.memory.verify import verify, build_catalog_verifier
-from dacli.connectors.snowflake.connector import parse_catalog_effects
+from dacli.seeds.extensions.snowflake import parse_catalog_effects
 from dacli.connectors.base import ToolResult, ToolStatus, Risk, OperationSpec
 from dacli.connectors.dispatcher import Dispatcher
 from dacli.core.memory import AgentMemory, AgentState
@@ -33,12 +37,19 @@ class NoPipelineFieldsTest(unittest.TestCase):
     def test_agentstate_has_no_pipeline_fields(self):
         fields = set(AgentState.__dataclass_fields__.keys())
         forbidden = {
-            "created_tables", "schemas_created", "file_formats_created",
-            "inferred_schemas", "loaded_tables", "dbt_sources_registered",
+            "created_tables",
+            "schemas_created",
+            "file_formats_created",
+            "inferred_schemas",
+            "loaded_tables",
+            "dbt_sources_registered",
             "dbt_models_created",
         }
-        self.assertEqual(fields & forbidden, set(),
-                         f"pipeline-specific fields still present: {fields & forbidden}")
+        self.assertEqual(
+            fields & forbidden,
+            set(),
+            f"pipeline-specific fields still present: {fields & forbidden}",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +70,9 @@ class StoreTest(unittest.TestCase):
         path = _tmp("store.jsonl")
         store = MemoryStore(path=path)
         old = store.remember("BRONZE.CRM has 3 columns", source="inference")
-        new = MemoryEntry(content="BRONZE.CRM has 5 columns", source="snowflake.information_schema")
+        new = MemoryEntry(
+            content="BRONZE.CRM has 5 columns", source="snowflake.information_schema"
+        )
         store.supersede(old.id, new)
 
         # Old entry is preserved (audit trail) but no longer active.
@@ -81,36 +94,82 @@ class StoreTest(unittest.TestCase):
 class CatalogTest(unittest.TestCase):
     def test_entry_exposes_last_verified(self):
         cat = CatalogCache(path=_tmp("catalog.json"))
-        e = cat.record_object("snowflake", "table", {"database": "DW", "schema": "BRONZE", "object": "CRM"})
+        e = cat.record_object(
+            "snowflake",
+            "table",
+            {"database": "DW", "schema": "BRONZE", "object": "CRM"},
+        )
         self.assertIsInstance(e.last_verified, datetime)
 
     def test_write_invalidates_matching_scope(self):
         cat = CatalogCache(path=_tmp("catalog.json"))
-        cat.record_object("snowflake", "table", {"database": "DW", "schema": "BRONZE", "object": "CRM"})
-        self.assertTrue(cat.is_known("snowflake", "table", {"database": "DW", "schema": "BRONZE", "object": "CRM"}))
+        cat.record_object(
+            "snowflake",
+            "table",
+            {"database": "DW", "schema": "BRONZE", "object": "CRM"},
+        )
+        self.assertTrue(
+            cat.is_known(
+                "snowflake",
+                "table",
+                {"database": "DW", "schema": "BRONZE", "object": "CRM"},
+            )
+        )
 
         # A DROP/write touching the object invalidates it -> now a hint, not a fact.
-        affected = cat.invalidate_scope("snowflake", {"database": "DW", "schema": "BRONZE", "object": "CRM"})
+        affected = cat.invalidate_scope(
+            "snowflake", {"database": "DW", "schema": "BRONZE", "object": "CRM"}
+        )
         self.assertEqual(len(affected), 1)
-        self.assertFalse(cat.is_known("snowflake", "table", {"database": "DW", "schema": "BRONZE", "object": "CRM"}))
-        self.assertTrue(cat.get("snowflake", "table", {"database": "DW", "schema": "BRONZE", "object": "CRM"}).is_stale())
+        self.assertFalse(
+            cat.is_known(
+                "snowflake",
+                "table",
+                {"database": "DW", "schema": "BRONZE", "object": "CRM"},
+            )
+        )
+        self.assertTrue(
+            cat.get(
+                "snowflake",
+                "table",
+                {"database": "DW", "schema": "BRONZE", "object": "CRM"},
+            ).is_stale()
+        )
 
     def test_schema_invalidation_cascades_to_children(self):
         cat = CatalogCache(path=_tmp("catalog.json"))
         cat.record_object("snowflake", "schema", {"database": "DW", "schema": "BRONZE"})
-        cat.record_object("snowflake", "table", {"database": "DW", "schema": "BRONZE", "object": "CRM"})
-        cat.record_object("snowflake", "table", {"database": "DW", "schema": "SILVER", "object": "DIM"})
+        cat.record_object(
+            "snowflake",
+            "table",
+            {"database": "DW", "schema": "BRONZE", "object": "CRM"},
+        )
+        cat.record_object(
+            "snowflake",
+            "table",
+            {"database": "DW", "schema": "SILVER", "object": "DIM"},
+        )
 
-        affected = cat.invalidate_scope("snowflake", {"database": "DW", "schema": "BRONZE"})
+        affected = cat.invalidate_scope(
+            "snowflake", {"database": "DW", "schema": "BRONZE"}
+        )
         # The BRONZE schema entry + the BRONZE.CRM table, but not SILVER.DIM.
         scopes = {(a.object_type, a.scope.get("object")) for a in affected}
         self.assertIn(("schema", None), scopes)
         self.assertIn(("table", "CRM"), scopes)
-        self.assertTrue(cat.is_known("snowflake", "table", {"database": "DW", "schema": "SILVER", "object": "DIM"}))
+        self.assertTrue(
+            cat.is_known(
+                "snowflake",
+                "table",
+                {"database": "DW", "schema": "SILVER", "object": "DIM"},
+            )
+        )
 
     def test_ttl_staleness(self):
         cat = CatalogCache(path=_tmp("catalog.json"))
-        e = cat.record_object("snowflake", "table", {"schema": "BRONZE", "object": "CRM"}, ttl_seconds=0)
+        e = cat.record_object(
+            "snowflake", "table", {"schema": "BRONZE", "object": "CRM"}, ttl_seconds=0
+        )
         self.assertTrue(e.is_stale())  # TTL 0 -> immediately a hint
 
 
@@ -124,23 +183,30 @@ class RetrievalTest(unittest.TestCase):
         # Highly relevant to the query, but 60 days stale.
         aged = MemoryEntry(
             content="bronze crm table columns id name email",
-            confidence=0.9, last_verified=now - timedelta(days=60),
+            confidence=0.9,
+            last_verified=now - timedelta(days=60),
         )
         # Less relevant (one shared token), but fresh.
         fresh = MemoryEntry(
             content="bronze schema overview",
-            confidence=0.9, last_verified=now,
+            confidence=0.9,
+            last_verified=now,
         )
         ranked = rank("bronze crm table columns", [aged, fresh], now=now)
-        self.assertEqual(ranked[0].entry.id, fresh.id,
-                         "stale-but-relevant entry must not outrank the fresh one")
+        self.assertEqual(
+            ranked[0].entry.id,
+            fresh.id,
+            "stale-but-relevant entry must not outrank the fresh one",
+        )
         self.assertGreater(ranked[0].staleness_penalty, -1)  # sanity
 
     def test_staleness_penalty_monotonic(self):
         now = datetime.now()
         young = MemoryEntry(content="x", last_verified=now - timedelta(days=1))
         old = MemoryEntry(content="x", last_verified=now - timedelta(days=20))
-        self.assertLess(staleness_penalty(young, now=now), staleness_penalty(old, now=now))
+        self.assertLess(
+            staleness_penalty(young, now=now), staleness_penalty(old, now=now)
+        )
 
     def test_superseded_excluded(self):
         e = MemoryEntry(content="bronze crm", superseded_by="other")
@@ -155,13 +221,19 @@ class VerifyTest(unittest.TestCase):
     def test_confirmed_refreshes_trust(self):
         store = MemoryStore(path=_tmp("store.jsonl"))
         old_time = datetime.now() - timedelta(days=10)
-        e = store.add(MemoryEntry(content="BRONZE.CRM exists", confidence=0.7, last_verified=old_time))
+        e = store.add(
+            MemoryEntry(
+                content="BRONZE.CRM exists", confidence=0.7, last_verified=old_time
+            )
+        )
 
-        verifier = build_catalog_verifier(lambda entry: {"exists": True, "content": entry.content})
+        verifier = build_catalog_verifier(
+            lambda entry: {"exists": True, "content": entry.content}
+        )
         result = verify(e, verifier, store=store)
 
         self.assertEqual(result.verification_status, VerificationStatus.VERIFIED.value)
-        self.assertGreater(result.confidence, 0.7)          # bumped toward cap
+        self.assertGreater(result.confidence, 0.7)  # bumped toward cap
         self.assertGreater(result.last_verified, old_time)  # recency refreshed
 
     def test_contradiction_supersedes(self):
@@ -172,9 +244,11 @@ class VerifyTest(unittest.TestCase):
         verifier = build_catalog_verifier(lambda entry: {"exists": False})
         result = verify(e, verifier, store=store)
 
-        self.assertNotEqual(result.id, e.id)                # a new, superseding fact
+        self.assertNotEqual(result.id, e.id)  # a new, superseding fact
         self.assertEqual(result.supersedes, e.id)
-        self.assertEqual(store.get(e.id).verification_status, VerificationStatus.CONTRADICTED.value)
+        self.assertEqual(
+            store.get(e.id).verification_status, VerificationStatus.CONTRADICTED.value
+        )
         self.assertEqual(store.get(e.id).superseded_by, result.id)
         self.assertNotIn(e.id, [a.id for a in store.active()])
 
@@ -185,36 +259,72 @@ class VerifyTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class CatalogEffectParseTest(unittest.TestCase):
     def test_create_or_replace_schema(self):
-        effects = parse_catalog_effects("CREATE OR REPLACE SCHEMA DATA_WAREHOUSE.BRONZE;")
-        self.assertEqual(effects, [{"action": "create", "object_type": "schema",
-                                    "scope": {"database": "DATA_WAREHOUSE", "schema": "BRONZE"}}])
+        effects = parse_catalog_effects(
+            "CREATE OR REPLACE SCHEMA DATA_WAREHOUSE.BRONZE;"
+        )
+        self.assertEqual(
+            effects,
+            [
+                {
+                    "action": "create",
+                    "object_type": "schema",
+                    "scope": {"database": "DATA_WAREHOUSE", "schema": "BRONZE"},
+                }
+            ],
+        )
 
     def test_create_table_if_not_exists_multiline_qualified(self):
         sql = "CREATE TABLE IF NOT EXISTS\n  DATA_WAREHOUSE.BRONZE.CRM (\n   id INT,\n   name STRING\n)"
         effects = parse_catalog_effects(sql)
         self.assertEqual(effects[0]["action"], "create")
         self.assertEqual(effects[0]["object_type"], "table")
-        self.assertEqual(effects[0]["scope"], {"database": "DATA_WAREHOUSE", "schema": "BRONZE", "object": "CRM"})
+        self.assertEqual(
+            effects[0]["scope"],
+            {"database": "DATA_WAREHOUSE", "schema": "BRONZE", "object": "CRM"},
+        )
 
     def test_create_file_format(self):
-        effects = parse_catalog_effects("CREATE OR REPLACE FILE FORMAT BRONZE.CSV_FORMAT TYPE = CSV")
+        effects = parse_catalog_effects(
+            "CREATE OR REPLACE FILE FORMAT BRONZE.CSV_FORMAT TYPE = CSV"
+        )
         self.assertEqual(effects[0]["object_type"], "file_format")
 
     def test_drop_invalidates(self):
-        effects = parse_catalog_effects("DROP TABLE IF EXISTS DATA_WAREHOUSE.BRONZE.CRM")
+        effects = parse_catalog_effects(
+            "DROP TABLE IF EXISTS DATA_WAREHOUSE.BRONZE.CRM"
+        )
         self.assertEqual(effects[0]["action"], "invalidate")
         self.assertEqual(effects[0]["object_type"], "table")
 
     def test_copy_into_invalidates_table(self):
-        effects = parse_catalog_effects("COPY INTO DATA_WAREHOUSE.BRONZE.CRM FROM @STAGING/source_crm/")
-        self.assertEqual(effects[0], {"action": "invalidate", "object_type": "table",
-                                      "scope": {"database": "DATA_WAREHOUSE", "schema": "BRONZE", "object": "CRM"}})
+        effects = parse_catalog_effects(
+            "COPY INTO DATA_WAREHOUSE.BRONZE.CRM FROM @STAGING/source_crm/"
+        )
+        self.assertEqual(
+            effects[0],
+            {
+                "action": "invalidate",
+                "object_type": "table",
+                "scope": {
+                    "database": "DATA_WAREHOUSE",
+                    "schema": "BRONZE",
+                    "object": "CRM",
+                },
+            },
+        )
 
     def test_copy_into_stage_is_unload_no_effect(self):
-        self.assertEqual(parse_catalog_effects("COPY INTO @STAGING/out FROM BRONZE.CRM"), [])
+        self.assertEqual(
+            parse_catalog_effects("COPY INTO @STAGING/out FROM BRONZE.CRM"), []
+        )
 
     def test_select_has_no_effect(self):
-        self.assertEqual(parse_catalog_effects("SELECT $1, $2 FROM @STAGING (FILE_FORMAT => 'CSV_FORMAT')"), [])
+        self.assertEqual(
+            parse_catalog_effects(
+                "SELECT $1, $2 FROM @STAGING (FILE_FORMAT => 'CSV_FORMAT')"
+            ),
+            [],
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -244,14 +354,25 @@ class _StubRegistry:
 
 
 def _spec(risk):
-    return OperationSpec(name="execute_snowflake_query", description="", parameters={}, capability="x", risk=risk)
+    return OperationSpec(
+        name="execute_snowflake_query",
+        description="",
+        parameters={},
+        capability="x",
+        risk=risk,
+    )
 
 
 class DispatcherPostconditionTest(unittest.TestCase):
     def _dispatch(self, effects, risk):
-        memory = AgentMemory(state_path=_tmp("s"), history_path=_tmp("h"), memory_path=_tmp("m"))
-        result = ToolResult(tool_name="snowflake", status=ToolStatus.SUCCESS,
-                            metadata={"catalog_effects": effects})
+        memory = AgentMemory(
+            state_path=_tmp("s"), history_path=_tmp("h"), memory_path=_tmp("m")
+        )
+        result = ToolResult(
+            tool_name="snowflake",
+            status=ToolStatus.SUCCESS,
+            metadata={"catalog_effects": effects},
+        )
         registry = _StubRegistry(_FakeConnector(result), _spec(risk))
         dispatcher = Dispatcher(registry, memory=memory)
         asyncio.run(dispatcher.execute("execute_snowflake_query", {"query": "..."}))
@@ -259,34 +380,89 @@ class DispatcherPostconditionTest(unittest.TestCase):
 
     def test_risky_create_effect_records_catalog(self):
         memory = self._dispatch(
-            [{"action": "create", "object_type": "table",
-              "scope": {"database": "DW", "schema": "BRONZE", "object": "CRM"}}],
+            [
+                {
+                    "action": "create",
+                    "object_type": "table",
+                    "scope": {"database": "DW", "schema": "BRONZE", "object": "CRM"},
+                }
+            ],
             Risk.RISKY,
         )
-        self.assertTrue(memory.catalog.is_known("snowflake", "table",
-                        {"database": "DW", "schema": "BRONZE", "object": "CRM"}))
+        self.assertTrue(
+            memory.catalog.is_known(
+                "snowflake",
+                "table",
+                {"database": "DW", "schema": "BRONZE", "object": "CRM"},
+            )
+        )
 
     def test_risky_invalidate_effect_marks_stale(self):
-        memory = AgentMemory(state_path=_tmp("s"), history_path=_tmp("h"), memory_path=_tmp("m"))
-        memory.catalog.record_object("snowflake", "table", {"database": "DW", "schema": "BRONZE", "object": "CRM"})
-        result = ToolResult(tool_name="snowflake", status=ToolStatus.SUCCESS,
-                            metadata={"catalog_effects": [{"action": "invalidate", "object_type": "table",
-                             "scope": {"database": "DW", "schema": "BRONZE", "object": "CRM"}}]})
+        memory = AgentMemory(
+            state_path=_tmp("s"), history_path=_tmp("h"), memory_path=_tmp("m")
+        )
+        memory.catalog.record_object(
+            "snowflake",
+            "table",
+            {"database": "DW", "schema": "BRONZE", "object": "CRM"},
+        )
+        result = ToolResult(
+            tool_name="snowflake",
+            status=ToolStatus.SUCCESS,
+            metadata={
+                "catalog_effects": [
+                    {
+                        "action": "invalidate",
+                        "object_type": "table",
+                        "scope": {
+                            "database": "DW",
+                            "schema": "BRONZE",
+                            "object": "CRM",
+                        },
+                    }
+                ]
+            },
+        )
         registry = _StubRegistry(_FakeConnector(result), _spec(Risk.IRREVERSIBLE))
-        asyncio.run(Dispatcher(registry, memory=memory).execute("execute_snowflake_query", {}))
-        self.assertFalse(memory.catalog.is_known("snowflake", "table",
-                         {"database": "DW", "schema": "BRONZE", "object": "CRM"}))
+        asyncio.run(
+            Dispatcher(registry, memory=memory).execute("execute_snowflake_query", {})
+        )
+        self.assertFalse(
+            memory.catalog.is_known(
+                "snowflake",
+                "table",
+                {"database": "DW", "schema": "BRONZE", "object": "CRM"},
+            )
+        )
 
     def test_safe_op_cannot_invalidate(self):
-        memory = AgentMemory(state_path=_tmp("s"), history_path=_tmp("h"), memory_path=_tmp("m"))
-        memory.catalog.record_object("snowflake", "table", {"schema": "BRONZE", "object": "CRM"})
-        result = ToolResult(tool_name="snowflake", status=ToolStatus.SUCCESS,
-                            metadata={"catalog_effects": [{"action": "invalidate", "object_type": "table",
-                             "scope": {"schema": "BRONZE", "object": "CRM"}}]})
+        memory = AgentMemory(
+            state_path=_tmp("s"), history_path=_tmp("h"), memory_path=_tmp("m")
+        )
+        memory.catalog.record_object(
+            "snowflake", "table", {"schema": "BRONZE", "object": "CRM"}
+        )
+        result = ToolResult(
+            tool_name="snowflake",
+            status=ToolStatus.SUCCESS,
+            metadata={
+                "catalog_effects": [
+                    {
+                        "action": "invalidate",
+                        "object_type": "table",
+                        "scope": {"schema": "BRONZE", "object": "CRM"},
+                    }
+                ]
+            },
+        )
         registry = _StubRegistry(_FakeConnector(result), _spec(Risk.SAFE))
         asyncio.run(Dispatcher(registry, memory=memory).execute("introspect", {}))
         # SAFE op must NOT invalidate -> still trusted.
-        self.assertTrue(memory.catalog.is_known("snowflake", "table", {"schema": "BRONZE", "object": "CRM"}))
+        self.assertTrue(
+            memory.catalog.is_known(
+                "snowflake", "table", {"schema": "BRONZE", "object": "CRM"}
+            )
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -294,15 +470,22 @@ class DispatcherPostconditionTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class LegacyApiTest(unittest.TestCase):
     def test_add_loaded_table_records_catalog_rowcount(self):
-        memory = AgentMemory(state_path=_tmp("s"), history_path=_tmp("h"), memory_path=_tmp("m"))
+        memory = AgentMemory(
+            state_path=_tmp("s"), history_path=_tmp("h"), memory_path=_tmp("m")
+        )
         memory.add_loaded_table("DATA_WAREHOUSE.BRONZE.CRM", row_count=42)
-        entry = memory.catalog.get("snowflake", "table",
-                                   {"database": "DATA_WAREHOUSE", "schema": "BRONZE", "object": "CRM"})
+        entry = memory.catalog.get(
+            "snowflake",
+            "table",
+            {"database": "DATA_WAREHOUSE", "schema": "BRONZE", "object": "CRM"},
+        )
         self.assertIsNotNone(entry)
         self.assertEqual(entry.row_count_estimate, 42)
 
     def test_progress_summary_derived_from_catalog(self):
-        memory = AgentMemory(state_path=_tmp("s"), history_path=_tmp("h"), memory_path=_tmp("m"))
+        memory = AgentMemory(
+            state_path=_tmp("s"), history_path=_tmp("h"), memory_path=_tmp("m")
+        )
         memory.add_created_schema("BRONZE")
         memory.add_created_table("BRONZE.CRM")
         memory.add_loaded_table("BRONZE.CRM", row_count=10)
@@ -317,8 +500,12 @@ class LegacyApiTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class EpisodicTest(unittest.TestCase):
     def test_capture_episode(self):
-        memory = AgentMemory(state_path=_tmp("s"), history_path=_tmp("h"), memory_path=_tmp("m"))
-        memory.capture_episode("build bronze", [{"tool": "execute_snowflake_query", "status": "success"}])
+        memory = AgentMemory(
+            state_path=_tmp("s"), history_path=_tmp("h"), memory_path=_tmp("m")
+        )
+        memory.capture_episode(
+            "build bronze", [{"tool": "execute_snowflake_query", "status": "success"}]
+        )
         episodes = memory.episodic.all()
         self.assertEqual(len(episodes), 1)
         self.assertEqual(episodes[0].kind, MemoryKind.EPISODIC.value)

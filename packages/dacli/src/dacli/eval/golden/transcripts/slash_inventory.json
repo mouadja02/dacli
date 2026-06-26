@@ -52,6 +52,18 @@
     "Reload extensions from disk without restarting"
   ],
   [
+    "/extensions",
+    "List loaded extensions, status, and config state"
+  ],
+  [
+    "/scope [ext] [level]",
+    "View or set permission scope (read_only|write|risky|admin)"
+  ],
+  [
+    "/creds [ext] [--delete]",
+    "View stored credentials (masked) or delete them"
+  ],
+  [
     "/workspace [name]",
     "List or switch workspaces (own extensions, secrets, history, audit)"
   ],

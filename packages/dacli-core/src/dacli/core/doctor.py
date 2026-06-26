@@ -92,7 +92,9 @@ def _docker_image_present(docker_bin: str, image: str) -> bool:
     try:
         r = subprocess.run(
             [docker_bin, "image", "inspect", image],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         return r.returncode == 0
     except Exception:
@@ -102,7 +104,12 @@ def _docker_image_present(docker_bin: str, image: str) -> bool:
 def _sandbox_info(settings: Any) -> dict[str, Any]:
     sb = settings.sandbox
     if not sb.enabled:
-        return {"enabled": False, "runtime": None, "image_present": None, "fallback": False}
+        return {
+            "enabled": False,
+            "runtime": None,
+            "image_present": None,
+            "fallback": False,
+        }
     mode = (sb.runtime or "auto").strip().lower()
     docker_bin = sb.docker_bin or "docker"
     docker_ok = False
@@ -144,7 +151,9 @@ async def _ping_llm(settings: Any) -> bool:
         return False
 
 
-def collect(settings: Any, *, config_path: str | None = None, ping: bool = False) -> Diagnostics:
+def collect(
+    settings: Any, *, config_path: str | None = None, ping: bool = False
+) -> Diagnostics:
     """Gather diagnostics. ``ping`` adds the bounded LLM models/list probe."""
     import yaml
 
@@ -184,6 +193,14 @@ def collect(settings: Any, *, config_path: str | None = None, ping: bool = False
     ]
     skipped = registry.failed_connectors()
 
+    # Count extensions (seeds + user-generated).
+    from dacli.core.extensions import ExtensionHost
+
+    _ext_host = ExtensionHost(settings=settings)
+    _ext_result = _ext_host.load()
+    ext_ids = _ext_host.registry.extension_ids()
+    ext_failed = _ext_host.registry.failed_extensions()
+
     from dacli.sandbox.shells import select_backend
 
     return Diagnostics(
@@ -192,8 +209,8 @@ def collect(settings: Any, *, config_path: str | None = None, ping: bool = False
             "found": config_file is not None,
             "requested": config_path,
         },
-        state_dir={"path": str(paths.state_dir()), "kind": kind},
-        log={"path": str(paths.state_dir() / "dacli.log")},
+        state_dir={"path": str(paths.state_dir().resolve()), "kind": kind},
+        log={"path": str(paths.state_dir().resolve() / "dacli.log")},
         llm={
             "provider": settings.llm.provider,
             "model": settings.llm.model,
@@ -214,14 +231,19 @@ def collect(settings: Any, *, config_path: str | None = None, ping: bool = False
         },
         connectors={
             "enabled": len(enabled),
+            "extensions": len(ext_ids),
+            "ext_failed": len(ext_failed),
             "skipped": len(skipped),
             "skipped_detail": skipped,
+            "ext_failed_detail": ext_failed,
         },
         cost={
             # The F-4 gate threshold (None = off) and which enabled connectors
             # the cost advisor can estimate/report on. Offline: no warehouse is
             # queried here — `dacli cost` does that.
             "confirm_usd": settings.governance.cost_confirm_usd,
-            "advisors": [c for c in ("snowflake", "bigquery", "databricks") if c in enabled],
+            "advisors": [
+                c for c in ("snowflake", "bigquery", "databricks") if c in enabled
+            ],
         },
     )

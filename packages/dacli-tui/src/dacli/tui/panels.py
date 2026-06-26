@@ -1,4 +1,5 @@
 """Panel surfaces: approval, plan, diff, catalog, status, schema, sessions, help."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -18,6 +19,59 @@ from dacli.tui.render_util import _unified_diff_text
 
 class PanelsMixin:
     """All the panel/table renderers composed onto DacliUI."""
+
+    def escalation_panel(self, request) -> None:
+        """Render a scope-escalation prompt when an action exceeds the
+        connector's current permission scope.
+
+        Shows current vs needed scope, the triggering tool, and 3 choices.
+        Returns nothing — the caller reads the user's choice separately.
+        """
+        grid = Table.grid(padding=(0, 2, 0, 0))
+        grid.add_column(style="muted", no_wrap=True)
+        grid.add_column()
+        grid.add_row(
+            "Connector",
+            Text(str(getattr(request, "connector_id", "?")), style="accent"),
+        )
+        grid.add_row(
+            "Action", Text(str(getattr(request, "tool_name", "?")), style="info")
+        )
+        current = getattr(request, "current_scope", None)
+        needed = getattr(request, "needed_scope", None)
+        grid.add_row(
+            "Current scope",
+            Text(current.value if current else "?", style="step"),
+        )
+        grid.add_row(
+            "Needed scope",
+            Text(needed.value if needed else "?", style="warning"),
+        )
+        tier = getattr(request, "needed_tier", None)
+        if tier is not None:
+            grid.add_row(
+                "Blast radius",
+                Text(tier.value, style=TIER_STYLE.get(tier.value, "muted")),
+            )
+
+        choices = Text()
+        choices.append("[1]", style="accent")
+        choices.append(" Allow once  ", style="step")
+        choices.append("[2]", style="accent")
+        choices.append(" Allow permanently  ", style="step")
+        choices.append("[3]", style="accent")
+        choices.append(" Decline", style="step")
+
+        self.console.print(
+            Panel(
+                Group(grid, Text(), choices),
+                title="[warning]scope escalation[/warning]",
+                title_align="left",
+                box=self.glyphs.box,
+                border_style="warning",
+                padding=SPACING["panel_pad"],
+            )
+        )
 
     def approval_panel(self, request) -> None:
         """Render a governance approval request (or a DAG plan) for sign-off.
@@ -46,7 +100,9 @@ class PanelsMixin:
             body = Text(text, style="step")
 
         decision = Text()
-        decision.append("Proceed?  ", style="bold" if tier == "irreversible" else "prompt")
+        decision.append(
+            "Proceed?  ", style="bold" if tier == "irreversible" else "prompt"
+        )
         decision.append("[y]es / [N]o", style="accent")
         decision.append("  (No is the safe default)", style="muted")
 
@@ -218,9 +274,7 @@ class PanelsMixin:
                         f"  [breadth-first {mult}{len(items) or '?'}]", style="info"
                     )
                 if len(deps) > 1:
-                    label.append(
-                        f"  (also after {', '.join(deps[1:])})", style="muted"
-                    )
+                    label.append(f"  (also after {', '.join(deps[1:])})", style="muted")
                 parent = branches.get(deps[0]) if deps else tree
                 branch = (parent if parent is not None else tree).add(label)
                 node_id = str(getattr(node, "id", "") or "")
@@ -270,14 +324,14 @@ class PanelsMixin:
         counts.add_row(str(a), str(b), str(delta))
 
         parts: list[RenderableType] = [counts]
-        changed = [
-            c for c in (data.get("columns") or []) if c.get("delta")
-        ]
+        changed = [c for c in (data.get("columns") or []) if c.get("delta")]
         if changed:
             cols = Table(
                 title="[muted]null-rate deltas (sampled)[/muted]",
                 title_justify="left",
-                show_header=True, header_style="muted", box=None,
+                show_header=True,
+                header_style="muted",
+                box=None,
                 padding=(0, 2, 0, 0),
             )
             cols.add_column("column", style="step")
@@ -368,19 +422,47 @@ class PanelsMixin:
         )
         self.console.print()
 
-    def connectors_table(self, registry) -> None:
+    def connectors_table(self, registry, ext_registry=None) -> None:
         table = Table(
-            title="[accent]Connectors[/accent]",
+            title="[accent]Extensions[/accent]",
             show_header=True,
             header_style="muted",
             border_style="border",
             box=None,
             padding=(0, 2, 0, 0),
         )
-        table.add_column("Connector", style="info")
+        table.add_column("Extension", style="info")
         table.add_column("Status", justify="left")
-        table.add_column("Operations", justify="right", style="step")
+        table.add_column("Tools", justify="right", style="step")
+
+        shown = False
+
+        # New-path extensions (seeds + user-generated)
+        if ext_registry is not None:
+            for ext_id in ext_registry.extension_ids():
+                fields = ext_registry.config_fields(ext_id)
+                # Count tools belonging to this extension
+                tool_count = sum(
+                    1 for t in ext_registry._tools.values() if t.extension == ext_id
+                )
+                table.add_row(
+                    ext_id,
+                    f"[ok]{self.glyphs.enabled} loaded[/ok]",
+                    str(tool_count),
+                )
+                shown = True
+            for ext_id, reason in ext_registry.failed_extensions().items():
+                table.add_row(
+                    ext_id,
+                    f"[bad]{self.glyphs.err} {reason}[/bad]",
+                    self.glyphs.dash,
+                )
+                shown = True
+
+        # Old-path connectors (skip system/sandbox internals)
         for connector_id, info in registry.get_catalog().items():
+            if connector_id in ("system", "sandbox"):
+                continue
             if registry.is_connector_enabled(connector_id):
                 ops = [
                     op for op in info["operations"] if registry.is_operation_enabled(op)
@@ -390,14 +472,17 @@ class PanelsMixin:
                     f"[ok]{self.glyphs.enabled} enabled[/ok]",
                     str(len(ops)),
                 )
-            else:
-                table.add_row(
-                    f"{info['icon']} {info['name']}",
-                    f"[muted]{self.glyphs.disabled} disabled[/muted]",
-                    self.glyphs.dash,
-                )
+                shown = True
+
+        if not shown:
+            self.console.print(
+                "[muted]No extensions loaded. Run /new-extension to generate one.[/muted]\n"
+            )
+            return
         self.console.print(table)
-        self.console.print("[muted]Use /setup to reconfigure connectors[/muted]\n")
+        self.console.print(
+            "[muted]/connect <ext> to configure · /scope <ext> to set permissions[/muted]\n"
+        )
 
     def config_table(self, settings) -> None:
         table = Table(
@@ -434,10 +519,14 @@ class PanelsMixin:
         cfg = d.config
         table.add_row(
             "config",
-            f"{cfg['path']}" if cfg["found"]
+            f"{cfg['path']}"
+            if cfg["found"]
             else "[warning]not found → using defaults[/warning]",
         )
-        table.add_row("state dir", f"{d.state_dir['path']}  [muted]({d.state_dir['kind']})[/muted]")
+        table.add_row(
+            "state dir",
+            f"{d.state_dir['path']}  [muted]({d.state_dir['kind']})[/muted]",
+        )
         table.add_row("log", d.log["path"])
 
         llm = d.llm
@@ -463,7 +552,11 @@ class PanelsMixin:
         if not sb["enabled"]:
             sandbox_val = "[muted]disabled[/muted]"
         elif sb["runtime"] == "docker":
-            img = "image present" if sb["image_present"] else "[warning]image absent[/warning]"
+            img = (
+                "image present"
+                if sb["image_present"]
+                else "[warning]image absent[/warning]"
+            )
             sandbox_val = f"docker  [muted]({img})[/muted]"
         else:
             note = "docker unavailable → fallback" if sb["fallback"] else "no docker"
@@ -477,18 +570,29 @@ class PanelsMixin:
         table.add_row("terminal", term_val)
 
         conn = d.connectors
-        table.add_row(
-            "connectors",
-            f"{conn['enabled']} enabled  [muted]·[/muted]  {conn['skipped']} skipped",
-        )
-        for cid, reason in conn["skipped_detail"].items():
+        ext_count = conn.get("extensions", 0)
+        ext_fail = conn.get("ext_failed", 0)
+        ext_txt = f"{ext_count} loaded"
+        if ext_fail:
+            ext_txt += f"  [muted]·[/muted]  [warning]{ext_fail} failed[/warning]"
+        table.add_row("extensions", ext_txt)
+        for cid, reason in conn.get("ext_failed_detail", {}).items():
             table.add_row("", f"[warning]{cid}[/warning]: {reason}")
+        if conn["enabled"] or conn["skipped"]:
+            table.add_row(
+                "connectors",
+                f"{conn['enabled']} enabled  [muted]·[/muted]  {conn['skipped']} skipped",
+            )
+            for cid, reason in conn["skipped_detail"].items():
+                table.add_row("", f"[warning]{cid}[/warning]: {reason}")
 
         cost = getattr(d, "cost", None) or {}
         gate = cost.get("confirm_usd")
         gate_txt = f"confirm above ${gate:g}" if gate is not None else "off"
         advisors = ", ".join(cost.get("advisors") or []) or "none enabled"
-        table.add_row("cost", f"gate: {gate_txt}  [muted]·[/muted]  advisor: {advisors}")
+        table.add_row(
+            "cost", f"gate: {gate_txt}  [muted]·[/muted]  advisor: {advisors}"
+        )
 
         border = "border" if d.ok else "warning"
         self.console.print(
@@ -555,21 +659,29 @@ class PanelsMixin:
         rows: list[list[Any]] = []
         for entry in entries:
             scope = getattr(entry, "scope", {}) or {}
-            name = ".".join(
-                str(scope[k]) for k in ("database", "schema", "object") if scope.get(k)
-            ) or "(unscoped)"
+            name = (
+                ".".join(
+                    str(scope[k])
+                    for k in ("database", "schema", "object")
+                    if scope.get(k)
+                )
+                or "(unscoped)"
+            )
             rce = getattr(entry, "row_count_estimate", None)
             verified = getattr(entry, "last_verified", None)
             stale = entry.is_stale() if hasattr(entry, "is_stale") else False
-            rows.append([
-                getattr(entry, "connector", "?"),
-                getattr(entry, "object_type", "?"),
-                name,
-                str(rce) if rce is not None else self.glyphs.dash,
-                verified.isoformat(timespec="seconds")
-                if hasattr(verified, "isoformat") else self.glyphs.dash,
-                "stale" if stale else "",
-            ])
+            rows.append(
+                [
+                    getattr(entry, "connector", "?"),
+                    getattr(entry, "object_type", "?"),
+                    name,
+                    str(rce) if rce is not None else self.glyphs.dash,
+                    verified.isoformat(timespec="seconds")
+                    if hasattr(verified, "isoformat")
+                    else self.glyphs.dash,
+                    "stale" if stale else "",
+                ]
+            )
         self.console.print(Text("Catalog", style="accent"))
         self.console.print(responsive_table(self.console, cols, rows))
         self.console.print(
@@ -580,9 +692,12 @@ class PanelsMixin:
     def schema_panel(self, entry: Any) -> None:
         """Columns/types/row-count/last-verified for one object (F-6)."""
         scope = getattr(entry, "scope", {}) or {}
-        name = ".".join(
-            str(scope[k]) for k in ("database", "schema", "object") if scope.get(k)
-        ) or "(unscoped)"
+        name = (
+            ".".join(
+                str(scope[k]) for k in ("database", "schema", "object") if scope.get(k)
+            )
+            or "(unscoped)"
+        )
         header = Text()
         header.append(f"{name}\n", style="accent")
         header.append("Connector   ", style="muted")
@@ -596,14 +711,20 @@ class PanelsMixin:
         header.append("Verified    ", style="muted")
         header.append(
             verified.isoformat(timespec="seconds")
-            if hasattr(verified, "isoformat") else self.glyphs.dash,
+            if hasattr(verified, "isoformat")
+            else self.glyphs.dash,
             style="info",
         )
         if hasattr(entry, "is_stale") and entry.is_stale():
             header.append("  (stale — re-verify before relying on it)", style="warning")
         self.console.print(
-            Panel(header, title="[accent]Schema[/accent]", box=self.glyphs.box,
-                  border_style="border", padding=SPACING["panel_pad"])
+            Panel(
+                header,
+                title="[accent]Schema[/accent]",
+                box=self.glyphs.box,
+                border_style="border",
+                padding=SPACING["panel_pad"],
+            )
         )
 
         columns = getattr(entry, "columns", None) or []
@@ -629,17 +750,26 @@ class PanelsMixin:
         self.console.print(responsive_table(self.console, cols, rows))
         self.console.print()
 
-    def lineage_panel(self, obj: str, upstream: list[Any], downstream: list[Any]) -> None:
+    def lineage_panel(
+        self, obj: str, upstream: list[Any], downstream: list[Any]
+    ) -> None:
         """Upstream producers + downstream consumers for one object (P12)."""
         header = Text()
         header.append(f"{obj}\n", style="accent")
         header.append("Downstream  ", style="muted")
-        header.append(f"{len(downstream)} consumer(s)", style="warning" if downstream else "muted")
+        header.append(
+            f"{len(downstream)} consumer(s)", style="warning" if downstream else "muted"
+        )
         header.append("   Upstream  ", style="muted")
         header.append(f"{len(upstream)} source(s)", style="info")
         self.console.print(
-            Panel(header, title="[accent]Lineage[/accent]", box=self.glyphs.box,
-                  border_style="border", padding=SPACING["panel_pad"])
+            Panel(
+                header,
+                title="[accent]Lineage[/accent]",
+                box=self.glyphs.box,
+                border_style="border",
+                padding=SPACING["panel_pad"],
+            )
         )
         if not downstream and not upstream:
             self.console.print(
@@ -672,7 +802,8 @@ class PanelsMixin:
         finding = explanation.finding
         if finding is None:
             self.console.print(
-                f"[muted]{explanation.error or 'no failure located'}[/muted]")
+                f"[muted]{explanation.error or 'no failure located'}[/muted]"
+            )
             return
 
         body = Text()
@@ -686,32 +817,46 @@ class PanelsMixin:
         body.append("Root cause  ", style="muted")
         body.append(f"{explanation.root_cause}", style="phase")
         self.console.print(
-            Panel(body, title="[error]Why failed[/error]", box=self.glyphs.box,
-                  border_style="border", padding=SPACING["panel_pad"])
+            Panel(
+                body,
+                title="[error]Why failed[/error]",
+                box=self.glyphs.box,
+                border_style="border",
+                padding=SPACING["panel_pad"],
+            )
         )
 
         if finding.log_excerpt:
             self.console.print(Text("Log excerpt", style="muted"))
-            self.console.print(Panel(finding.log_excerpt.strip()[:1500],
-                                     box=self.glyphs.box, border_style="muted"))
+            self.console.print(
+                Panel(
+                    finding.log_excerpt.strip()[:1500],
+                    box=self.glyphs.box,
+                    border_style="muted",
+                )
+            )
 
         if explanation.downstream:
-            names = ", ".join(n.get("label") or n.get("name")
-                              for n in explanation.downstream[:8])
+            names = ", ".join(
+                n.get("label") or n.get("name") for n in explanation.downstream[:8]
+            )
             self.console.print(
                 f"[warning]Blast radius[/warning]  {len(explanation.downstream)} "
-                f"downstream consumer(s): {names}")
+                f"downstream consumer(s): {names}"
+            )
 
         fix = explanation.proposed_fix
         if fix is not None:
             verb = "applied" if fix.applied else "proposed (not applied)"
             self.console.print(
                 f"\n[accent]Proposed fix[/accent] [{verb}]  "
-                f"{fix.tool_name} {fix.args}\n[muted]{fix.rationale}[/muted]")
+                f"{fix.tool_name} {fix.args}\n[muted]{fix.rationale}[/muted]"
+            )
             if not fix.applied:
                 self.console.print(
                     "[muted]Re-run with --apply to route it through the governance "
-                    "gate (classify → approve → verify → rollback).[/muted]")
+                    "gate (classify → approve → verify → rollback).[/muted]"
+                )
 
     def assertion_panel(self, outcomes: list[Any]) -> None:
         """Render data-quality assertion outcomes (`dacli assert run`)."""
@@ -719,24 +864,29 @@ class PanelsMixin:
             if outcome.error:
                 self.console.print(
                     f"[error]{outcome.name}[/error]  {outcome.predicate}\n"
-                    f"[muted]{outcome.error}[/muted]")
+                    f"[muted]{outcome.error}[/muted]"
+                )
                 continue
-            verdict = ("[error]BREACH[/error]" if outcome.breached
-                       else "[success]ok[/success]")
+            verdict = (
+                "[error]BREACH[/error]" if outcome.breached else "[success]ok[/success]"
+            )
             value = f"{outcome.value:.4g}" if outcome.value is not None else "?"
             self.console.print(
                 f"{verdict}  [accent]{outcome.name}[/accent]  "
-                f"{outcome.predicate}  [muted](measured {value})[/muted]")
+                f"{outcome.predicate}  [muted](measured {value})[/muted]"
+            )
             fix = outcome.proposed_fix
             if fix is not None:
                 verb = "applied" if fix.applied else "proposed (not applied)"
                 self.console.print(
                     f"  [accent]fix[/accent] [{verb}]  {fix.tool_name} {fix.args}\n"
-                    f"  [muted]{fix.rationale}[/muted]")
+                    f"  [muted]{fix.rationale}[/muted]"
+                )
                 if not fix.applied:
                     self.console.print(
                         "  [muted]Re-run with --apply to route it through the "
-                        "governance gate.[/muted]")
+                        "governance gate.[/muted]"
+                    )
 
     def cost_panel(self, connector: str, estimate: Any, session: Any) -> None:
         """Render a warehouse cost estimate and/or session spend (`dacli cost`)."""
@@ -758,8 +908,14 @@ class PanelsMixin:
                     bits.append(f"≈ ${session.usd:,.2f}")
                 body.append("  ·  ".join(bits) + "\n", style="info")
         self.console.print(
-            Panel(body, title="Warehouse cost", box=self.glyphs.box,
-                  border_style="border", padding=SPACING["panel_pad"]))
+            Panel(
+                body,
+                title="Warehouse cost",
+                box=self.glyphs.box,
+                border_style="border",
+                padding=SPACING["panel_pad"],
+            )
+        )
 
     def status_panel(self, memory) -> None:
         # Render the current agent status: session panel, plan and statistics.
@@ -803,7 +959,9 @@ class PanelsMixin:
                     "in_progress": self.glyphs.running,
                     "completed": self.glyphs.ok,
                 }.get(status, self.glyphs.pending)
-                table.add_row(str(i), f"{status_icon} {status}", todo.get("content", ""))
+                table.add_row(
+                    str(i), f"{status_icon} {status}", todo.get("content", "")
+                )
             self.console.print(table)
 
         # Stats
@@ -838,12 +996,9 @@ class PanelsMixin:
             marker_style = "accent" if is_user else "gutter"
             text_style = "user" if is_user else "step"
             preview = (
-                content
-                if len(content) <= 200
-                else content[:200] + self.glyphs.ellipsis
+                content if len(content) <= 200 else content[:200] + self.glyphs.ellipsis
             )
             self.console.print(
                 self._guttered(marker, marker_style, Text(preview, style=text_style))
             )
         self.console.print()
-

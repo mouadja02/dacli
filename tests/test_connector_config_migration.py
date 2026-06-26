@@ -49,16 +49,11 @@ def test_no_typed_connector_section_on_settings():
 # ---------------------------------------------------------------------------
 # Registry sources config fields from the manifest only (M12)
 # ---------------------------------------------------------------------------
-def test_registry_get_config_fields_uses_manifest():
-    """``get_config_fields`` reads the manifest's config_fields — there is no
-    typed Settings section path anymore."""
+def test_registry_get_config_fields_returns_empty_for_unknown():
+    """``get_config_fields`` returns empty list for a connector with no manifest
+    (all packaged connectors removed; extensions own their config now)."""
     from dacli.connectors.registry import ConnectorRegistry
 
-    # Default connectors_dir is the real package directory (cwd-independent); the
-    # github seed's old manifest still ships its config_fields.
     registry = ConnectorRegistry(Settings())
-    fields = registry.get_config_fields("github")
-    names = {f.name for f in fields}
-    assert {"token", "repository_url", "branch", "timeout"} <= names
-    token = next(f for f in fields if f.name == "token")
-    assert token.required and token.is_secret
+    fields = registry.get_config_fields("nonexistent")
+    assert fields == []

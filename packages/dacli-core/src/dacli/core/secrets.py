@@ -59,6 +59,35 @@ class SecretStore:
     def save(self) -> None:
         write_json_atomic(self.path, self._data, indent=2)
 
+    def delete(self, extension: str, field: str | None = None) -> bool:
+        """Remove a field (or all fields) for an extension. Returns True if changed."""
+        if extension not in self._data:
+            return False
+        if field is None:
+            del self._data[extension]
+            return True
+        if field in self._data[extension]:
+            del self._data[extension][field]
+            if not self._data[extension]:
+                del self._data[extension]
+            return True
+        return False
+
+    def extensions(self) -> list[str]:
+        """Extension ids that have stored config."""
+        return list(self._data.keys())
+
+    def raw_fields(self, extension: str) -> dict[str, str]:
+        """Field names and whether they're set (masks secret values)."""
+        raw = self._data.get(extension)
+        if not isinstance(raw, dict):
+            return {}
+        return {
+            k: "********" if is_encrypted(v) else v
+            for k, v in raw.items()
+            if isinstance(v, str)
+        }
+
     def config(self, extension: str) -> dict[str, Any]:
         """This extension's config, secrets decrypted at call time.
 
