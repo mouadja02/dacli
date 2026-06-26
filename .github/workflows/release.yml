@@ -127,23 +127,88 @@ jobs:
           files: dist/*
           fail_on_unmatched_files: true
 
-  pypi-publish:
-    name: Publish to PyPI
+  publish-dacli-ai:
+    name: Publish dacli-ai
     needs: build
     runs-on: ubuntu-latest
-    # The `pypi` environment is where the trusted-publisher link is configured on
-    # pypi.org and where you can require a manual approval before a publish.
+    environment:
+      name: pypi-ai
+      url: https://pypi.org/project/dacli-ai/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - run: mkdir -p upload && cp dist/dacli_ai-* upload/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: upload/
+
+  publish-dacli-core:
+    name: Publish dacli-core
+    needs: publish-dacli-ai
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi-core
+      url: https://pypi.org/project/dacli-core/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - run: mkdir -p upload && cp dist/dacli_core-* upload/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: upload/
+
+  publish-dacli-tui:
+    name: Publish dacli-tui
+    needs: publish-dacli-core
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi-tui
+      url: https://pypi.org/project/dacli-tui/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - run: mkdir -p upload && cp dist/dacli_tui-* upload/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: upload/
+
+  publish-dacli:
+    name: Publish dacli
+    needs: publish-dacli-tui
+    runs-on: ubuntu-latest
     environment:
       name: pypi
       url: https://pypi.org/project/dacli/
     permissions:
-      id-token: write   # OIDC token for trusted publishing — no API token/secret
+      id-token: write
     steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: dist
           path: dist/
-
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Select only the top-level dacli package
+        run: |
+          mkdir -p upload
+          for f in dist/dacli-*; do
+            base=$(basename "$f")
+            # dacli-0.4.0.tar.gz / dacli-0.4.0-py3-none-any.whl (not dacli_core, etc.)
+            if echo "$base" | grep -qE '^dacli-[0-9]'; then
+              cp "$f" upload/
+            fi
+          done
+          ls upload/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: upload/
