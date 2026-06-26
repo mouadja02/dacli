@@ -440,7 +440,6 @@ class PanelsMixin:
         # New-path extensions (seeds + user-generated)
         if ext_registry is not None:
             for ext_id in ext_registry.extension_ids():
-                fields = ext_registry.config_fields(ext_id)
                 # Count tools belonging to this extension
                 tool_count = sum(
                     1 for t in ext_registry._tools.values() if t.extension == ext_id

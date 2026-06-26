@@ -40,11 +40,11 @@ log = get_logger(__name__)
 def _enabled_connector_names(registry, ext_registry=None) -> list:
     # Short connector names for the welcome card / status bar.
     # Old-path connectors (system/sandbox — internal, skip them in display).
-    names = []
     catalog = registry.get_catalog()
-    for cid in catalog:
-        if registry.is_connector_enabled(cid) and cid not in ("system", "sandbox"):
-            names.append(cid)
+    names = [
+        cid for cid in catalog
+        if registry.is_connector_enabled(cid) and cid not in ("system", "sandbox")
+    ]
     # New-path extensions (seeds + user-generated).
     if ext_registry is not None:
         names.extend(ext_registry.extension_ids())

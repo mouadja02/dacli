@@ -8,7 +8,7 @@
 
 [![CI](https://github.com/mouadja02/dacli/actions/workflows/ci.yml/badge.svg)](https://github.com/mouadja02/dacli/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-689-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-685-brightgreen.svg)](#testing)
 
 [Quick start](#quick-start) · [Extending dacli](docs/EXTENSIONS.md) · [Governance](docs/GOVERNANCE.md) · [Evaluation](docs/EVALUATION.md)
 
@@ -236,9 +236,9 @@ connector          tasks  pass@1  pass^k   succ    esc   corr    gov  unguard   
 ----------------------------------------------------------------------------------------------
 github                 1    1.00    1.00   1.00   0.00   0.00   0.00        0       0      0.1
 snowflake              1    1.00    1.00   1.00   0.00   0.00   0.00        0       0      0.1
-shell                  7    1.00    1.00   1.00   0.00   0.00   0.29        0       0     19.5
+shell                  5    1.00    1.00   1.00   0.00   0.00   0.20        0       0     15.0
 spine                  3    1.00    1.00   1.00   0.00   0.20   0.20        0       0      1.0
-OVERALL               12    1.00    1.00   1.00   0.00   0.03   0.09        0       0     11.0
+OVERALL               10    1.00    1.00   1.00   0.00   0.03   0.09        0       0      8.0
 ----------------------------------------------------------------------------------------------
 ✓ zero unguarded destructive executions.
 ```
