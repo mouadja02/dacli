@@ -5,7 +5,7 @@ from typing import Any
 def register(api):
     # Configuration fields – secrets are marked secret=True and never stored in code.
     api.config_field("region", required=True, description="AWS region, e.g. us-east-1")
-    api.config_field("table", required=True, description="DynamoDB table name")
+    api.config_field("table", required=False, description="Default DynamoDB table (overridable per call)")
     api.config_field("access_key", secret=True, description="AWS Access Key ID")
     api.config_field("secret_key", secret=True, description="AWS Secret Access Key")
     api.config_field(
@@ -28,13 +28,18 @@ def register(api):
         session = boto3.session.Session(**session_kwargs)
         return session.client("dynamodb")
 
+    def _resolve_table(args, cfg):
+        """Resolve table from tool args, falling back to config default."""
+        return args.get("table") or cfg.get("table")
+
     # -------------------------------------------------------------------------
     # Tool: List items (scan) from the table – safe operation.
     # -------------------------------------------------------------------------
     @api.tool(
         name="dynamodb_scan",
-        description="Scan the DynamoDB table and return items (optionally limited).",
+        description="Scan a DynamoDB table and return items (optionally limited).",
         parameters={
+            "table": {"type": "string", "description": "Table name (defaults to configured)"},
             "limit": {"type": "integer", "minimum": 1, "description": "Maximum number of items to return"},
         },
         risk="safe",
@@ -42,10 +47,13 @@ def register(api):
     )
     async def dynamodb_scan(args, ctx):
         cfg = api.config()
+        table = _resolve_table(args, cfg)
+        if not table:
+            return ctx.fail("No table specified and none configured")
         client = _make_client(cfg)
 
         limit = args.get("limit")
-        scan_kwargs = {"TableName": cfg["table"]}
+        scan_kwargs = {"TableName": table}
         if limit:
             scan_kwargs["Limit"] = limit
 
@@ -63,8 +71,9 @@ def register(api):
     # -------------------------------------------------------------------------
     @api.tool(
         name="dynamodb_get",
-        description="Retrieve a single item from the table using its primary key.",
+        description="Retrieve a single item from a table using its primary key.",
         parameters={
+            "table": {"type": "string", "description": "Table name (defaults to configured)"},
             "key": {
                 "type": "object",
                 "description": "Primary key map (attribute name → value).",
@@ -76,6 +85,9 @@ def register(api):
     )
     async def dynamodb_get(args, ctx):
         cfg = api.config()
+        table = _resolve_table(args, cfg)
+        if not table:
+            return ctx.fail("No table specified and none configured")
         client = _make_client(cfg)
 
         key = args.get("key")
@@ -90,7 +102,7 @@ def register(api):
 
         try:
             response = await asyncio.to_thread(
-                client.get_item, TableName=cfg["table"], Key=dynamo_key
+                client.get_item, TableName=table, Key=dynamo_key
             )
             item = response.get("Item")
             if not item:
@@ -105,8 +117,9 @@ def register(api):
     # -------------------------------------------------------------------------
     @api.tool(
         name="dynamodb_put",
-        description="Put (create or replace) an item into the DynamoDB table.",
+        description="Put (create or replace) an item into a DynamoDB table.",
         parameters={
+            "table": {"type": "string", "description": "Table name (defaults to configured)"},
             "item": {
                 "type": "object",
                 "description": "Full item to store (attribute name → value).",
@@ -118,6 +131,9 @@ def register(api):
     )
     async def dynamodb_put(args, ctx):
         cfg = api.config()
+        table = _resolve_table(args, cfg)
+        if not table:
+            return ctx.fail("No table specified and none configured")
         client = _make_client(cfg)
 
         item = args.get("item")
@@ -129,7 +145,7 @@ def register(api):
 
         try:
             await asyncio.to_thread(
-                client.put_item, TableName=cfg["table"], Item=dynamo_item
+                client.put_item, TableName=table, Item=dynamo_item
             )
             return ctx.ok({"message": "Item written successfully"})
         except Exception as exc:

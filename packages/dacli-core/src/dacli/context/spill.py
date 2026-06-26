@@ -80,7 +80,12 @@ class ResultStore:
                 "returned": len(window),
                 "data": window,
             }
-        return {"tool_name": payload.get("tool_name"), "data": data}
+        # Non-list data: windowing does not apply. This IS the complete result.
+        return {
+            "tool_name": payload.get("tool_name"),
+            "complete": True,
+            "data": data,
+        }
 
 
 def _columns(rows: list[Any]) -> list[str]:
@@ -142,10 +147,18 @@ def summarize_or_inline(
 ) -> str:
     """Return the model-facing tool message: inline if small, summary if large.
 
-    Errors are always inline (small and important). A successful result whose
-    inline form exceeds ``threshold_tokens`` is spilled to ``store`` and replaced
-    by a structured summary + fetch handle.
+    Errors are always inline (small and important). A tool that sets
+    metadata["context_summary"] gets that one-liner in context instead of the
+    full result (generation/edit ops use this to stay lean). A successful result
+    whose inline form exceeds ``threshold_tokens`` is spilled to ``store`` and
+    replaced by a structured summary + fetch handle.
     """
+    # Tools can opt into a compact context representation.
+    meta = getattr(result, "metadata", None) or {}
+    summary = meta.get("context_summary") if isinstance(meta, dict) else None
+    if summary and getattr(result, "success", False):
+        return f"[{result.tool_name}] {summary}"
+
     inline = result.to_message()
     if not getattr(result, "success", False):
         return inline

@@ -341,10 +341,9 @@ async def _connect(ctx, args):
         ctx.settings = load_config(ctx.config_path)
         ctx.store.snapshot_config(ctx.settings)
         ctx.store.save()
-        ctx.ui.notice(
-            "Run /reload (or restart) for the new credentials to take effect.",
-            style="muted",
-        )
+        # Auto-reload so the new credentials take effect immediately.
+        result = ctx.agent.ext_host.reload()
+        ctx.ui.notice(f"Extensions: {result.report()}", style="success")
 
 
 @command("/new-extension")

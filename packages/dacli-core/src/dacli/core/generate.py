@@ -71,18 +71,27 @@ Write one Python module for the dacli extension host. The module exports
 def register(api):
     # Config the user supplies later via /connect. Secrets are entered hidden and
     # stored encrypted; NEVER write a secret value as a literal in the code.
-    api.config_field("bucket", required=True, description="Target bucket")
+    # Resource targets (bucket, table, db_path) are OPTIONAL config with a default;
+    # they MUST also appear as optional tool parameters so the agent can operate on
+    # multiple targets without reconfiguring.
+    api.config_field("bucket", required=False, description="Default S3 bucket (overridable per call)")
     api.config_field("access_key", secret=True)
 
     @api.tool(
         name="thing_list",                          # LLM-facing tool name
         description="List things under a prefix",
-        parameters={"prefix": {"type": "string"}},  # JSON-schema property map
+        parameters={
+            "bucket": {"type": "string", "description": "Bucket (defaults to configured)"},
+            "prefix": {"type": "string"},
+        },
         risk="safe",                                # safe | write | risky | irreversible
         postconditions=["result_succeeded"],        # at least one, always
     )
     async def thing_list(args, ctx):
-        cfg = api.config()              # {"bucket": ..., decrypted secrets ...}
+        cfg = api.config()
+        bucket = args.get("bucket") or cfg.get("bucket")
+        if not bucket:
+            return ctx.fail("No bucket specified and none configured")
         ...
         return ctx.ok(rows)            # success; or ctx.fail("reason")
 ```
@@ -92,6 +101,10 @@ Rules:
   post-condition is refused at load.
 - Read every credential through `api.config()` at call time. NEVER inline a secret
   value — a module that hardcodes a `secret=True` field is rejected.
+- RESOURCE TARGETS (bucket, table name, database path, index name, queue URL, etc.)
+  must be both an optional config_field AND an optional tool parameter. The handler
+  resolves: `target = args.get("x") or cfg.get("x")`. This lets the agent work
+  across multiple resources without reconfiguring. Only secrets/auth stay config-only.
 - Post-condition names you can use: result_succeeded, data_is_list, shell_exit_zero,
   shell_writes_observed, shell_deletes_observed. Use "result_succeeded" if unsure.
 - Each handler is `async def handler(args, ctx)` returning `ctx.ok(...)` / `ctx.fail(...)`.
@@ -105,9 +118,16 @@ Rules:
 - Produce a COMPLETE set of tools for the service — at minimum list, get, create,
   update, delete operations (CRUD) where applicable. A single "list" tool is not
   enough. Include a stats/describe tool when the service supports it.
-- Use `asyncio.to_thread(fn)` to run blocking SDK calls (e.g. boto3). NEVER use
-  `async for` on the result of `asyncio.to_thread` — it returns a plain value, not
-  an async iterator. Collect all pages inside the threaded function, then return.
+- Use `asyncio.to_thread(fn)` to run blocking SDK calls (e.g. boto3). The function
+  passed to `to_thread` MUST be a plain `def`, NEVER `async def`. An `async def`
+  passed to `to_thread` returns a coroutine object instead of a result. Pattern:
+  ```
+  def _do_it():          # plain def, NOT async def
+      return client.some_call(...)
+  result = await asyncio.to_thread(_do_it)
+  ```
+  NEVER use `async for` on the result of `asyncio.to_thread` — it returns a plain
+  value, not an async iterator. Collect all pages inside the threaded function.
 
 ## Ask when a decision is ambiguous
 
@@ -420,17 +440,21 @@ async def generate_extension(
 
 
 # ---------------------------------------------------------------------------
-# Edit / fix an existing extension
+# Edit / fix / enhance an existing extension
 # ---------------------------------------------------------------------------
 _EDIT_SYSTEM_PROMPT = (
-    "You fix dacli extension modules. Output only the corrected module, "
-    "in the exact format requested."
+    "You modify dacli extension modules. Fix bugs or add requested features. "
+    "Output only the updated module, in the exact format requested."
 )
 
 _EDIT_PROMPT = """\
-The following dacli extension module has a bug. Fix it and output the corrected
-module. Keep the same structure, tools, config fields, and names — only fix
-the bug described below.
+Modify the following dacli extension module as instructed below. Keep existing
+tools, config fields, and names intact — only change what the instruction asks
+for. If fixing a bug, preserve the structure. If adding a feature, follow the
+same patterns already in the module.
+
+CRITICAL: Functions passed to `asyncio.to_thread()` must be plain `def`, NEVER
+`async def`. An async def passed to to_thread causes "cannot pickle 'coroutine'".
 
 ## Current source
 
@@ -438,13 +462,13 @@ the bug described below.
 {source}
 ```
 
-## Error
+## Instruction
 
 {error}
 
 ## Output
 
-Output exactly the fixed module:
+Output exactly the updated module:
 
 ### FILE: __init__.py
 <python source>
@@ -452,9 +476,9 @@ Output exactly the fixed module:
 
 
 async def edit_extension(
-    name: str, error: str, *, llm: Any, host: Any
+    name: str, instruction: str, *, llm: Any, host: Any
 ) -> GenerationResult:
-    """Fix a broken extension by sending its source + error to the LLM."""
+    """Modify an extension: fix a bug or add a feature."""
     norm = _normalize_name(name)
     ext_dir = host.base_dir() / norm
     init_file = ext_dir / "__init__.py"
@@ -462,7 +486,7 @@ async def edit_extension(
         raise FileNotFoundError(f"extension '{norm}' not found at {ext_dir}")
 
     source = init_file.read_text(encoding="utf-8")
-    prompt = _EDIT_PROMPT.replace("{source}", source).replace("{error}", error)
+    prompt = _EDIT_PROMPT.replace("{source}", source).replace("{error}", instruction)
     messages = [{"role": "user", "content": prompt}]
 
     text, _ = await llm.generate(messages=messages, system_prompt=_EDIT_SYSTEM_PROMPT)

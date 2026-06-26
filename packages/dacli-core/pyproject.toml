@@ -15,7 +15,7 @@ keywords = ["agent", "governance", "extension host", "data engineering"]
 # headless (--mode json) with dacli-tui NOT installed: rich is here for console
 # output, but the TUI (textual/prompt-toolkit, the dacli-tui wheel) is not pulled.
 dependencies = [
-    "dacli-ai==0.3.0",
+    "dacli-ai==0.4.1",
     "pydantic>=2.5,<3",
     "pyyaml>=6,<7",
     "python-dotenv>=1,<2",

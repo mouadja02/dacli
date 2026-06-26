@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 authors = [{ name = "Mouad Jaouhari", email = "github@mj-dev.net" }]
 keywords = ["tui", "repl", "rich", "prompt-toolkit"]
 dependencies = [
-    "dacli-core==0.4.0",
+    "dacli-core==0.4.1",
     "rich>=13,<16",
     "prompt-toolkit>=3,<4",
 ]

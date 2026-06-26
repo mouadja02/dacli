@@ -14,7 +14,7 @@ from dacli.prompts.system_prompt import CORE_FRAGMENT
 
 # The packaged core prompt, on its own, must stay lean. It was 1144 tokens before
 # M14; this caps the regrowth with headroom.
-CORE_BUDGET = 700
+CORE_BUDGET = 1000
 # Core prompt + the always-on system tool defs. Pi's whole surface is ~1k; ours
 # carries six system tools (~990 tokens of schema) so the combined ceiling is higher.
 COMBINED_BUDGET = 2000

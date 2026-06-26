@@ -82,20 +82,27 @@ def register(api):
             return ctx.fail(f"Failed to get function '{args['function_name']}': {e}")
 
     # ----------------------------------------------------------------------
-    # CREATE FUNCTION
+    # CREATE FUNCTION (inline code or S3)
     # ----------------------------------------------------------------------
     @api.tool(
         name="create_function",
-        description="Create a new AWS Lambda function from a deployment package stored in S3",
+        description=(
+            "Create a new AWS Lambda function. Provide EITHER inline_code (a Python "
+            "source string — the tool zips it for you) OR s3_bucket + s3_key."
+        ),
         parameters={
             "function_name": {"type": "string", "description": "Name of the new function"},
             "runtime": {
                 "type": "string",
-                "description": "Runtime identifier, e.g. python3.9, nodejs14.x"
+                "description": "Runtime identifier, e.g. python3.12, nodejs20.x"
             },
             "role_arn": {"type": "string", "description": "ARN of the IAM role for the function"},
-            "handler": {"type": "string", "description": "Handler name, e.g. app.lambda_handler"},
-            "s3_bucket": {"type": "string", "description": "S3 bucket containing the deployment zip"},
+            "handler": {"type": "string", "description": "Handler name, e.g. lambda_function.lambda_handler"},
+            "inline_code": {
+                "type": "string",
+                "description": "Python source code to deploy inline (zipped automatically). Use this for simple functions instead of S3."
+            },
+            "s3_bucket": {"type": "string", "description": "S3 bucket containing the deployment zip (alternative to inline_code)"},
             "s3_key": {"type": "string", "description": "S3 object key for the deployment zip"},
             # Optional fields
             "description": {"type": "string"},
@@ -116,19 +123,38 @@ def register(api):
         postconditions=["result_succeeded"],
     )
     async def create_function(args, ctx):
+        import io
+        import zipfile
+
         cfg = api.config()
         client = _make_client(cfg)
 
+        inline_code = args.get("inline_code")
+        s3_bucket = args.get("s3_bucket")
+        s3_key = args.get("s3_key")
+
+        if not inline_code and not (s3_bucket and s3_key):
+            return ctx.fail("Provide either inline_code or both s3_bucket + s3_key")
+
         def _create():
+            # Build the Code block: inline zip or S3 reference.
+            if inline_code:
+                buf = io.BytesIO()
+                # Derive the module filename from the handler (e.g. "app.handler" -> "app.py")
+                handler = args.get("handler", "lambda_function.lambda_handler")
+                module_name = handler.split(".")[0] + ".py"
+                with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                    zf.writestr(module_name, inline_code)
+                code = {"ZipFile": buf.getvalue()}
+            else:
+                code = {"S3Bucket": s3_bucket, "S3Key": s3_key}
+
             payload: dict[str, Any] = {
                 "FunctionName": args["function_name"],
-                "Runtime": args["runtime"],
+                "Runtime": args.get("runtime", "python3.12"),
                 "Role": args["role_arn"],
-                "Handler": args["handler"],
-                "Code": {
-                    "S3Bucket": args["s3_bucket"],
-                    "S3Key": args["s3_key"],
-                },
+                "Handler": args.get("handler", "lambda_function.lambda_handler"),
+                "Code": code,
                 "Publish": True,
             }
 
@@ -157,27 +183,48 @@ def register(api):
     # ----------------------------------------------------------------------
     @api.tool(
         name="update_function_code",
-        description="Update the code of an existing Lambda function from an S3 object",
+        description="Update the code of an existing Lambda function. Provide either inline_code or s3_bucket + s3_key.",
         parameters={
             "function_name": {"type": "string", "description": "Name of the Lambda function"},
+            "handler": {"type": "string", "description": "Handler name (needed for inline_code to derive the module filename)"},
+            "inline_code": {"type": "string", "description": "Python source code to deploy inline (zipped automatically)"},
             "s3_bucket": {"type": "string", "description": "S3 bucket with new code"},
             "s3_key": {"type": "string", "description": "S3 object key for new code"},
-            "publish": {"type": "boolean", "description": "Whether to publish a new version", "default": True},
+            "publish": {"type": "boolean", "description": "Whether to publish a new version"},
         },
         risk="write",
         postconditions=["result_succeeded"],
     )
     async def update_function_code(args, ctx):
+        import io
+        import zipfile
+
         cfg = api.config()
         client = _make_client(cfg)
 
+        inline_code = args.get("inline_code")
+        s3_bucket = args.get("s3_bucket")
+        s3_key = args.get("s3_key")
+
+        if not inline_code and not (s3_bucket and s3_key):
+            return ctx.fail("Provide either inline_code or both s3_bucket + s3_key")
+
         def _update():
-            return client.update_function_code(
-                FunctionName=args["function_name"],
-                S3Bucket=args["s3_bucket"],
-                S3Key=args["s3_key"],
-                Publish=args.get("publish", True),
-            )
+            kwargs: dict[str, Any] = {
+                "FunctionName": args["function_name"],
+                "Publish": args.get("publish", True),
+            }
+            if inline_code:
+                buf = io.BytesIO()
+                handler = args.get("handler", "lambda_function.lambda_handler")
+                module_name = handler.split(".")[0] + ".py"
+                with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                    zf.writestr(module_name, inline_code)
+                kwargs["ZipFile"] = buf.getvalue()
+            else:
+                kwargs["S3Bucket"] = s3_bucket
+                kwargs["S3Key"] = s3_key
+            return client.update_function_code(**kwargs)
 
         try:
             resp = await _run(_update)

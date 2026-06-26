@@ -14,9 +14,9 @@ keywords = ["data engineering", "autonomous agent", "data engineering CLI"]
 # register(api) authoring docs the agent reads to extend itself. click + rich back
 # the CLI entry; pyyaml reads the config template.
 dependencies = [
-    "dacli-core==0.4.0",
-    "dacli-ai==0.4.0",
-    "dacli-tui==0.4.0",
+    "dacli-core==0.4.1",
+    "dacli-ai==0.4.1",
+    "dacli-tui==0.4.1",
     "click>=8,<9",
     "rich>=13,<16",
     "pyyaml>=6,<7",

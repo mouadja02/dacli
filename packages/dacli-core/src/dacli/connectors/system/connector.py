@@ -265,28 +265,58 @@ class SystemConnector(Connector):
             OperationSpec(
                 name="edit_extension",
                 description=(
-                    "Fix a broken extension by sending its source and error to the LLM. "
-                    "Call this IMMEDIATELY when a tool call fails with a Python error "
-                    "traceable to extension code. Do not report the error to the user — "
-                    "fix it first, then retry the original operation."
+                    "Modify an extension: fix errors OR add missing features. "
+                    "Use cases: (1) a tool call fails with a Python error — pass the "
+                    "traceback to fix it; (2) an existing tool lacks a parameter or "
+                    "capability you need — describe what to add. The extension source "
+                    "is sent to the LLM with your instruction; the result is validated "
+                    "and hot-reloaded."
                 ),
                 parameters={
                     "type": "object",
                     "properties": {
                         "name": {
                             "type": "string",
-                            "description": "Extension id to fix (e.g. 'aws_s3').",
+                            "description": "Extension id to modify (e.g. 'sqlite').",
                         },
-                        "error": {
+                        "instruction": {
                             "type": "string",
-                            "description": "The error message or traceback from the failed tool call.",
+                            "description": "What to fix or add. An error traceback, or a description of the missing feature.",
                         },
                     },
-                    "required": ["name", "error"],
+                    "required": ["name", "instruction"],
                 },
                 capability="system.edit_extension",
                 risk=Risk.WRITE,
                 display_name="Edit Extension",
+                category="system",
+                postconditions=[result_succeeded()],
+            ),
+            OperationSpec(
+                name="copy_config",
+                description=(
+                    "Copy matching config fields from one extension to another. "
+                    "Use when a new extension needs the same credentials as an "
+                    "existing one (e.g. aws_iam reusing access_key/secret_key/region "
+                    "from aws_lambda or s3). Copies only fields that exist in both."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "from_extension": {
+                            "type": "string",
+                            "description": "Source extension to copy credentials from.",
+                        },
+                        "to_extension": {
+                            "type": "string",
+                            "description": "Target extension to copy credentials to.",
+                        },
+                    },
+                    "required": ["from_extension", "to_extension"],
+                },
+                capability="system.copy_config",
+                risk=Risk.WRITE,
+                display_name="Copy Config",
                 category="system",
                 postconditions=[result_succeeded()],
             ),
@@ -309,6 +339,8 @@ class SystemConnector(Connector):
             return self._list_extensions(args)
         if op == "edit_extension":
             return await self._edit_extension(args)
+        if op == "copy_config":
+            return self._copy_config(args)
         return ToolResult(
             tool_name=op,
             status=ToolStatus.ERROR,
@@ -357,24 +389,44 @@ class SystemConnector(Connector):
         # Validate against the registry when bound; echo the connector's
         # operations so the model knows what just became available.
         op_names: list[str] = []
-        if self._registry is not None:
-            if not self._registry.is_connector_enabled(connector_id):
-                available = [d["id"] for d in self._registry.get_tool_digest()]
-                return ToolResult(
-                    tool_name="load_connector_tools",
-                    status=ToolStatus.ERROR,
-                    error=(
-                        f"Unknown or disabled connector '{connector_id}'. "
-                        f"Available: {', '.join(available) or '(none)'}."
-                    ),
-                )
+        found = False
+
+        # Check old-style connector registry first.
+        if self._registry is not None and self._registry.is_connector_enabled(connector_id):
+            found = True
             connector = self._registry.get_connector(connector_id)
             if connector is not None:
+                    op_names = [
+                        spec.name
+                        for spec in connector.operations()
+                        if self._registry.is_operation_enabled(spec.name)
+                    ]
+
+        # Fall back to extension-registered tools (register(api) pattern).
+        if not found and self._extension_host is not None:
+            ext_reg = self._extension_host.registry
+            if connector_id in ext_reg.extension_ids():
+                found = True
                 op_names = [
-                    spec.name
-                    for spec in connector.operations()
-                    if self._registry.is_operation_enabled(spec.name)
+                    name for name, tool in ext_reg._tools.items()
+                    if tool.extension == connector_id
                 ]
+
+        if not found:
+            # Combine both sources for the error message.
+            available: list[str] = []
+            if self._registry is not None:
+                available.extend(d["id"] for d in self._registry.get_tool_digest())
+            if self._extension_host is not None:
+                available.extend(self._extension_host.registry.extension_ids())
+            return ToolResult(
+                tool_name="load_connector_tools",
+                status=ToolStatus.ERROR,
+                error=(
+                    f"Unknown or disabled connector '{connector_id}'. "
+                    f"Available: {', '.join(sorted(set(available))) or '(none)'}."
+                ),
+            )
 
         return ToolResult(
             tool_name="load_connector_tools",
@@ -415,6 +467,82 @@ class SystemConnector(Connector):
             tool_name="list_extensions",
             status=ToolStatus.SUCCESS,
             data={"extensions": extensions, "count": len(extensions)},
+        )
+
+    def _copy_config(self, args: dict[str, Any]) -> ToolResult:
+        """Copy matching config fields from one extension to another."""
+        from_ext = (args.get("from_extension") or "").strip()
+        to_ext = (args.get("to_extension") or "").strip()
+        if not from_ext or not to_ext:
+            return ToolResult(
+                tool_name="copy_config",
+                status=ToolStatus.ERROR,
+                error="Both 'from_extension' and 'to_extension' are required.",
+            )
+        if self._secrets is None:
+            return ToolResult(
+                tool_name="copy_config",
+                status=ToolStatus.ERROR,
+                error="Secret store not available.",
+            )
+        if self._extension_host is None:
+            return ToolResult(
+                tool_name="copy_config",
+                status=ToolStatus.ERROR,
+                error="Extension host not bound.",
+            )
+        # Get source config (decrypted).
+        source_cfg = self._secrets.config(from_ext)
+        if not source_cfg:
+            return ToolResult(
+                tool_name="copy_config",
+                status=ToolStatus.ERROR,
+                error=f"Extension '{from_ext}' has no stored config.",
+            )
+        # Get target's declared fields to know what it accepts.
+        target_fields = self._extension_host.registry.config_fields(to_ext)
+        if not target_fields:
+            return ToolResult(
+                tool_name="copy_config",
+                status=ToolStatus.ERROR,
+                error=f"Extension '{to_ext}' declares no config fields.",
+            )
+        target_names = {f.name for f in target_fields}
+        target_secret_names = {f.name for f in target_fields if f.secret}
+
+        # Copy matching fields.
+        copied = []
+        for field_name, value in source_cfg.items():
+            if field_name in target_names and value:
+                is_secret = field_name in target_secret_names
+                self._secrets.set(to_ext, field_name, str(value), secret=is_secret)
+                copied.append(field_name)
+        if not copied:
+            return ToolResult(
+                tool_name="copy_config",
+                status=ToolStatus.ERROR,
+                error=(
+                    f"No matching fields between '{from_ext}' and '{to_ext}'. "
+                    f"Source has: {list(source_cfg.keys())}. "
+                    f"Target accepts: {sorted(target_names)}."
+                ),
+            )
+        self._secrets.save()
+        return ToolResult(
+            tool_name="copy_config",
+            status=ToolStatus.SUCCESS,
+            data={
+                "from": from_ext,
+                "to": to_ext,
+                "copied_fields": copied,
+                "message": f"Copied {len(copied)} fields: {', '.join(copied)}",
+            },
+            metadata={
+                "context_summary": (
+                    f"Credentials copied from '{from_ext}' to '{to_ext}' "
+                    f"({', '.join(copied)}). '{to_ext}' is now configured."
+                ),
+            },
         )
 
     async def _generate_connector(self, args: dict[str, Any]) -> ToolResult:
@@ -537,17 +665,25 @@ class SystemConnector(Connector):
                     else [f"Edit {result.path}", "/reload"]
                 ),
             },
+            metadata={
+                "context_summary": (
+                    f"Extension '{result.name}' created and loaded. "
+                    f"User needs to run /connect {result.name} to add credentials."
+                    if result.reloaded
+                    else f"Extension '{result.name}' written but validation failed: {result.message}"
+                ),
+            },
         )
 
     async def _edit_extension(self, args: dict[str, Any]) -> ToolResult:
-        """Fix a broken extension by sending its source + error to the LLM."""
+        """Modify an extension: fix errors or add features."""
         name = (args.get("name") or "").strip()
-        error = (args.get("error") or "").strip()
-        if not name or not error:
+        instruction = (args.get("instruction") or args.get("error") or "").strip()
+        if not name or not instruction:
             return ToolResult(
                 tool_name="edit_extension",
                 status=ToolStatus.ERROR,
-                error="Both 'name' and 'error' are required.",
+                error="Both 'name' and 'instruction' are required.",
             )
         if self._llm is None:
             return ToolResult(
@@ -570,7 +706,7 @@ class SystemConnector(Connector):
 
         try:
             result = await edit_extension(
-                name, error, llm=self._llm, host=self._extension_host
+                name, instruction, llm=self._llm, host=self._extension_host
             )
         except FileNotFoundError as exc:
             return ToolResult(
@@ -593,6 +729,13 @@ class SystemConnector(Connector):
                 "path": str(result.path),
                 "fixed": result.reloaded,
                 "message": result.message,
+            },
+            metadata={
+                "context_summary": (
+                    f"Extension '{result.name}' updated and reloaded."
+                    if result.reloaded
+                    else f"Extension '{result.name}' edited but reload failed: {result.message}"
+                ),
             },
         )
 
@@ -622,12 +765,19 @@ class SystemConnector(Connector):
                 status=ToolStatus.ERROR,
                 error=payload["error"],
             )
-        # Return the rows as the result data so the CLI renders them as a table.
+        # Non-list results don't support windowing — tell the model clearly.
+        meta = {k: v for k, v in payload.items() if k != "data"}
+        if payload.get("complete"):
+            meta["note"] = (
+                "This is the COMPLETE result. "
+                "Calling fetch_result again with different start/count "
+                "will return the same data. Do not retry."
+            )
         return ToolResult(
             tool_name="fetch_result",
             status=ToolStatus.SUCCESS,
             data=payload.get("data"),
-            metadata={k: v for k, v in payload.items() if k != "data"},
+            metadata=meta,
         )
 
     def _fetch_scrollback(self, args: dict[str, Any]) -> ToolResult:
@@ -657,11 +807,17 @@ class SystemConnector(Connector):
                 status=ToolStatus.ERROR,
                 error=payload["error"],
             )
+        meta = {k: v for k, v in payload.items() if k != "output"}
+        # Tell the model when it already has everything.
+        total = payload.get("total_lines", 0)
+        returned = payload.get("returned", 0)
+        if returned >= total:
+            meta["note"] = "This is the COMPLETE output. Do not call again."
         return ToolResult(
             tool_name="fetch_scrollback",
             status=ToolStatus.SUCCESS,
             data=payload.get("output"),
-            metadata={k: v for k, v in payload.items() if k != "output"},
+            metadata=meta,
         )
 
     def _update_plan(self, args: dict[str, Any]) -> ToolResult:

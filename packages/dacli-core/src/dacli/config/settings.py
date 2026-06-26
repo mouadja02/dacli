@@ -146,7 +146,7 @@ class LLMSettings(BaseModel):
 
 class AgentSettings(BaseModel):
     # Agent configuration
-    max_iterations: int = Field(default=100, ge=1)
+    max_iterations: int = Field(default=30, ge=1)
     memory_window: int = Field(default=10, ge=1)
     auto_approve_safe_ops: bool = False
     confirm_data_loads: bool = True
@@ -174,7 +174,7 @@ class ContextSettings(BaseModel):
         description="Total token budget for one assembled turn of context",
     )
     spill_threshold_tokens: int = Field(
-        default=1000,
+        default=2000,
         ge=0,
         description="Tool results estimated above this many tokens are spilled to the session workspace and replaced with a structured summary + fetch handle",
     )

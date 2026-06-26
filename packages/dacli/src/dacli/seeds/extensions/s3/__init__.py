@@ -21,7 +21,7 @@ def register(api):
     # ----------------------------------------------------------------------
     # Configuration fields (provided later via /connect)
     # ----------------------------------------------------------------------
-    api.config_field("bucket", required=True, description="Target bucket")
+    api.config_field("bucket", required=False, description="Default S3 bucket (overridable per call)")
     api.config_field("access_key", secret=True, description="AWS Access Key ID")
     api.config_field("secret_key", secret=True, description="AWS Secret Access Key")
     api.config_field(
@@ -33,6 +33,10 @@ def register(api):
     # ----------------------------------------------------------------------
     async def _run(fn, *args, **kwargs):
         return await asyncio.to_thread(fn, *args, **kwargs)
+
+    def _resolve_bucket(args, cfg):
+        """Resolve bucket from tool args, falling back to config default."""
+        return args.get("bucket") or cfg.get("bucket")
 
     # ----------------------------------------------------------------------
     # Tool: list_buckets
@@ -63,19 +67,25 @@ def register(api):
     # ----------------------------------------------------------------------
     @api.tool(
         name="list_objects",
-        description="List objects in the configured bucket under a given prefix",
-        parameters={"prefix": {"type": "string"}},
+        description="List objects in a bucket under a given prefix",
+        parameters={
+            "bucket": {"type": "string", "description": "Bucket name (defaults to configured)"},
+            "prefix": {"type": "string"},
+        },
         risk="safe",
         postconditions=["result_succeeded", "data_is_list"],
     )
     async def list_objects(args, ctx):
         cfg = api.config()
+        bucket = _resolve_bucket(args, cfg)
+        if not bucket:
+            return ctx.fail("No bucket specified and none configured")
         client = _make_s3_client(cfg)
         prefix = args.get("prefix", "")
 
         def _list():
             paginator = client.get_paginator("list_objects_v2")
-            pages = paginator.paginate(Bucket=cfg["bucket"], Prefix=prefix)
+            pages = paginator.paginate(Bucket=bucket, Prefix=prefix)
             return [
                 {
                     "Key": obj["Key"],
@@ -97,18 +107,24 @@ def register(api):
     # ----------------------------------------------------------------------
     @api.tool(
         name="get_object",
-        description="Retrieve the content of an object from the configured bucket",
-        parameters={"key": {"type": "string"}},
+        description="Retrieve the content of an object from a bucket",
+        parameters={
+            "bucket": {"type": "string", "description": "Bucket name (defaults to configured)"},
+            "key": {"type": "string"},
+        },
         risk="safe",
         postconditions=["result_succeeded"],
     )
     async def get_object(args, ctx):
         cfg = api.config()
+        bucket = _resolve_bucket(args, cfg)
+        if not bucket:
+            return ctx.fail("No bucket specified and none configured")
         client = _make_s3_client(cfg)
         key = args["key"]
 
         def _get():
-            resp = client.get_object(Bucket=cfg["bucket"], Key=key)
+            resp = client.get_object(Bucket=bucket, Key=key)
             body = resp["Body"].read()
             # Assume UTF-8 text; if binary, callers can base64‑encode themselves.
             return body.decode("utf-8", errors="replace")
@@ -126,8 +142,9 @@ def register(api):
     # ----------------------------------------------------------------------
     @api.tool(
         name="put_object",
-        description="Upload content to an object in the configured bucket (overwrites if exists)",
+        description="Upload content to an object in a bucket (overwrites if exists)",
         parameters={
+            "bucket": {"type": "string", "description": "Bucket name (defaults to configured)"},
             "key": {"type": "string"},
             "content": {"type": "string"},
         },
@@ -136,12 +153,15 @@ def register(api):
     )
     async def put_object(args, ctx):
         cfg = api.config()
+        bucket = _resolve_bucket(args, cfg)
+        if not bucket:
+            return ctx.fail("No bucket specified and none configured")
         client = _make_s3_client(cfg)
         key = args["key"]
         content = args["content"]
 
         def _put():
-            client.put_object(Bucket=cfg["bucket"], Key=key, Body=content.encode("utf-8"))
+            client.put_object(Bucket=bucket, Key=key, Body=content.encode("utf-8"))
 
         try:
             await _run(_put)
@@ -154,18 +174,24 @@ def register(api):
     # ----------------------------------------------------------------------
     @api.tool(
         name="delete_object",
-        description="Delete an object from the configured bucket",
-        parameters={"key": {"type": "string"}},
+        description="Delete an object from a bucket",
+        parameters={
+            "bucket": {"type": "string", "description": "Bucket name (defaults to configured)"},
+            "key": {"type": "string"},
+        },
         risk="write",
         postconditions=["result_succeeded"],
     )
     async def delete_object(args, ctx):
         cfg = api.config()
+        bucket = _resolve_bucket(args, cfg)
+        if not bucket:
+            return ctx.fail("No bucket specified and none configured")
         client = _make_s3_client(cfg)
         key = args["key"]
 
         def _delete():
-            client.delete_object(Bucket=cfg["bucket"], Key=key)
+            client.delete_object(Bucket=bucket, Key=key)
 
         try:
             await _run(_delete)
@@ -178,18 +204,23 @@ def register(api):
     # ----------------------------------------------------------------------
     @api.tool(
         name="bucket_stats",
-        description="Provide simple statistics for the configured bucket (object count and total size)",
-        parameters={},
+        description="Object count and total size for a bucket",
+        parameters={
+            "bucket": {"type": "string", "description": "Bucket name (defaults to configured)"},
+        },
         risk="safe",
         postconditions=["result_succeeded"],
     )
     async def bucket_stats(args, ctx):
         cfg = api.config()
+        bucket = _resolve_bucket(args, cfg)
+        if not bucket:
+            return ctx.fail("No bucket specified and none configured")
         client = _make_s3_client(cfg)
 
         def _stats():
             paginator = client.get_paginator("list_objects_v2")
-            pages = paginator.paginate(Bucket=cfg["bucket"])
+            pages = paginator.paginate(Bucket=bucket)
             total_size = 0
             object_count = 0
             for page in pages:

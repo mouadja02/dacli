@@ -190,6 +190,10 @@ class Kernel:
         # Trace of tool calls -> outcomes for episodic capture (2.5).
         trace: list[dict[str, Any]] = []
 
+        # Loop-detection state: how many times we've warned the model already.
+        _loop_strikes = 0
+        _MAX_LOOP_STRIKES = 2  # after 2 warnings, force-terminate the turn
+
         # Iteration loop
         self._current_iteration = 0
 
@@ -296,6 +300,83 @@ class Kernel:
                         "status": getattr(result.status, "value", str(result.status)),
                         "error": result.error,
                     })
+
+                    # Loop detection: catch degenerate patterns early to avoid
+                    # burning tokens on a stuck model.
+                    _REPEAT_THRESHOLD = 3
+                    _TOOL_CALL_CAP = 4
+                    _FETCH_CAP = 3  # fetch_result/fetch_scrollback are read-back tools
+                    _stuck = False
+
+                    # Pattern 1: same tool + same args N times in a row.
+                    if len(trace) >= _REPEAT_THRESHOLD:
+                        tail = trace[-_REPEAT_THRESHOLD:]
+                        if all(
+                            t["tool"] == tail[0]["tool"]
+                            and t["arguments"] == tail[0]["arguments"]
+                            for t in tail[1:]
+                        ):
+                            _stuck = True
+
+                    # Pattern 2: same tool called _TOOL_CALL_CAP times total
+                    # (regardless of args).
+                    if not _stuck:
+                        _same_tool_count = sum(
+                            1 for t in trace if t["tool"] == tool_name
+                        )
+                        if _same_tool_count >= _TOOL_CALL_CAP:
+                            _stuck = True
+
+                    # Pattern 3: fetch tools are read-back helpers — if the model
+                    # calls any fetch variant more than _FETCH_CAP times, it can't
+                    # parse the result it already received.
+                    if not _stuck and tool_name in (
+                        "fetch_result", "fetch_scrollback"
+                    ):
+                        _fetch_count = sum(
+                            1 for t in trace
+                            if t["tool"] in ("fetch_result", "fetch_scrollback")
+                        )
+                        if _fetch_count >= _FETCH_CAP:
+                            _stuck = True
+
+                    # Pattern 4: alternating pair (A, B, A, B, A, B) — the model
+                    # is doing the same thing with a different name each time.
+                    if not _stuck and len(trace) >= 6:
+                        last6 = [t["tool"] for t in trace[-6:]]
+                        if (
+                            last6[0] == last6[2] == last6[4]
+                            and last6[1] == last6[3] == last6[5]
+                            and last6[0] != last6[1]
+                        ):
+                            _stuck = True
+                    if _stuck:
+                        _loop_strikes += 1
+                        log.warning(
+                            "loop detected (strike %d/%d): %s called repeatedly",
+                            _loop_strikes, _MAX_LOOP_STRIKES, tool_name,
+                        )
+                        if _loop_strikes >= _MAX_LOOP_STRIKES:
+                            # Hard stop — the model ignored our warning.
+                            self._capture_episode(user_message, trace, "loop_terminated")
+                            return AgentResponse(
+                                content=(
+                                    "I got stuck in a loop and couldn't make progress. "
+                                    "Try rephrasing or breaking the task into smaller steps."
+                                ),
+                                tool_calls=[],
+                                iteration=self._current_iteration,
+                            )
+                        working.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call_id,
+                            "content": (
+                                f"ERROR: You have called {tool_name} too many times "
+                                "with no progress. Stop repeating this call. "
+                                "Try a different approach or report what you have."
+                            ),
+                        })
+                        break
 
                     # Progressive disclosure (3.3): a load_connector_tools call
                     # asks for a connector's full schemas on the next iteration.

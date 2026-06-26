@@ -54,8 +54,13 @@ class ToolResult:
         }
 
     def to_message(self) -> str:
-        # Convert the result to a message string for LLM context
+        # Convert the result to a message string for LLM context.
+        # Tools with metadata["context_summary"] get a compact one-liner.
         if self.success:
+            meta = self.metadata if isinstance(self.metadata, dict) else {}
+            summary = meta.get("context_summary")
+            if summary:
+                return f"[{self.tool_name}] {summary}"
             if isinstance(self.data, list):
                 if len(self.data) == 0:
                     return f"[{self.tool_name}] Executed successfully. No results returned"
