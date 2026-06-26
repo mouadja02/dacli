@@ -416,38 +416,6 @@ class SystemConnector(Connector):
             status=ToolStatus.SUCCESS,
             data={"extensions": extensions, "count": len(extensions)},
         )
-        reg = self._extension_host.registry
-        extensions = []
-        for ext_id in reg.extension_ids():
-            tools = [
-                t.spec.name
-                for t in reg._tools.values()
-                if hasattr(t, "extension") and t.extension == ext_id
-            ]
-            configured = (
-                ext_id in self._secrets.extensions() if self._secrets else False
-            )
-            extensions.append(
-                {
-                    "id": ext_id,
-                    "status": "loaded",
-                    "configured": configured,
-                    "tools": tools or None,
-                }
-            )
-        for ext_id, reason in reg.failed_extensions().items():
-            extensions.append(
-                {
-                    "id": ext_id,
-                    "status": "failed",
-                    "reason": reason,
-                }
-            )
-        return ToolResult(
-            tool_name="list_extensions",
-            status=ToolStatus.SUCCESS,
-            data={"extensions": extensions, "count": len(extensions)},
-        )
 
     async def _generate_connector(self, args: dict[str, Any]) -> ToolResult:
         """In-chat extension generation via core/generate.py + hot-reload."""
