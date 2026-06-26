@@ -17,7 +17,7 @@ from dacli.prompts.system_prompt import CORE_FRAGMENT
 CORE_BUDGET = 700
 # Core prompt + the always-on system tool defs. Pi's whole surface is ~1k; ours
 # carries six system tools (~990 tokens of schema) so the combined ceiling is higher.
-COMBINED_BUDGET = 1600
+COMBINED_BUDGET = 2000
 
 
 def _system_tool_defs() -> list[dict]:

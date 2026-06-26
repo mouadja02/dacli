@@ -181,7 +181,7 @@ def test_shell_command_matches_m01():
 # ---------------------------------------------------------------------------
 def test_bundled_seeds_expose_exactly_three():
     reg = load_extensions(SEEDS)
-    assert sorted(reg.extension_ids()) == ["github", "shell", "snowflake"]
+    assert sorted(reg.extension_ids()) == ["aws_lambda", "dynamodb", "github", "s3", "shell", "snowflake"]
     assert reg.failed_extensions() == {}
 
 
@@ -190,7 +190,7 @@ def test_empty_overlay_falls_through_to_seeds(monkeypatch, tmp_path):
     monkeypatch.setattr(paths, "project_root", lambda *a, **k: None)
     monkeypatch.setattr(paths, "user_config_dir", lambda: tmp_path / "empty")
     assert paths.resource_dir("extensions") == SEEDS
-    assert sorted(load_extensions().extension_ids()) == ["github", "shell", "snowflake"]
+    assert sorted(load_extensions().extension_ids()) == ["aws_lambda", "dynamodb", "github", "s3", "shell", "snowflake"]
 
 
 def test_seeds_carry_no_manifest():
