@@ -1,6 +1,6 @@
 import asyncio
 import json
-from typing import Any, Dict, List
+from typing import Any
 
 def register(api):
     # Configuration fields – secrets are marked secret=True and never stored in code.
@@ -15,7 +15,7 @@ def register(api):
     # -------------------------------------------------------------------------
     # Helper: create a boto3 DynamoDB client from the current config.
     # -------------------------------------------------------------------------
-    def _make_client(cfg: Dict[str, Any]):
+    def _make_client(cfg: dict[str, Any]):
         import boto3
 
         session_kwargs = {

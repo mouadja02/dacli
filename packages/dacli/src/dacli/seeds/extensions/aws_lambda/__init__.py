@@ -1,12 +1,11 @@
-import json
 import asyncio
-from typing import Any, Dict, List
+from typing import Any
 
 import boto3
 from botocore.exceptions import ClientError
 
 
-def _make_client(cfg: Dict[str, Any]):
+def _make_client(cfg: dict[str, Any]):
     """Create a boto3 Lambda client using the supplied configuration."""
     return boto3.client(
         "lambda",
@@ -46,7 +45,7 @@ def register(api):
 
         def _list():
             paginator = client.get_paginator("list_functions")
-            functions: List[Dict[str, Any]] = []
+            functions: list[dict[str, Any]] = []
             for page in paginator.paginate():
                 functions.extend(page.get("Functions", []))
             return functions
@@ -105,7 +104,7 @@ def register(api):
             "environment": {
                 "type": "object",
                 "additionalProperties": {"type": "string"},
-                "description": "Key‑value map of environment variables"
+                "description": "Key-value map of environment variables"
             },
             "tags": {
                 "type": "object",
@@ -121,7 +120,7 @@ def register(api):
         client = _make_client(cfg)
 
         def _create():
-            payload: Dict[str, Any] = {
+            payload: dict[str, Any] = {
                 "FunctionName": args["function_name"],
                 "Runtime": args["runtime"],
                 "Role": args["role_arn"],
@@ -134,13 +133,6 @@ def register(api):
             }
 
             # Optional parameters – include only if supplied
-            optional_keys = [
-                "Description",
-                "Timeout",
-                "MemorySize",
-                "Environment",
-                "Tags",
-            ]
             mapping = {
                 "description": "Description",
                 "timeout": "Timeout",

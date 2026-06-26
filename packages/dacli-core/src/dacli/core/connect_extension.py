@@ -147,7 +147,6 @@ def _current_scope(connector_id: str) -> str:
 
 def _write_scope(connector_id: str, scope: str) -> None:
     """Set the connector scope in the project-level config/policy.yaml."""
-    from pathlib import Path
 
     import yaml
 

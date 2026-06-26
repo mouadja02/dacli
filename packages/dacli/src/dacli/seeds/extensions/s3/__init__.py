@@ -1,11 +1,11 @@
 import asyncio
-from typing import Any, Dict, List
+from typing import Any
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
 
-def _make_s3_client(cfg: Dict[str, Any]) -> boto3.client:
+def _make_s3_client(cfg: dict[str, Any]) -> boto3.client:
     """Create a boto3 S3 client using the supplied configuration."""
     session_kwargs = {
         "aws_access_key_id": cfg.get("access_key"),
@@ -76,17 +76,15 @@ def register(api):
         def _list():
             paginator = client.get_paginator("list_objects_v2")
             pages = paginator.paginate(Bucket=cfg["bucket"], Prefix=prefix)
-            objects = []
-            for page in pages:
-                for obj in page.get("Contents", []):
-                    objects.append(
-                        {
-                            "Key": obj["Key"],
-                            "Size": obj["Size"],
-                            "LastModified": obj["LastModified"].isoformat(),
-                        }
-                    )
-            return objects
+            return [
+                {
+                    "Key": obj["Key"],
+                    "Size": obj["Size"],
+                    "LastModified": obj["LastModified"].isoformat(),
+                }
+                for page in pages
+                for obj in page.get("Contents", [])
+            ]
 
         try:
             objects = await _run(_list)
