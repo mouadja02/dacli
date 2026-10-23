@@ -12,12 +12,55 @@ enabled.
 
 from typing import Any
 from collections.abc import Callable
+import asyncio
 import logging
+import json
 
 from dacli.connectors.base import Connector, OperationSpec, Risk, ToolResult, ToolStatus
 from dacli.core.verify import result_succeeded, data_has_keys
 
 log = logging.getLogger(__name__)
+
+
+class _AutoUI:
+    """Clarification UI for agent-driven generation; never guesses approval."""
+
+    def __init__(self, ask_fn: Callable[[str], str] | None):
+        self._ask = ask_fn
+
+    def _answer(self, prompt: str) -> str | None:
+        if self._ask is None:
+            return None
+        try:
+            return str(self._ask(prompt))
+        except Exception:
+            return None
+
+    def select(self, question: str, options: list[str]) -> str:
+        answer = self._answer(
+            f"{question}\nOptions: {', '.join(options)}\nReply with an option or its number."
+        )
+        if answer is None:
+            raise ValueError("extension generation clarification requires user input")
+        value = answer.strip()
+        if value.isdigit() and 1 <= int(value) <= len(options):
+            return options[int(value) - 1]
+        for option in options:
+            if value.casefold() == option.casefold():
+                return option
+        raise ValueError("invalid extension generation clarification answer")
+
+    def confirm(self, question: str) -> bool:
+        answer = self._answer(question)
+        if answer is None:
+            return False
+        return answer.strip().casefold() in {"y", "yes", "true", "approve", "approved"}
+
+    def input(self, prompt: str, *, secret: bool = False) -> str:
+        answer = self._answer(prompt)
+        if answer is None:
+            raise ValueError("extension generation clarification requires user input")
+        return answer
 
 
 class SystemConnector(Connector):
@@ -49,6 +92,9 @@ class SystemConnector(Connector):
         self._llm: Any = None
         # Extension host, late-bound after construction for generation + reload.
         self._extension_host: Any = None
+        # Source prepared by governance dry-run. It is keyed by the exact tool
+        # arguments so invoke applies the reviewed bytes instead of regenerating.
+        self._pending_previews: dict[tuple[int, str], Any] = {}
         # Secret store, late-bound for config introspection by list_extensions.
         self._secrets: Any = None
         # Always ready; no external connection.
@@ -77,6 +123,45 @@ class SystemConnector(Connector):
     def bind_secrets(self, store: Any) -> None:
         """Late-bind the secret store for config introspection."""
         self._secrets = store
+
+    @staticmethod
+    def _preview_key(tool_name: str, args: dict[str, Any]) -> tuple[int, str]:
+        task = asyncio.current_task()
+        return (
+            id(task) if task is not None else 0,
+            json.dumps(
+                {"tool": tool_name, "args": dict(args or {})},
+                sort_keys=True,
+                default=str,
+                separators=(",", ":"),
+            ),
+        )
+
+    def requires_approval_preview(self, tool_name: str) -> bool:
+        return tool_name in {"generate_connector", "edit_extension"}
+
+    async def dry_run(self, tool_name: str, args: dict[str, Any]) -> str | None:
+        """Prepare source for approval without writing or reloading it."""
+        if not self.requires_approval_preview(tool_name):
+            return None
+        prepared = await self._prepare_extension_preview(tool_name, args)
+        self._pending_previews[self._preview_key(tool_name, args)] = prepared
+        return prepared.preview
+
+    def dry_run_metadata(self, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
+        prepared = self._pending_previews.get(self._preview_key(tool_name, args))
+        if prepared is None:
+            return {}
+        return {
+            "extension": prepared.name,
+            "path": str(prepared.path),
+            "preview_kind": "source" if prepared.original_source is None else "unified_diff",
+            "source_sha256": prepared.source_sha256,
+            "original_sha256": prepared.original_sha256,
+        }
+
+    def discard_dry_run(self, tool_name: str, args: dict[str, Any]) -> None:
+        self._pending_previews.pop(self._preview_key(tool_name, args), None)
 
     # ------------------------------------------------------------------
     # Connector contract
@@ -191,7 +276,7 @@ class SystemConnector(Connector):
                     "required": ["name", "description"],
                 },
                 capability="system.generate_connector",
-                risk=Risk.WRITE,
+                risk=Risk.RISKY,
                 display_name="Generate Extension",
                 category="system",
                 postconditions=[
@@ -287,7 +372,7 @@ class SystemConnector(Connector):
                     "required": ["name", "instruction"],
                 },
                 capability="system.edit_extension",
-                risk=Risk.WRITE,
+                risk=Risk.RISKY,
                 display_name="Edit Extension",
                 category="system",
                 postconditions=[result_succeeded()],
@@ -545,8 +630,51 @@ class SystemConnector(Connector):
             },
         )
 
+    async def _prepare_extension_preview(self, tool_name: str, args: dict[str, Any]) -> Any:
+        """Generate the exact source that will be shown and later applied."""
+        from dacli.core.generate import (
+            GenerationError,
+            _fetch_context7_docs_silent,
+            prepare_edit_extension,
+            prepare_extension,
+        )
+
+        if self._llm is None:
+            raise GenerationError("No LLM available in this session.")
+        if self._extension_host is None:
+            raise GenerationError("Extension host not bound; cannot generate.")
+
+        if tool_name == "generate_connector":
+            name = (args.get("name") or "").strip()
+            description = (args.get("description") or "").strip()
+            if not name or not description:
+                raise ValueError("Both 'name' and 'description' are required.")
+            docs = None
+            try:
+                docs = await _fetch_context7_docs_silent(name, description)
+            except Exception:
+                log.debug("Context7 docs fetch failed", exc_info=True)
+            return await prepare_extension(
+                name,
+                description,
+                llm=self._llm,
+                ui=_AutoUI(self._on_user_input_needed),
+                host=self._extension_host,
+                docs=docs,
+            )
+
+        if tool_name == "edit_extension":
+            name = (args.get("name") or "").strip()
+            instruction = (args.get("instruction") or args.get("error") or "").strip()
+            if not name or not instruction:
+                raise ValueError("Both 'name' and 'instruction' are required.")
+            return await prepare_edit_extension(
+                name, instruction, llm=self._llm, host=self._extension_host
+            )
+        raise ValueError(f"unsupported preview operation '{tool_name}'")
+
     async def _generate_connector(self, args: dict[str, Any]) -> ToolResult:
-        """In-chat extension generation via core/generate.py + hot-reload."""
+        """Apply the source approved by governance and hot-reload it."""
         name = (args.get("name") or "").strip()
         description = (args.get("description") or "").strip()
         if not name or not description:
@@ -568,82 +696,24 @@ class SystemConnector(Connector):
                 error="Extension host not bound; cannot generate.",
             )
 
-        # Auto-generate without user confirmation — the agent decides when
-        # a new extension is needed. The governance layer already gates risky ops.
-        existing = []
-        if self._extension_host is not None:
-            try:
-                base = self._extension_host.base_dir()
-                if base.exists():
-                    existing = [p.name for p in base.iterdir() if p.is_dir()]
-            except Exception:
-                log.debug("failed to list extensions", exc_info=True)
-
-        # Reject if extension already exists (use edit_extension to fix it).
-        norm_name = name.lower().replace(" ", "_").replace("-", "_")
-        if norm_name in existing:
-            return ToolResult(
-                tool_name="generate_connector",
-                status=ToolStatus.ERROR,
-                error=f"extension '{norm_name}' already exists. Use edit_extension to fix it.",
-            )
-
         from dacli.core.generate import (
-            ClarifyUI,
             GenerationError,
             SecretInlineError,
-            generate_extension,
-            _fetch_context7_docs_silent,
+            apply_prepared_extension,
         )
 
-        # Fetch Context7 docs silently (no user prompt in the LLM-driven path).
-        docs = None
-        try:
-            docs = await _fetch_context7_docs_silent(name, description)
-        except Exception:
-            log.debug("Context7 docs fetch failed", exc_info=True)
-
-        # Autonomous ClarifyUI: auto-picks first option / confirms yes.
-        # No user interaction needed — the agent makes sensible choices.
-        class _AutoUI(ClarifyUI):
-            def __init__(self, ask_fn=None):
-                self._ask = ask_fn
-
-            def select(self, question: str, options: list[str]) -> str:
-                # Pick first option (most common/standard choice).
-                return options[0] if options else ""
-
-            def confirm(self, question: str) -> bool:
-                return True
-
-            def input(self, prompt: str, *, secret: bool = False) -> str:
-                # If we have a user callback, use it for secrets only.
-                if secret and self._ask:
-                    return self._ask(prompt)
-                return ""
-
-        try:
-            result = await generate_extension(
-                name,
-                description,
-                llm=self._llm,
-                ui=_AutoUI(self._on_user_input_needed),
-                host=self._extension_host,
-                docs=docs,
-            )
-        except FileExistsError as exc:
+        prepared = self._pending_previews.pop(
+            self._preview_key("generate_connector", args), None
+        )
+        if prepared is None:
             return ToolResult(
                 tool_name="generate_connector",
-                status=ToolStatus.ERROR,
-                error=str(exc),
+                status=ToolStatus.DENIED,
+                error="Generation requires an approval preview; no approved source is staged.",
             )
-        except SecretInlineError as exc:
-            return ToolResult(
-                tool_name="generate_connector",
-                status=ToolStatus.ERROR,
-                error=f"Rejected: {exc}",
-            )
-        except (GenerationError, ValueError) as exc:
+        try:
+            result = apply_prepared_extension(prepared, self._extension_host)
+        except (FileExistsError, GenerationError, SecretInlineError, ValueError) as exc:
             return ToolResult(
                 tool_name="generate_connector",
                 status=ToolStatus.ERROR,
@@ -659,6 +729,7 @@ class SystemConnector(Connector):
                 "validated": result.validated,
                 "reloaded": result.reloaded,
                 "validation_message": result.message,
+                "source_sha256": result.source_sha256,
                 "next_steps": (
                     [f"/connect {result.name}"]
                     if result.reloaded
@@ -676,7 +747,7 @@ class SystemConnector(Connector):
         )
 
     async def _edit_extension(self, args: dict[str, Any]) -> ToolResult:
-        """Modify an extension: fix errors or add features."""
+        """Apply an approved extension edit and hot-reload it."""
         name = (args.get("name") or "").strip()
         instruction = (args.get("instruction") or args.get("error") or "").strip()
         if not name or not instruction:
@@ -701,13 +772,20 @@ class SystemConnector(Connector):
         from dacli.core.generate import (
             GenerationError,
             SecretInlineError,
-            edit_extension,
+            apply_prepared_extension,
         )
 
-        try:
-            result = await edit_extension(
-                name, instruction, llm=self._llm, host=self._extension_host
+        prepared = self._pending_previews.pop(
+            self._preview_key("edit_extension", args), None
+        )
+        if prepared is None:
+            return ToolResult(
+                tool_name="edit_extension",
+                status=ToolStatus.DENIED,
+                error="Editing requires an approval preview; no approved source is staged.",
             )
+        try:
+            result = apply_prepared_extension(prepared, self._extension_host)
         except FileNotFoundError as exc:
             return ToolResult(
                 tool_name="edit_extension",
@@ -729,6 +807,7 @@ class SystemConnector(Connector):
                 "path": str(result.path),
                 "fixed": result.reloaded,
                 "message": result.message,
+                "source_sha256": result.source_sha256,
             },
             metadata={
                 "context_summary": (

@@ -305,7 +305,7 @@ class ExtensionRegistry:
         return dict(self._failed)
 
 
-def _import_extension(name: str, init_path: Path):
+def _import_extension(name: str, init_path: Path, source: str | None = None):
     mod_name = f"dacli_ext_{name}"
     spec = importlib.util.spec_from_file_location(
         mod_name, init_path, submodule_search_locations=[str(init_path.parent)]
@@ -319,8 +319,13 @@ def _import_extension(name: str, init_path: Path):
         # edit that keeps the file's size and mtime-second would otherwise reuse a
         # stale __pycache__ entry and run the old code. module_from_spec already
         # set __path__, so sibling imports still resolve.
-        code = compile(init_path.read_text(encoding="utf-8"), str(init_path), "exec")
+        if source is None:
+            source = init_path.read_text(encoding="utf-8")
+        code = compile(source, str(init_path), "exec")
         exec(code, module.__dict__)
+        module.__dacli_loaded_source_hash__ = hashlib.sha256(
+            source.encode("utf-8")
+        ).hexdigest()
     except BaseException:
         sys.modules.pop(mod_name, None)
         raise
@@ -455,7 +460,8 @@ _VALIDATION_TIMEOUT_S = 20.0
 # Run in a child: import the module, confirm register(api) exists and runs
 # cleanly against a throwaway ExtensionAPI (this is where a missing post-condition
 # or a bad risk surfaces). Verdict is the last JSON line on stdout, mirroring
-# core/connector_generator.py's validator. argv: <__init__.py path> <name>.
+# core/connector_generator.py's validator. argv: <__init__.py path> <name>;
+# stdin carries the source snapshot so a file change cannot replace it.
 _EXT_VALIDATION_SCRIPT = """\
 import importlib.util
 import json
@@ -479,7 +485,9 @@ if spec is None or spec.loader is None:
 mod = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = mod
 try:
-    spec.loader.exec_module(mod)
+    source = sys.stdin.read()
+    code = compile(source, path, "exec")
+    exec(code, mod.__dict__)
 except Exception as exc:
     _verdict(False, f"import failed: {exc}")
 
@@ -495,18 +503,25 @@ _verdict(True, "valid")
 """
 
 
-def _validate_extension_in_subprocess(name: str, init_path: Path) -> tuple[bool, str]:
+def _validate_extension_in_subprocess(
+    name: str, init_path: Path, source: str | None = None
+) -> tuple[bool, str]:
     package_root = str(Path(__file__).resolve().parent.parent.parent)
     env = dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
     existing = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = (
         package_root + os.pathsep + existing if existing else package_root
     )
     try:
+        if source is None:
+            source = init_path.read_text(encoding="utf-8")
         proc = subprocess.run(  # fixed argv, no shell
             [sys.executable, "-c", _EXT_VALIDATION_SCRIPT, str(init_path), name],
+            input=source,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=_VALIDATION_TIMEOUT_S,
             env=env,
         )
@@ -657,6 +672,7 @@ class ExtensionHost:
         self.registry = ExtensionRegistry()
         self._good: dict[str, ExtensionAPI] = {}
         self._fingerprints: dict[str, str] = {}
+        self._source_hashes: dict[str, str] = {}
         self._failed: dict[str, str] = {}
 
     def _base(self) -> Path:
@@ -667,13 +683,22 @@ class ExtensionHost:
         :meth:`reload`."""
         return self._base()
 
+    def source_hash(self, name: str) -> str | None:
+        """Return the SHA-256 of the source currently adopted for ``name``."""
+        if name not in self._good:
+            return None
+        return self._source_hashes.get(name)
+
     def load(self) -> ReloadResult:
         return self._sync(reason="startup", shutdown=False)
 
-    def reload(self) -> ReloadResult:
-        return self._sync(reason="reload", shutdown=True)
+    def reload(self, *, expected_hashes: dict[str, str] | None = None) -> ReloadResult:
+        return self._sync(reason="reload", shutdown=True, expected_hashes=expected_hashes)
 
-    def _sync(self, *, reason: str, shutdown: bool) -> ReloadResult:
+    def _sync(
+        self, *, reason: str, shutdown: bool,
+        expected_hashes: dict[str, str] | None = None,
+    ) -> ReloadResult:
         if shutdown:
             self._emit("session_shutdown", reason)
         result = ReloadResult()
@@ -688,29 +713,45 @@ class ExtensionHost:
             if name not in discovered:
                 del self._good[name]
                 self._fingerprints.pop(name, None)
+                self._source_hashes.pop(name, None)
                 self._failed.pop(name, None)
                 result.removed.append(name)
 
         for name, init_path in discovered.items():
             known = name in self._good
             fp = _fingerprint(init_path.parent)
+            try:
+                source = init_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as exc:
+                self._failed[name] = f"cannot read source: {exc}"
+                result.failed[name] = self._failed[name]
+                continue
+            source_hash = hashlib.sha256(source.encode("utf-8")).hexdigest()
+            expected_hash = (expected_hashes or {}).get(name)
+            if expected_hash is not None and source_hash != expected_hash:
+                self._failed[name] = "source changed after approval; regenerate the preview"
+                result.failed[name] = self._failed[name]
+                continue
             if known and self._fingerprints.get(name) == fp:
                 result.unchanged.append(name)
                 continue
 
-            ok, message = _validate_extension_in_subprocess(name, init_path)
+            ok, message = _validate_extension_in_subprocess(name, init_path, source)
             if not ok:
                 self._failed[name] = message
                 result.failed[name] = message
                 continue
             try:
-                api = self._import_and_register(name, init_path)
+                if init_path.read_text(encoding="utf-8") != source:
+                    raise ValueError("source changed during validation; reload it again")
+                api, source_hash = self._import_and_register(name, init_path, source)
             except Exception as exc:
                 self._failed[name] = f"load error: {exc}"
                 result.failed[name] = self._failed[name]
                 continue
             self._good[name] = api
             self._fingerprints[name] = fp
+            self._source_hashes[name] = source_hash
             self._failed.pop(name, None)
             (result.reloaded if known else result.loaded).append(name)
 
@@ -718,8 +759,13 @@ class ExtensionHost:
         self._emit("session_start", reason)
         return result
 
-    def _import_and_register(self, name: str, init_path: Path) -> ExtensionAPI:
-        module = _import_extension(name, init_path)
+    def _import_and_register(
+        self, name: str, init_path: Path, source: str
+    ) -> tuple[ExtensionAPI, str]:
+        module = _import_extension(name, init_path, source)
+        source_hash = getattr(module, "__dacli_loaded_source_hash__", None)
+        if not isinstance(source_hash, str):
+            raise RuntimeError("extension loader did not record the loaded source hash")
         register = getattr(module, "register", None)
         if not callable(register):
             raise ImportError("module exports no register(api)")
@@ -727,7 +773,7 @@ class ExtensionHost:
             name, config_provider=self._config_provider, session_log=self.log
         )
         register(api)
-        return api
+        return api, source_hash
 
     def _rebuild(self) -> None:
         registry = ExtensionRegistry()

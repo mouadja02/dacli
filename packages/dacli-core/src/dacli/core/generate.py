@@ -15,6 +15,8 @@ adopting it, M05). No ``/import``, no ``/push``.
 from __future__ import annotations
 
 import ast
+import difflib
+import hashlib
 import json
 import re
 import subprocess
@@ -355,6 +357,32 @@ class GenerationResult:
     validated: bool
     reloaded: bool
     message: str
+    source: str = ""
+    source_sha256: str = ""
+
+
+@dataclass(frozen=True)
+class PreparedExtension:
+    """Generated source held outside the live extension tree until approval."""
+
+    name: str
+    path: Path
+    source: str
+    source_sha256: str
+    original_source: str | None = None
+    original_sha256: str | None = None
+    diff: str | None = None
+
+    @property
+    def preview(self) -> str:
+        """Return the complete source preview shown to the approver."""
+        if self.original_source is None:
+            body = self.source
+            label = "Generated source"
+        else:
+            body = self.diff or "(no changes)"
+            label = "Unified diff"
+        return f"{label} (sha256={self.source_sha256})\n{body}"
 
 
 def _normalize_name(name: str) -> str:
@@ -362,6 +390,25 @@ def _normalize_name(name: str) -> str:
     if not norm:
         raise ValueError("invalid extension name")
     return norm
+
+
+def _source_sha256(source: str) -> str:
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()
+
+
+def _validate_generated_source(source: str) -> None:
+    try:
+        offending = find_inlined_secret(source, extract_secret_fields(source))
+    except SyntaxError:
+        # Syntax is checked by ExtensionHost's child-process validator. Keep the
+        # source available for the approval preview so validation remains the
+        # first code execution boundary after approval.
+        offending = None
+    if offending is not None:
+        raise SecretInlineError(
+            f"generated module inlines a literal for secret field '{offending}'; "
+            "read it via api.config() instead"
+        )
 
 
 _MISSING_MODULE_RE = re.compile(r"No module named ['\"]([^'\"]+)['\"]")
@@ -401,42 +448,116 @@ async def generate_extension(
     A module that fails validation is left on disk (``reloaded=False``) so it can be
     edited and reloaded.
     """
-    norm = _normalize_name(name)
-    ext_dir = host.base_dir() / norm
-    init_file = ext_dir / "__init__.py"
-    if init_file.exists():
-        raise FileExistsError(f"extension '{norm}' already exists at {ext_dir}")
-
-    source = await ExtensionGenerator(llm).generate(norm, description, ui, docs=docs)
-
-    try:
-        offending = find_inlined_secret(source, extract_secret_fields(source))
-    except SyntaxError:
-        # Unparseable source can't hide a working secret; child validation rejects it.
-        offending = None
-    if offending is not None:
-        raise SecretInlineError(
-            f"generated module inlines a literal for secret field '{offending}'; "
-            "read it via api.config() instead"
-        )
-
-    ext_dir.mkdir(parents=True, exist_ok=True)
-    init_file.write_text(source, encoding="utf-8")
-
-    result = host.reload()
-    if norm in result.failed:
+    prepared = await prepare_extension(
+        name, description, llm=llm, ui=ui, host=host, docs=docs
+    )
+    result = apply_prepared_extension(prepared, host)
+    if not result.validated:
         # Check for missing pip package — offer install + retry.
-        missing = _extract_missing_module(result.failed[norm])
+        missing = _extract_missing_module(result.message)
         if missing and ui.confirm(f"Install '{missing}' with pip?"):
             installed = _pip_install(missing)
             if installed:
-                result = host.reload()
-                if norm not in result.failed:
+                reload_result = host.reload(
+                    expected_hashes={prepared.name: prepared.source_sha256}
+                )
+                if prepared.name not in reload_result.failed:
                     return GenerationResult(
-                        norm, init_file, True, True, result.report()
+                        prepared.name,
+                        prepared.path,
+                        True,
+                        True,
+                        reload_result.report(),
+                        prepared.source,
+                        prepared.source_sha256,
                     )
-        return GenerationResult(norm, init_file, False, False, result.failed[norm])
-    return GenerationResult(norm, init_file, True, True, result.report())
+        return GenerationResult(
+            prepared.name,
+            prepared.path,
+            False,
+            False,
+            result.message,
+            prepared.source,
+            prepared.source_sha256,
+        )
+    return result
+
+
+async def prepare_extension(
+    name: str,
+    description: str,
+    *,
+    llm: Any,
+    ui: ClarifyUI,
+    host: Any,
+    docs: str | None = None,
+) -> PreparedExtension:
+    """Generate and validate source without touching the live extension tree."""
+    norm = _normalize_name(name)
+    init_file = host.base_dir() / norm / "__init__.py"
+    if init_file.exists():
+        raise FileExistsError(f"extension '{norm}' already exists at {init_file.parent}")
+
+    source = await ExtensionGenerator(llm).generate(norm, description, ui, docs=docs)
+    _validate_generated_source(source)
+    return PreparedExtension(
+        name=norm,
+        path=init_file,
+        source=source,
+        source_sha256=_source_sha256(source),
+    )
+
+
+def apply_prepared_extension(prepared: PreparedExtension, host: Any) -> GenerationResult:
+    """Write an approved source, validate it in a child process, then reload it."""
+    init_file = prepared.path
+    if prepared.original_source is None:
+        if init_file.exists():
+            raise FileExistsError(f"extension '{prepared.name}' already exists at {init_file.parent}")
+    else:
+        if not init_file.exists():
+            raise FileNotFoundError(f"extension '{prepared.name}' no longer exists at {init_file.parent}")
+        current = init_file.read_text(encoding="utf-8")
+        if _source_sha256(current) != prepared.original_sha256:
+            raise GenerationError(
+                f"extension '{prepared.name}' changed after the approval preview; "
+                "regenerate the preview before applying it"
+            )
+
+    init_file.parent.mkdir(parents=True, exist_ok=True)
+    init_file.write_text(prepared.source, encoding="utf-8")
+    actual_hash = _source_sha256(init_file.read_text(encoding="utf-8"))
+    if actual_hash != prepared.source_sha256:
+        raise GenerationError(
+            f"extension '{prepared.name}' source hash changed while applying the approved source"
+        )
+
+    result = host.reload(expected_hashes={prepared.name: prepared.source_sha256})
+    if prepared.name in result.failed:
+        return GenerationResult(
+            prepared.name,
+            init_file,
+            False,
+            False,
+            result.failed[prepared.name],
+            prepared.source,
+            actual_hash,
+        )
+    loaded_hash_fn = getattr(host, "source_hash", None)
+    loaded_hash = loaded_hash_fn(prepared.name) if callable(loaded_hash_fn) else actual_hash
+    if loaded_hash != actual_hash:
+        raise GenerationError(
+            f"extension '{prepared.name}' loaded source hash does not match the approved source"
+        )
+    return GenerationResult(
+        prepared.name,
+        init_file,
+        True,
+        True,
+        result.report(),
+        prepared.source,
+        actual_hash,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -479,36 +600,44 @@ async def edit_extension(
     name: str, instruction: str, *, llm: Any, host: Any
 ) -> GenerationResult:
     """Modify an extension: fix a bug or add a feature."""
+    prepared = await prepare_edit_extension(name, instruction, llm=llm, host=host)
+    return apply_prepared_extension(prepared, host)
+
+
+async def prepare_edit_extension(
+    name: str, instruction: str, *, llm: Any, host: Any
+) -> PreparedExtension:
+    """Prepare an edit and its diff without writing or reloading the extension."""
     norm = _normalize_name(name)
-    ext_dir = host.base_dir() / norm
-    init_file = ext_dir / "__init__.py"
+    init_file = host.base_dir() / norm / "__init__.py"
     if not init_file.exists():
-        raise FileNotFoundError(f"extension '{norm}' not found at {ext_dir}")
+        raise FileNotFoundError(f"extension '{norm}' not found at {init_file.parent}")
 
-    source = init_file.read_text(encoding="utf-8")
-    prompt = _EDIT_PROMPT.replace("{source}", source).replace("{error}", instruction)
+    original = init_file.read_text(encoding="utf-8")
+    prompt = _EDIT_PROMPT.replace("{source}", original).replace("{error}", instruction)
     messages = [{"role": "user", "content": prompt}]
-
     text, _ = await llm.generate(messages=messages, system_prompt=_EDIT_SYSTEM_PROMPT)
     _, new_source = parse_generation_response(text)
     if new_source is None:
         raise GenerationError("model did not produce a fixed module")
-
-    try:
-        offending = find_inlined_secret(new_source, extract_secret_fields(new_source))
-    except SyntaxError:
-        offending = None
-    if offending is not None:
-        raise SecretInlineError(
-            f"fixed module inlines a literal for secret field '{offending}'"
+    _validate_generated_source(new_source)
+    diff = "".join(
+        difflib.unified_diff(
+            original.splitlines(keepends=True),
+            new_source.splitlines(keepends=True),
+            fromfile=f"{norm}/__init__.py (before)",
+            tofile=f"{norm}/__init__.py (after)",
         )
-
-    init_file.write_text(new_source, encoding="utf-8")
-
-    result = host.reload()
-    if norm in result.failed:
-        return GenerationResult(norm, init_file, False, False, result.failed[norm])
-    return GenerationResult(norm, init_file, True, True, result.report())
+    )
+    return PreparedExtension(
+        name=norm,
+        path=init_file,
+        source=new_source,
+        source_sha256=_source_sha256(new_source),
+        original_source=original,
+        original_sha256=_source_sha256(original),
+        diff=diff,
+    )
 
 
 # ---------------------------------------------------------------------------

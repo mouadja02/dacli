@@ -171,15 +171,35 @@ class PanelsMixin:
             if estimate.get("usd") is not None:
                 bits.append(f"≈ ${estimate['usd']:,.2f}")
             grid.add_row("Est. cost", Text("  ·  ".join(bits), style="warning"))
+        preview_metadata = getattr(request, "preview_metadata", None) or {}
+        if preview_metadata.get("source_sha256"):
+            source_hash = str(preview_metadata["source_sha256"])
+            grouped_hash = " ".join(
+                source_hash[index : index + 8]
+                for index in range(0, len(source_hash), 8)
+            )
+            grid.add_row("Source SHA-256", Text(grouped_hash, style="step"))
 
         parts: list[RenderableType] = [grid]
         preview = getattr(request, "dry_run_preview", None)
         if preview:
-            parts.append(Text("Dry-run preview", style="muted"))
+            preview_kind = preview_metadata.get("preview_kind")
+            parts.append(
+                Text(
+                    "Source preview" if preview_kind == "source" else
+                    "Unified diff" if preview_kind == "unified_diff" else
+                    "Dry-run preview",
+                    style="muted",
+                )
+            )
+            lexer = {
+                "source": "python",
+                "unified_diff": "diff",
+            }.get(preview_kind, "sql")
             parts.append(
                 Syntax(
                     str(preview).strip(),
-                    "sql",
+                    lexer,
                     theme=self.theme.code_theme,
                     word_wrap=True,
                     background_color="default",

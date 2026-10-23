@@ -8,7 +8,7 @@
 
 [![CI](https://github.com/mouadja02/dacli/actions/workflows/ci.yml/badge.svg)](https://github.com/mouadja02/dacli/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-685-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-704-brightgreen.svg)](#testing)
 
 [Quick start](#quick-start) · [Extending dacli](docs/EXTENSIONS.md) · [Governance](docs/GOVERNANCE.md) · [Evaluation](docs/EVALUATION.md)
 

@@ -220,6 +220,23 @@ def test_approval_panel_renders_sql_dry_run_preview():
     assert "UPDATE" in out
 
 
+def test_approval_panel_renders_generated_source_and_hash():
+    ui = _recording_ui()
+    ui.approval_panel(_approval_request(
+        dry_run_preview="Generated source\ndef register(api):\n    pass",
+        preview_metadata={
+            "preview_kind": "source",
+            "source_sha256": "a" * 64,
+        },
+    ))
+    out = ui.console.export_text()
+    assert "Source preview" in out
+    assert "Source SHA-256" in out
+    assert "aaaaaaaa" in out
+    assert " aaaaaaaa" in out
+    assert "def register(api)" in out
+
+
 def test_approval_panel_renders_shadow_row_delta_table():
     ui = _recording_ui()
     shadow = types.SimpleNamespace(

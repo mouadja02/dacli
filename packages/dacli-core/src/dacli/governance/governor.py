@@ -27,7 +27,7 @@ import inspect
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 from dacli.connectors.base import Risk, ToolResult, ToolStatus
 from dacli.core.logging_setup import get_logger
@@ -70,6 +70,7 @@ class ApprovalRequest:
     dry_run_preview: str | None = None
     shadow: ShadowResult | None = None
     cost_estimate: dict[str, Any] | None = None
+    preview_metadata: dict[str, Any] = field(default_factory=dict)
 
     def describe(self) -> str:
         lines = [
@@ -93,6 +94,10 @@ class ApprovalRequest:
             lines.append(f"Est. cost   : {_format_cost_estimate(self.cost_estimate)}")
         if self.dry_run_preview:
             lines.append(f"Dry-run     : {self.dry_run_preview}")
+        if self.preview_metadata.get("source_sha256"):
+            lines.append(
+                f"Source hash : {self.preview_metadata['source_sha256']}"
+            )
         if self.shadow and self.shadow.ran:
             lines.append(f"Shadow      : {self.shadow.summary()}")
         return "\n".join(lines)
@@ -135,7 +140,11 @@ class Governor:
         session_id: str = "",
         approval_fn: ApprovalFn | None = None,
         escalation_fn: EscalationFn | None = None,
-        dry_run_fn: Callable[[Any, str, dict[str, Any]], str | None] | None = None,
+        dry_run_fn: Callable[
+            [Any, str, dict[str, Any]],
+            str | None | Awaitable[str | None],
+        ]
+        | None = None,
         env_resolver: EnvResolver | None = None,
         enforce: bool = True,
         use_shadow: bool = True,
@@ -468,6 +477,21 @@ class Governor:
         policy = self.policy.decide(
             tier, connector_id=connector_id, environment=environment
         )
+        requires_preview = getattr(connector, "requires_approval_preview", None)
+        if callable(requires_preview):
+            try:
+                requires_preview = bool(requires_preview(tool_name))
+            except Exception:
+                requires_preview = True
+        if requires_preview and not policy.requires_human:
+            policy = PolicyResult(
+                decision=PolicyDecision.CONFIRM,
+                tier=tier,
+                source="mandatory_preview",
+                requires_human=True,
+                requires_rollback=True,
+                reason="generated source must be reviewed before it is applied",
+            )
         self._audit(
             "policy",
             tool_name,
@@ -528,11 +552,48 @@ class Governor:
             )
 
         # 6. Dry-run preview (best-effort).
-        preview = (
-            self._dry_run(connector, tool_name, args)
-            if policy.requires_dry_run
-            else None
-        )
+        preview = None
+        preview_error = None
+        preview_metadata: dict[str, Any] = {}
+        if policy.requires_dry_run or requires_preview:
+            try:
+                preview = await self._dry_run(
+                    connector, tool_name, args, required=bool(requires_preview)
+                )
+            except Exception as exc:
+                preview_error = str(exc)
+            preview_metadata = await self._dry_run_metadata(
+                connector, tool_name, args
+            )
+            if requires_preview and (not preview or not preview_metadata):
+                reason = (
+                    f"blocked: approval preview for '{tool_name}' is unavailable"
+                )
+                if preview_error:
+                    reason += f": {preview_error}"
+                discard_preview = getattr(connector, "discard_dry_run", None)
+                if callable(discard_preview):
+                    try:
+                        discard_preview(tool_name, args)
+                    except Exception:
+                        log.debug("failed to discard unavailable preview", exc_info=True)
+                self._audit("block", tool_name, decision_id, actor, tier.value, reason)
+                return GovernanceDecision(
+                    allowed=False,
+                    decision_id=decision_id,
+                    classification=classification,
+                    policy=policy,
+                    rollback_plan=plan,
+                    blocked_reason=reason,
+                    short_circuit=self._blocked_result(
+                        tool_name,
+                        reason,
+                        ToolStatus.BLOCKED,
+                        decision_id,
+                        classification,
+                        policy,
+                    ),
+                )
 
         # 7. Shadow / clone-first execution for transforms (best-effort).
         shadow: ShadowResult | None = None
@@ -557,6 +618,7 @@ class Governor:
             rollback_plan=plan,
             args=args,
             dry_run_preview=preview,
+            preview_metadata=preview_metadata,
             shadow=shadow,
             cost_estimate=cost_estimate,
         )
@@ -570,11 +632,18 @@ class Governor:
             "approved" if approved else "denied",
             approved=approved,
             had_callback=self._approval_fn is not None,
+            preview_metadata=preview_metadata,
         )
 
         if not approved:
             if shadow is not None:
                 await self.shadow_executor.discard(connector, shadow)
+            discard_preview = getattr(connector, "discard_dry_run", None)
+            if callable(discard_preview):
+                try:
+                    discard_preview(tool_name, args)
+                except Exception:
+                    log.debug("failed to discard dry-run preview", exc_info=True)
             reason = (
                 "denied by user"
                 if self._approval_fn is not None
@@ -609,7 +678,10 @@ class Governor:
             policy=policy,
             rollback_plan=plan,
             shadow=shadow,
-            metadata={"dry_run_preview": preview},
+            metadata={
+                "dry_run_preview": preview,
+                "preview_metadata": preview_metadata,
+            },
         )
 
     # ------------------------------------------------------------------
@@ -679,21 +751,49 @@ class Governor:
             return None
         return estimate if isinstance(estimate, dict) else None
 
-    def _dry_run(
-        self, connector: Any, tool_name: str, args: dict[str, Any]
+    async def _dry_run(
+        self, connector: Any, tool_name: str, args: dict[str, Any],
+        *, required: bool = False,
     ) -> str | None:
         if self._dry_run_fn is not None:
             try:
-                return self._dry_run_fn(connector, tool_name, args)
+                preview = self._dry_run_fn(connector, tool_name, args)
+                if inspect.isawaitable(preview):
+                    preview = await preview
+                return str(preview) if preview is not None else None
             except Exception:
+                if required:
+                    raise
+                log.debug("dry_run_fn raised", exc_info=True)
                 return None
         hook = getattr(connector, "dry_run", None)
         if callable(hook):
             try:
-                return str(hook(tool_name, args))
+                preview = hook(tool_name, args)
+                if inspect.isawaitable(preview):
+                    preview = await preview
+                return str(preview) if preview is not None else None
             except Exception:
+                if required:
+                    raise
+                log.debug("dry_run hook raised", exc_info=True)
                 return None
         return "(no dry-run available for this connector)"
+
+    async def _dry_run_metadata(
+        self, connector: Any, tool_name: str, args: dict[str, Any]
+    ) -> dict[str, Any]:
+        hook = getattr(connector, "dry_run_metadata", None)
+        if not callable(hook):
+            return {}
+        try:
+            metadata = hook(tool_name, args)
+            if inspect.isawaitable(metadata):
+                metadata = await metadata
+            return dict(metadata) if isinstance(metadata, dict) else {}
+        except Exception:
+            log.debug("dry_run_metadata hook raised", exc_info=True)
+            return {}
 
     def _ask_human(self, request: ApprovalRequest) -> bool:
         if self._approval_fn is None:
